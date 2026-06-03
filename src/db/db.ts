@@ -1,0 +1,182 @@
+import Dexie, { type Table } from 'dexie'
+import type {
+  Account,
+  AiModel,
+  AppSettings,
+  ImageRecord,
+  Product,
+  Sale,
+} from './types'
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_TEXT_MODEL,
+} from '@/lib/constants'
+
+export class VintedStudioDB extends Dexie {
+  products!: Table<Product, string>
+  models!: Table<AiModel, string>
+  accounts!: Table<Account, string>
+  sales!: Table<Sale, string>
+  images!: Table<ImageRecord, string>
+  settings!: Table<AppSettings, string>
+
+  constructor() {
+    super('vinted-studio')
+    this.version(1).stores({
+      products:
+        'id, status, accountId, brand, category, createdAt, updatedAt, soldAt, *tags',
+      models: 'id, createdAt, updatedAt',
+      accounts: 'id, createdAt',
+      sales: 'id, accountId, productId, soldAt, status, createdAt',
+      images: 'id, kind, productId, modelId, createdAt',
+      settings: 'id',
+    })
+  }
+}
+
+export const db = new VintedStudioDB()
+
+export const SCHEMA_VERSION = 1
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  id: 'app',
+  geminiApiKey: '',
+  textModel: DEFAULT_TEXT_MODEL,
+  imageModel: DEFAULT_IMAGE_MODEL,
+  currency: 'PLN',
+  appendSignature: false,
+  signature: 'Wysyłka w 24h 📦 Pytaj śmiało, łączę przesyłki! 💌',
+  imagesGenerated: 0,
+  imageVariants: 1,
+  schemaVersion: SCHEMA_VERSION,
+}
+
+/** Odczyt ustawien z domyslnymi wartosciami (uzupelnia brakujace pola). */
+export async function getSettings(): Promise<AppSettings> {
+  const row = await db.settings.get('app')
+  return { ...DEFAULT_SETTINGS, ...(row ?? {}), id: 'app' }
+}
+
+export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  const current = await getSettings()
+  const next: AppSettings = { ...current, ...patch, id: 'app' }
+  await db.settings.put(next)
+  return next
+}
+
+/**
+ * Usuwa produkt wraz z powiazanymi obrazami (kaskada).
+ * Nie usuwa wpisow sprzedazy — tam zostaje zdenormalizowana nazwa produktu.
+ */
+export async function deleteProductCascade(productId: string): Promise<void> {
+  const product = await db.products.get(productId)
+  if (!product) return
+  const imageIds = [...product.photoIds, ...product.generatedPhotoIds]
+  await db.transaction('rw', db.products, db.images, async () => {
+    if (imageIds.length) await db.images.bulkDelete(imageIds)
+    await db.products.delete(productId)
+  })
+}
+
+/** Usuwa modelke wraz z jej zdjeciami referencyjnymi. */
+export async function deleteModelCascade(modelId: string): Promise<void> {
+  const model = await db.models.get(modelId)
+  if (!model) return
+  await db.transaction('rw', db.models, db.images, async () => {
+    if (model.referenceImageIds.length)
+      await db.images.bulkDelete(model.referenceImageIds)
+    await db.models.delete(modelId)
+  })
+}
+
+/** Pelny eksport bazy do obiektu JSON (obrazy jako data URL). */
+export async function exportAll() {
+  const [products, models, accounts, sales, settings, images] =
+    await Promise.all([
+      db.products.toArray(),
+      db.models.toArray(),
+      db.accounts.toArray(),
+      db.sales.toArray(),
+      getSettings(),
+      db.images.toArray(),
+    ])
+
+  // Konwersja blobow na data URL, by JSON byl samowystarczalny.
+  const imagesSerialized = await Promise.all(
+    images.map(async (img) => ({
+      ...img,
+      blob: undefined,
+      dataUrl: await blobToDataUrl(img.blob),
+    })),
+  )
+
+  return {
+    app: 'vinted-studio',
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: Date.now(),
+    products,
+    models,
+    accounts,
+    sales,
+    settings: { ...settings, geminiApiKey: '' }, // klucz API NIE jest eksportowany
+    images: imagesSerialized,
+  }
+}
+
+/** Import/odtworzenie z obiektu JSON (z exportAll). Scala dane po id. */
+export async function importAll(data: any): Promise<void> {
+  if (!data || data.app !== 'vinted-studio')
+    throw new Error('Nieprawidłowy plik kopii zapasowej.')
+
+  const images = await Promise.all(
+    (data.images ?? []).map(async (img: any) => {
+      const blob =
+        img.dataUrl != null
+          ? await (await fetch(img.dataUrl)).blob()
+          : img.blob
+      const { dataUrl, ...rest } = img
+      void dataUrl
+      return { ...rest, blob }
+    }),
+  )
+
+  await db.transaction(
+    'rw',
+    [db.products, db.models, db.accounts, db.sales, db.images, db.settings],
+    async () => {
+      if (data.products?.length) await db.products.bulkPut(data.products)
+      if (data.models?.length) await db.models.bulkPut(data.models)
+      if (data.accounts?.length) await db.accounts.bulkPut(data.accounts)
+      if (data.sales?.length) await db.sales.bulkPut(data.sales)
+      if (images.length) await db.images.bulkPut(images)
+      if (data.settings) {
+        const current = await getSettings()
+        // Zachowaj istniejacy klucz API, jesli w imporcie go nie ma.
+        const apiKey = data.settings.geminiApiKey || current.geminiApiKey
+        await db.settings.put({ ...current, ...data.settings, geminiApiKey: apiKey, id: 'app' })
+      }
+    },
+  )
+}
+
+/** Czysci wszystkie dane (bez ustawien). */
+export async function clearAllData(): Promise<void> {
+  await db.transaction('rw', [db.products, db.models, db.accounts, db.sales, db.images], async () => {
+    await Promise.all([
+      db.products.clear(),
+      db.models.clear(),
+      db.accounts.clear(),
+      db.sales.clear(),
+      db.images.clear(),
+    ])
+  })
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}

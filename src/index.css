@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-50 text-ink-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Cienki, dyskretny scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-200;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-300;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold
+      transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-500 text-white shadow-sm hover:bg-brand-600;
+  }
+  .btn-ghost {
+    @apply btn bg-white text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50;
+  }
+  .btn-soft {
+    @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100;
+  }
+  .btn-danger {
+    @apply btn bg-red-50 text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-100;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-xs;
+  }
+  .card {
+    @apply rounded-2xl bg-white shadow-card ring-1 ring-ink-100;
+  }
+  .label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .input {
+    @apply w-full rounded-xl border-0 bg-ink-50 px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-200
+      placeholder:text-ink-400 focus:bg-white focus:ring-2 focus:ring-brand-400 focus:outline-none;
+  }
+  textarea.input {
+    @apply leading-relaxed;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700;
+  }
+  .nav-link {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-600
+      transition hover:bg-ink-100 hover:text-ink-900;
+  }
+  .nav-link-active {
+    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700;
+  }
+}
+
+/* Wzorek tla "w kratke" pod podgladem obrazow z przezroczystoscia */
+.checker {
+  background-image:
+    linear-gradient(45deg, #eceef2 25%, transparent 25%),
+    linear-gradient(-45deg, #eceef2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #eceef2 75%),
+    linear-gradient(-45deg, transparent 75%, #eceef2 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin-slow {
+  animation: spin 1.1s linear infinite;
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Vinted Studio — Asystent Sprzedaży",
+  "short_name": "Vinted Studio",
+  "description": "Studio zdjęć AI na modelce, magazyn, ewidencja sprzedaży i generator opisów dla sprzedawców Vinted.",
+  "lang": "pl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f7f9",
+  "theme_color": "#0b9b82",
+  "categories": ["business", "productivity", "shopping"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

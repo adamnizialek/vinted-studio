@@ -1,0 +1,83 @@
+import { format, formatDistanceToNow } from 'date-fns'
+import { pl } from 'date-fns/locale'
+import type { ProfitBreakdown, Sale } from '@/db/types'
+
+export function money(amount: number | undefined | null, currency = 'PLN'): string {
+  const value = Number.isFinite(amount as number) ? (amount as number) : 0
+  try {
+    return new Intl.NumberFormat('pl-PL', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${value.toFixed(2)} ${currency}`
+  }
+}
+
+export function percent(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('pl-PL', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
+export function dateShort(ts: number): string {
+  return format(ts, 'd MMM yyyy', { locale: pl })
+}
+
+export function dateTime(ts: number): string {
+  return format(ts, 'd MMM yyyy, HH:mm', { locale: pl })
+}
+
+export function dateInputValue(ts: number): string {
+  return format(ts, 'yyyy-MM-dd')
+}
+
+export function relative(ts: number): string {
+  return formatDistanceToNow(ts, { locale: pl, addSuffix: true })
+}
+
+/** Liczy przychod/koszty/zysk/marze dla pojedynczej sprzedazy. */
+export function profitOf(sale: Sale): ProfitBreakdown {
+  const qty = sale.quantity || 1
+  const revenue = sale.salePrice * qty + (sale.shippingCharged ?? 0)
+  const costs =
+    (sale.purchaseCost ?? 0) * qty +
+    (sale.shippingCost ?? 0) +
+    (sale.platformFee ?? 0) +
+    (sale.otherCosts ?? 0)
+  const profit = revenue - costs
+  const margin = revenue > 0 ? profit / revenue : 0
+  return { revenue, costs, profit, margin }
+}
+
+/** Agreguje zysk z listy sprzedazy (pomija anulowane i zwroty). */
+export function aggregateProfit(sales: Sale[]): ProfitBreakdown {
+  return sales
+    .filter((s) => s.status === 'completed' || s.status === 'pending')
+    .reduce<ProfitBreakdown>(
+      (acc, s) => {
+        const p = profitOf(s)
+        const revenue = acc.revenue + p.revenue
+        const costs = acc.costs + p.costs
+        const profit = acc.profit + p.profit
+        return {
+          revenue,
+          costs,
+          profit,
+          margin: revenue > 0 ? profit / revenue : 0,
+        }
+      },
+      { revenue: 0, costs: 0, profit: 0, margin: 0 },
+    )
+}
+
+export function pluralPl(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (n === 1) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  return many
+}
