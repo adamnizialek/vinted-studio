@@ -121,7 +121,10 @@ export async function generateText(prompt: string, opts: TextOptions): Promise<s
     generationConfig: {
       temperature: opts.temperature ?? 0.95,
       topP: 0.95,
-      maxOutputTokens: opts.maxOutputTokens ?? 3072,
+      // Hojny limit: modele 2.5/3.x mają "thinking" wliczane w maxOutputTokens,
+      // więc zbyt niski limit potrafi pochłonąć cały budżet na myślenie i zwrócić
+      // pusty tekst. 8192 spokojnie mieści rozumowanie + krótki opis Vinted.
+      maxOutputTokens: opts.maxOutputTokens ?? 8192,
     },
   }
   const parts = await callGenerate(opts.model, opts.apiKey, body)
@@ -176,7 +179,9 @@ export async function testConnection(apiKey: string, model: string): Promise<str
     apiKey,
     model,
     temperature: 0,
-    maxOutputTokens: 16,
+    // NIE ograniczamy do kilkunastu tokenów — modele 2.5 z "thinking" zużyłyby
+    // cały budżet na rozumowanie i zwróciły pusty tekst (fałszywy błąd testu).
+    maxOutputTokens: 512,
   })
   return out
 }

@@ -51,6 +51,8 @@ async function copy(text: string) {
   }
 }
 
+type UpdateFn = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => void
+
 export function ProductEditor() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -74,10 +76,14 @@ export function ProductEditor() {
     }
   }, [id])
 
-  const update = (patch: Partial<Product>) => {
+  // Patch może być obiektem lub funkcją (prev => patch). Forma funkcyjna jest
+  // bezpieczna przy operacjach po await (dodawanie/usuwanie zdjęć), bo liczy
+  // nową wartość z NAJświeższego stanu, nie ze starego snapshotu z domknięcia.
+  const update = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => {
     setDraft((prev) => {
       if (!prev) return prev
-      const next = { ...prev, ...patch, updatedAt: Date.now() }
+      const p = typeof patch === 'function' ? patch(prev) : patch
+      const next = { ...prev, ...p, updatedAt: Date.now() }
       void db.products.put(next)
       return next
     })
@@ -187,7 +193,7 @@ function DetailsTab({
   accounts,
 }: {
   draft: Product
-  update: (p: Partial<Product>) => void
+  update: UpdateFn
   accounts: { id: string; name: string }[]
 }) {
   const [retail, setRetail] = useState('')
@@ -410,7 +416,7 @@ function DetailsTab({
 }
 
 // ── Zdjęcia ──────────────────────────────────────────────────────────────────
-function PhotosTab({ draft, update }: { draft: Product; update: (p: Partial<Product>) => void }) {
+function PhotosTab({ draft, update }: { draft: Product; update: UpdateFn }) {
   const [busy, setBusy] = useState(false)
 
   const addPhotos = async (files: File[]) => {
@@ -421,7 +427,8 @@ function PhotosTab({ draft, update }: { draft: Product; update: (p: Partial<Prod
         const rec = await addImageFromFile(f, 'product', { productId: draft.id })
         ids.push(rec.id)
       }
-      update({ photoIds: [...draft.photoIds, ...ids] })
+      // Forma funkcyjna — łączymy z najświeższym stanem (zdjęcia kodują się asynchronicznie).
+      update((prev) => ({ photoIds: [...prev.photoIds, ...ids] }))
     } finally {
       setBusy(false)
     }
@@ -429,8 +436,8 @@ function PhotosTab({ draft, update }: { draft: Product; update: (p: Partial<Prod
 
   const removePhoto = async (id: string, kind: 'orig' | 'gen') => {
     await db.images.delete(id)
-    if (kind === 'orig') update({ photoIds: draft.photoIds.filter((x) => x !== id) })
-    else update({ generatedPhotoIds: draft.generatedPhotoIds.filter((x) => x !== id) })
+    if (kind === 'orig') update((prev) => ({ photoIds: prev.photoIds.filter((x) => x !== id) }))
+    else update((prev) => ({ generatedPhotoIds: prev.generatedPhotoIds.filter((x) => x !== id) }))
   }
 
   return (
@@ -498,7 +505,7 @@ interface Candidate {
   text: string
 }
 
-function DescriptionsTab({ draft, update }: { draft: Product; update: (p: Partial<Product>) => void }) {
+function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }) {
   const settings = useSettings((s) => s.settings)
   const [selected, setSelected] = useState<string[]>(['zwiezly', 'casual', 'szczegolowy'])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -538,26 +545,28 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: (p: Partia
   }
 
   const saveCandidate = (c: Candidate) => {
-    const desc: SavedDescription = {
-      id: uid(),
-      styleId: c.styleId,
-      styleLabel: c.styleLabel,
-      text: c.text,
-      active: draft.descriptions.length === 0,
-      createdAt: Date.now(),
-    }
-    update({ descriptions: [...draft.descriptions, desc] })
+    update((prev) => {
+      const desc: SavedDescription = {
+        id: uid(),
+        styleId: c.styleId,
+        styleLabel: c.styleLabel,
+        text: c.text,
+        active: prev.descriptions.length === 0,
+        createdAt: Date.now(),
+      }
+      return { descriptions: [...prev.descriptions, desc] }
+    })
     setCandidates((cs) => cs.filter((x) => x !== c))
     toast.success('Zapisano opis do produktu.')
   }
 
   const setActive = (descId: string) =>
-    update({
-      descriptions: draft.descriptions.map((d) => ({ ...d, active: d.id === descId })),
-    })
+    update((prev) => ({
+      descriptions: prev.descriptions.map((d) => ({ ...d, active: d.id === descId })),
+    }))
 
   const removeDesc = (descId: string) =>
-    update({ descriptions: draft.descriptions.filter((d) => d.id !== descId) })
+    update((prev) => ({ descriptions: prev.descriptions.filter((d) => d.id !== descId) }))
 
   return (
     <div className="space-y-5">

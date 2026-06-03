@@ -35,6 +35,18 @@ export function dateInputValue(ts: number): string {
   return format(ts, 'yyyy-MM-dd')
 }
 
+/**
+ * Parsuje wartosc z <input type="date"> ('yyyy-MM-dd') jako czas LOKALNY (południe),
+ * spójnie z dateInputValue. Goly `new Date('yyyy-MM-dd')` byłby interpretowany jako
+ * UTC i przesuwałby dzień w strefach != UTC. Południe omija krawędzie DST.
+ */
+export function dateFromInput(value: string, fallback: number): number {
+  if (!value) return fallback
+  const [y, m, d] = value.split('-').map(Number)
+  if (!y || !m || !d) return fallback
+  return new Date(y, m - 1, d, 12, 0, 0, 0).getTime()
+}
+
 export function relative(ts: number): string {
   return formatDistanceToNow(ts, { locale: pl, addSuffix: true })
 }
@@ -53,10 +65,19 @@ export function profitOf(sale: Sale): ProfitBreakdown {
   return { revenue, costs, profit, margin }
 }
 
+/**
+ * Jednolita reguła "czy sprzedaż liczy się do przychodu".
+ * Liczą się 'completed' i 'pending' (oczekiwane); 'cancelled' i 'returned' nie.
+ * Używana wszędzie (ewidencja, dashboard, konta), by liczby się zgadzały.
+ */
+export function countsAsRevenue(status: Sale['status']): boolean {
+  return status === 'completed' || status === 'pending'
+}
+
 /** Agreguje zysk z listy sprzedazy (pomija anulowane i zwroty). */
 export function aggregateProfit(sales: Sale[]): ProfitBreakdown {
   return sales
-    .filter((s) => s.status === 'completed' || s.status === 'pending')
+    .filter((s) => countsAsRevenue(s.status))
     .reduce<ProfitBreakdown>(
       (acc, s) => {
         const p = profitOf(s)

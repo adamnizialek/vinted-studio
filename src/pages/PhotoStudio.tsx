@@ -74,20 +74,20 @@ export function PhotoStudio() {
 
     setBusy(true)
     try {
-      // Zbierz obrazy wejsciowe: najpierw modelka (tryOn), potem produkt.
+      // Wyznacz dokładnie te id, które wyślemy (okładka modelki na początku),
+      // i użyj ich zarówno do wejścia API, jak i do zapisu provenance.
+      const cover = model?.coverImageId ?? model?.referenceImageIds[0]
+      const modelRefIds =
+        mode === 'tryOn' && model
+          ? [cover!, ...model.referenceImageIds.filter((x) => x !== cover)].slice(0, 2)
+          : []
+      const productIds = product.photoIds.slice(0, 2)
+      const sourceIds = [...modelRefIds, ...productIds]
+
+      // Zbierz obrazy wejsciowe w tej samej kolejnosci.
       const inputs: InlineImage[] = []
-      if (mode === 'tryOn' && model) {
-        const refIds = [
-          model.coverImageId ?? model.referenceImageIds[0],
-          ...model.referenceImageIds.filter((x) => x !== (model.coverImageId ?? model.referenceImageIds[0])),
-        ].slice(0, 2)
-        for (const rid of refIds) {
-          const inl = await toInline(rid)
-          if (inl) inputs.push(inl)
-        }
-      }
-      for (const pid of product.photoIds.slice(0, 2)) {
-        const inl = await toInline(pid)
+      for (const sid of sourceIds) {
+        const inl = await toInline(sid)
         if (inl) inputs.push(inl)
       }
 
@@ -99,8 +99,6 @@ export function PhotoStudio() {
         aspectHint: ASPECTS.find((a) => a.value === aspect)?.hint,
         customNotes: notes,
       })
-
-      const sourceIds = [...(mode === 'tryOn' && model ? model.referenceImageIds.slice(0, 2) : []), ...product.photoIds.slice(0, 2)]
       let saved = 0
       for (let i = 0; i < variants; i++) {
         setProgress(`Generuję wariant ${i + 1}/${variants}…`)

@@ -1,7 +1,7 @@
 // Prosty Service Worker dla powloki aplikacji (offline shell).
 // Strategia: zasoby z tego samego origin — cache + odswiezanie w tle;
 // zapytania do zewnetrznych API (np. Gemini) zawsze ida przez siec.
-const CACHE = 'vinted-studio-v1'
+const CACHE = 'vinted-studio-v2'
 const CORE = [
   './',
   './index.html',
@@ -15,8 +15,10 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(CORE))
-      .catch(() => undefined)
+      // Cache'ujemy KAŻDY zasób osobno — pojedynczy błąd nie unieważnia całości
+      // (inaczej niż atomowe addAll). Zahaszowane bundle JS/CSS dochodzą leniwie
+      // przy pierwszym wejściu online (handler fetch poniżej).
+      .then((c) => Promise.allSettled(CORE.map((url) => c.add(url))))
       .then(() => self.skipWaiting()),
   )
 })
@@ -46,7 +48,8 @@ self.addEventListener('fetch', (event) => {
           }
           return res
         })
-        .catch(() => cached)
+        // Offline: dla nawigacji wracamy do zcache'owanej powłoki aplikacji.
+        .catch(() => cached || (request.mode === 'navigate' ? caches.match('./index.html') : undefined))
       return cached || network
     }),
   )

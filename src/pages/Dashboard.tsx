@@ -15,7 +15,7 @@ import {
 import { Camera, Clock, Package, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
-import { aggregateProfit, dateShort, money } from '@/lib/format'
+import { aggregateProfit, countsAsRevenue, dateShort, money } from '@/lib/format'
 import { StatCard } from '@/components/ui'
 
 const ACTIVE_STATUSES = new Set(['draft', 'in_stock', 'listed', 'reserved'])
@@ -46,7 +46,7 @@ export function Dashboard() {
       buckets.push({ key: format(d, 'yyyy-MM'), label: format(d, 'LLL', { locale: pl }), from, to, value: 0 })
     }
     for (const s of sales ?? []) {
-      if (s.status === 'cancelled') continue
+      if (!countsAsRevenue(s.status)) continue // spójnie z aggregateProfit (bez anulowanych i zwrotów)
       const b = buckets.find((x) => s.soldAt >= x.from && s.soldAt < x.to)
       if (b) b.value += s.salePrice * (s.quantity || 1)
     }

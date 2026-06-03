@@ -9,7 +9,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { SALE_STATUS_LABELS } from '@/lib/constants'
-import { aggregateProfit, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
+import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
 import { toCsv, downloadText } from '@/lib/csv'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 
@@ -68,9 +68,9 @@ export function Sales() {
         Produkt: s.productName,
         Marka: s.brand ?? '',
         Konto: accName(s.accountId),
-        Cena: s.salePrice,
+        'Cena jedn.': s.salePrice,
         Ilość: s.quantity,
-        'Koszt zakupu': s.purchaseCost ?? 0,
+        'Koszt zakupu jedn.': s.purchaseCost ?? 0,
         Wysyłka: s.shippingCost ?? 0,
         Prowizja: s.platformFee ?? 0,
         Inne: s.otherCosts ?? 0,
@@ -299,7 +299,7 @@ function SaleModal({
           <TextInput
             type="date"
             value={dateInputValue(form.soldAt)}
-            onChange={(e) => set('soldAt', e.target.value ? new Date(e.target.value).getTime() : form.soldAt)}
+            onChange={(e) => set('soldAt', dateFromInput(e.target.value, form.soldAt))}
           />
         </Field>
         <Field label="Status">

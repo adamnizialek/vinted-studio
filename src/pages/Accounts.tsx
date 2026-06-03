@@ -6,7 +6,7 @@ import { db } from '@/db/db'
 import type { Account } from '@/db/types'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
-import { money } from '@/lib/format'
+import { aggregateProfit, money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { Button, EmptyState, Field, Modal, SectionTitle, TextArea, TextInput } from '@/components/ui'
 
@@ -71,8 +71,9 @@ export function Accounts() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {accounts?.map((a) => {
-          const accSales = (sales ?? []).filter((s) => s.accountId === a.id && s.status !== 'cancelled')
-          const revenue = accSales.reduce((sum, s) => sum + s.salePrice * (s.quantity || 1), 0)
+          const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
+          // Spójnie z Pulpitem i Ewidencją — jedna reguła przychodu (aggregateProfit).
+          const revenue = aggregateProfit(accSales).revenue
           const stock = (products ?? []).filter(
             (p) => p.accountId === a.id && p.status !== 'sold' && p.status !== 'archived',
           ).length
