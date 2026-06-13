@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseStockCsv, normalizeForMatch, matchAccounts } from '@/lib/stockImport'
+import { parseStockCsv, parseStockTable, normalizeForMatch, matchAccounts } from '@/lib/stockImport'
 
 // Realny kształt eksportu z arkusza `finessin` (8 kolumn; komórki z przecinkiem w cudzysłowie).
 // Wiersze niesprzedane mają pustą datę, znacznik `rrrr-12` w kolumnie Miesiąc i PUSTĄ cenę sprzedaży.
@@ -41,6 +41,17 @@ describe('parseStockCsv', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].bucket).toBe('stock')
     expect(rows[0].name).toBe('Naszyjnik kościotrup XA20749')
+  })
+
+  it('parseStockTable classifies a pre-tokenized table directly (XLSX path)', () => {
+    const rows = parseStockTable([
+      ['Data', 'Miesiąc', 'Nazwa', 'Cena zakupu', 'Cena sprzedaży'],
+      ['', 'rrrr-12', 'Koszulka AX10247937', '20', ''],
+    ])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].bucket).toBe('stock')
+    expect(rows[0].purchaseCost).toBe(20)
+    expect(rows[0].salePrice).toBeUndefined()
   })
 })
 

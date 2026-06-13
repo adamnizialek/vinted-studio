@@ -120,9 +120,8 @@ function classifyRow(cells: string[], col: ColumnMap, rowIndex: number): ParsedR
   return { rowIndex, bucket, issues, productName: name, dateTs, salePrice, purchaseCost, status, excludedReason }
 }
 
-/** Parsuje cały plik CSV sprzedaży: wykrywa kolumny, klasyfikuje wiersze. */
-export function parseSalesCsv(text: string): ParsedSheet {
-  const table = parseCsv(text)
+/** Klasyfikuje gotową tabelę (string[][]) sprzedaży: wykrywa kolumny, klasyfikuje wiersze. */
+export function parseSalesTable(table: string[][]): ParsedSheet {
   if (table.length === 0) return { rows: [], headerDetected: false }
   const detected = detectColumns(table[0])
   const col: ColumnMap = detected ?? { date: 0, name: 1, purchase: 2, sale: 3 }
@@ -134,6 +133,11 @@ export function parseSalesCsv(text: string): ParsedSheet {
     if (r) rows.push(r)
   }
   return { rows, headerDetected: detected !== null }
+}
+
+/** Parsuje cały plik CSV sprzedaży. */
+export function parseSalesCsv(text: string): ParsedSheet {
+  return parseSalesTable(parseCsv(text))
 }
 
 export interface KeyedDraft {

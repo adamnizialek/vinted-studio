@@ -42,7 +42,7 @@ describe('parsePlDate', () => {
   })
 })
 
-import { parseSalesCsv } from '@/lib/salesImport'
+import { parseSalesCsv, parseSalesTable } from '@/lib/salesImport'
 
 const MAIN_FIXTURE = [
   'Data sprzedaży,Nazwa,Cena zaukupu ,Cena Sprzedaży,Kolumna nr 1,Przychód,Dochód,,Wydatki',
@@ -95,6 +95,17 @@ describe('parseSalesCsv', () => {
     const s = parseSalesCsv(csv)
     expect(s.headerDetected).toBe(false)
     expect(s.rows[0]).toMatchObject({ productName: 'Czapka', purchaseCost: 30, salePrice: 80, bucket: 'ready' })
+  })
+
+  it('parseSalesTable classifies a pre-tokenized table directly (XLSX path)', () => {
+    const { rows, headerDetected } = parseSalesTable([
+      ['Data sprzedaży', 'Nazwa', 'Cena zakupu', 'Cena Sprzedaży'],
+      ['15.03.2024', 'Foo', '10', '40'],
+    ])
+    expect(headerDetected).toBe(true)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].bucket).toBe('ready')
+    expect(rows[0].salePrice).toBe(40)
   })
 })
 

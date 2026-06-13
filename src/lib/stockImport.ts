@@ -81,9 +81,8 @@ function classifyStockRow(
   return { rowIndex, bucket: 'stock', issues: [], name, purchaseCost, salePrice }
 }
 
-/** Parsuje cały plik CSV `finessin`: wykrywa kolumny i klasyfikuje wiersze. Nigdy nie rzuca. */
-export function parseStockCsv(text: string): ParsedStockRow[] {
-  const table = parseCsv(text)
+/** Klasyfikuje gotową tabelę (string[][]) ze źródła `finessin`. Nigdy nie rzuca. */
+export function parseStockTable(table: string[][]): ParsedStockRow[] {
   if (table.length === 0) return []
   const detected = detectStockColumns(table[0])
   // Fallback pozycyjny dla `finessin`: A=Data, B=Miesiąc, C=Nazwa, D=Cena zakupu, E=Cena sprzedaży.
@@ -94,6 +93,11 @@ export function parseStockCsv(text: string): ParsedStockRow[] {
     if (r) rows.push(r)
   }
   return rows
+}
+
+/** Parsuje cały plik CSV `finessin`. Nigdy nie rzuca. */
+export function parseStockCsv(text: string): ParsedStockRow[] {
+  return parseStockTable(parseCsv(text))
 }
 
 export interface AccountMatch {
