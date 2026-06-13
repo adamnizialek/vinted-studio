@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseStockCsv } from '@/lib/stockImport'
+import { parseStockCsv, normalizeForMatch, matchAccounts } from '@/lib/stockImport'
 
 // Realny kształt eksportu z arkusza `finessin` (8 kolumn; komórki z przecinkiem w cudzysłowie).
 // Wiersze niesprzedane mają pustą datę, znacznik `rrrr-12` w kolumnie Miesiąc i PUSTĄ cenę sprzedaży.
@@ -41,5 +41,50 @@ describe('parseStockCsv', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].bucket).toBe('stock')
     expect(rows[0].name).toBe('Naszyjnik kościotrup XA20749')
+  })
+})
+
+describe('normalizeForMatch', () => {
+  it('strips SKU-like codes but keeps size tokens and words', () => {
+    expect(normalizeForMatch('Bluza zebra AX10247937')).toBe('bluza zebra')
+    expect(normalizeForMatch('Szalik kości MD175497')).toBe('szalik kości')
+    expect(normalizeForMatch('Zegarek damski róż sj2306109140799009')).toBe('zegarek damski róż')
+    expect(normalizeForMatch('Czarne spodnie narsiarskie XXXL')).toBe('czarne spodnie narsiarskie xxxl')
+    expect(normalizeForMatch('  Koszulka   Messi ')).toBe('koszulka messi')
+  })
+})
+
+describe('matchAccounts', () => {
+  const sales = [
+    { productName: 'Bluza zebra AX10247937', accountId: 'acc-main' },
+    { productName: 'Czarne spodnie narsiarskie XXXL', accountId: 'acc-main' },
+    { productName: 'Czarne spodnie narsiarskie XXXL', accountId: 'acc-zoos' },
+  ]
+
+  it('assigns when exactly one account sold the name', () => {
+    const [m] = matchAccounts([{ name: 'Bluza zebra AX10247937' }], sales)
+    expect(m.confidence).toBe('single')
+    expect(m.accountId).toBe('acc-main')
+  })
+
+  it('flags ambiguous when two accounts sold the name', () => {
+    const [m] = matchAccounts([{ name: 'Czarne spodnie narsiarskie XXXL' }], sales)
+    expect(m.confidence).toBe('ambiguous')
+    expect(m.accountId).toBeUndefined()
+    expect(m.candidates).toHaveLength(2)
+    expect(m.candidates).toContain('acc-main')
+    expect(m.candidates).toContain('acc-zoos')
+  })
+
+  it('flags none when no account sold the name', () => {
+    const [m] = matchAccounts([{ name: 'Koszulka Messi' }], sales)
+    expect(m.confidence).toBe('none')
+    expect(m.accountId).toBeUndefined()
+    expect(m.candidates).toHaveLength(0)
+  })
+
+  it('ignores sales with no accountId when building the index', () => {
+    const [m] = matchAccounts([{ name: 'Top free' }], [{ productName: 'Top free', accountId: undefined }])
+    expect(m.confidence).toBe('none')
   })
 })

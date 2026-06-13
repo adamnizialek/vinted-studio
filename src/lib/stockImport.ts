@@ -95,3 +95,63 @@ export function parseStockCsv(text: string): ParsedStockRow[] {
   }
   return rows
 }
+
+export interface AccountMatch {
+  draft: StockDraft
+  /** Ustawione tylko gdy confidence === 'single'. */
+  accountId?: ID
+  /** Konta, które sprzedały tę (znormalizowaną) nazwę. */
+  candidates: ID[]
+  confidence: 'single' | 'ambiguous' | 'none'
+}
+
+/**
+ * Normalizuje nazwę do dopasowania: małe litery, zwinięte spacje, BEZ kodów SKU.
+ * Kody SKU (np. "AX10247937", "MD175497", "sj2306109140799009") są usuwane;
+ * tokeny rozmiaru ("XXXL", "M") to czyste litery i ZOSTAJĄ.
+ */
+export function normalizeForMatch(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b[a-z]{1,3}\d{4,}\b/gi, ' ') // kody typu "ax10247937" / "md175497"
+    .replace(/\b\d{6,}\b/g, ' ') // długie kody czysto cyfrowe
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Buduje indeks: znormalizowana nazwa sprzedaży → zbiór kont, które ją sprzedały. */
+export function buildAccountIndex(
+  sales: { productName: string; accountId?: ID }[],
+): Map<string, Set<ID>> {
+  const idx = new Map<string, Set<ID>>()
+  for (const s of sales) {
+    if (!s.accountId) continue
+    const key = normalizeForMatch(s.productName)
+    if (!key) continue
+    let set = idx.get(key)
+    if (!set) {
+      set = new Set<ID>()
+      idx.set(key, set)
+    }
+    set.add(s.accountId)
+  }
+  return idx
+}
+
+/** Dopasowuje każdy szkic do konta na podstawie sprzedaży już w aplikacji. */
+export function matchAccounts(
+  drafts: StockDraft[],
+  sales: { productName: string; accountId?: ID }[],
+): AccountMatch[] {
+  const idx = buildAccountIndex(sales)
+  return drafts.map((draft) => {
+    const candidates = [...(idx.get(normalizeForMatch(draft.name)) ?? [])]
+    if (candidates.length === 1) {
+      return { draft, accountId: candidates[0], candidates, confidence: 'single' }
+    }
+    if (candidates.length >= 2) {
+      return { draft, accountId: undefined, candidates, confidence: 'ambiguous' }
+    }
+    return { draft, accountId: undefined, candidates, confidence: 'none' }
+  })
+}
