@@ -22,8 +22,9 @@ export function useSyncTriggers() {
 
   useEffect(() => {
     void refreshPending()
-    if (!syncEnabled()) return
-    void syncNow()
+    if (syncEnabled()) void syncNow()
+    // Always listen: syncNow() no-ops while sync is disabled, so listeners keep working
+    // even if the user connects after this mounts (no reload needed).
     const wake = () => {
       if (navigator.onLine) void syncNow()
     }
