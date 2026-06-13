@@ -11,6 +11,13 @@ import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_TEXT_MODEL,
 } from '@/lib/constants'
+import { uid } from '@/lib/id'
+import {
+  saleImportKey,
+  dedupKeyed,
+  type DraftSale,
+  type KeyedDraft,
+} from '@/lib/salesImport'
 
 export class VintedStudioDB extends Dexie {
   products!: Table<Product, string>
@@ -170,6 +177,45 @@ export async function clearAllData(): Promise<void> {
       db.images.clear(),
     ])
   })
+}
+
+/**
+ * Importuje wiersze sprzedaży do wybranego konta. Liczy klucze treści, odrzuca duplikaty
+ * względem wcześniej zaimportowanych wierszy (różnica multizbiorów) i wstawia resztę.
+ */
+export async function importSales(
+  drafts: DraftSale[],
+  accountId: string,
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+  const existing = await db.sales.where('accountId').equals(accountId).toArray()
+  const counts = new Map<string, number>()
+  for (const s of existing) {
+    if (s.importKey) counts.set(s.importKey, (counts.get(s.importKey) ?? 0) + 1)
+  }
+
+  const keyed: KeyedDraft[] = drafts.map((d) => ({
+    key: saleImportKey(accountId, d.soldAt, d.productName, d.salePrice, d.purchaseCost),
+    draft: d,
+  }))
+  const { toInsert, skipped } = dedupKeyed(counts, keyed)
+
+  const now = Date.now()
+  const sales: Sale[] = toInsert.map(({ key, draft }) => ({
+    id: uid(),
+    productName: draft.productName,
+    accountId,
+    salePrice: draft.salePrice,
+    currency: 'PLN',
+    quantity: 1,
+    status: draft.status,
+    purchaseCost: draft.purchaseCost,
+    soldAt: draft.soldAt,
+    createdAt: now,
+    importKey: key,
+  }))
+
+  if (sales.length) await db.sales.bulkAdd(sales)
+  return { inserted: sales.length, skippedDuplicates: skipped }
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {

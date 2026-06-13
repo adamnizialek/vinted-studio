@@ -168,6 +168,8 @@ export interface Sale {
   notes?: string
   soldAt: number
   createdAt: number
+  /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
+  importKey?: string
 }
 
 /** Globalne ustawienia aplikacji (pojedynczy wiersz w tabeli `settings`). */
