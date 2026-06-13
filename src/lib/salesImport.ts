@@ -127,6 +127,8 @@ export function parseSalesCsv(text: string): ParsedSheet {
   const detected = detectColumns(table[0])
   const col: ColumnMap = detected ?? { date: 0, name: 1, purchase: 2, sale: 3 }
   const rows: ParsedRow[] = []
+  // Pierwszy wiersz to zawsze nagłówek (eksport z Arkuszy go zawiera), więc dane
+  // czytamy od i = 1 — także przy fallbacku pozycyjnym.
   for (let i = 1; i < table.length; i++) {
     const r = classifyRow(table[i], col, i)
     if (r) rows.push(r)

@@ -97,3 +97,31 @@ describe('parseSalesCsv', () => {
     expect(s.rows[0]).toMatchObject({ productName: 'Czapka', purchaseCost: 30, salePrice: 80, bucket: 'ready' })
   })
 })
+
+describe('parseSalesCsv classification edge cases', () => {
+  const HEADER = 'Data sprzedaży,Nazwa,Cena zaukupu,Cena Sprzedaży'
+
+  it('routes a row with no sale price to review', () => {
+    const r = parseSalesCsv(`${HEADER}\n10.01.2026,Czapka,30,`).rows[0]
+    expect(r.bucket).toBe('review')
+    expect(r.issues).toContain('Brak ceny sprzedaży')
+  })
+
+  it('routes a row with no name to review', () => {
+    const r = parseSalesCsv(`${HEADER}\n10.01.2026,,30,80`).rows[0]
+    expect(r.bucket).toBe('review')
+    expect(r.issues).toContain('Brak nazwy')
+  })
+
+  it('routes a row with a missing date to review', () => {
+    const r = parseSalesCsv(`${HEADER}\n,Czapka,30,80`).rows[0]
+    expect(r.bucket).toBe('review')
+    expect(r.issues).toContain('Brak lub niepoprawna data')
+  })
+
+  it('marks a (zwrot) row as returned while still ready', () => {
+    const r = parseSalesCsv(`${HEADER}\n10.01.2026,Kurtka (zwrot),30,80`).rows[0]
+    expect(r.bucket).toBe('ready')
+    expect(r.status).toBe('returned')
+  })
+})
