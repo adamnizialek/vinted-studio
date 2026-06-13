@@ -149,6 +149,8 @@ export function SettingsPage() {
       toast.success(
         `Usunięto z importu: ${res.sales} sprzedaży, ${res.expenses} kosztów, ${res.products} przedmiotów.`,
       )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd czyszczenia danych.')
     } finally {
       setBusy(false)
     }

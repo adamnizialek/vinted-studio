@@ -26,6 +26,8 @@ describe('clearImportedData', () => {
       { id: 'p2', name: 'Bluza', condition: 'dobry', currency: 'PLN', quantity: 1, status: 'in_stock', accountId: 'acc', photoIds: ['img1'], generatedPhotoIds: [], descriptions: [], tags: [], createdAt: 0, updatedAt: 0, importKey: 'bluza|40' },
       // hand-made Studio product (no importKey) → kept
       { id: 'p3', name: 'Studio', condition: 'dobry', currency: 'PLN', quantity: 1, status: 'draft', photoIds: ['img2'], generatedPhotoIds: ['g1'], descriptions: [], tags: [], createdAt: 0, updatedAt: 0 },
+      // manual product: no importKey AND no photos → kept (isolates the importKey guard)
+      { id: 'p4', name: 'Manual', condition: 'dobry', currency: 'PLN', quantity: 1, status: 'in_stock', accountId: 'acc', photoIds: [], generatedPhotoIds: [], descriptions: [], tags: [], createdAt: 0, updatedAt: 0 },
     ])
 
     const res = await clearImportedData()
@@ -33,7 +35,7 @@ describe('clearImportedData', () => {
 
     expect((await db.sales.toArray()).map((s) => s.id)).toEqual(['s2'])
     expect((await db.expenses.toArray()).map((e) => e.id)).toEqual(['e2'])
-    expect((await db.products.toArray()).map((p) => p.id).sort()).toEqual(['p2', 'p3'])
+    expect((await db.products.toArray()).map((p) => p.id).sort()).toEqual(['p2', 'p3', 'p4'])
   })
 
   it('queues a tombstone in the outbox for each deleted row', async () => {

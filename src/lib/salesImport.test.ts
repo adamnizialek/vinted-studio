@@ -251,6 +251,10 @@ describe('suggestAccountForSheet', () => {
   it('ignores tiny words and the file extension', () => {
     expect(suggestAccountForSheet('a.csv', accounts)).toBeUndefined()
   })
+
+  it('matches when a file word contains a short account field (reverse substring)', () => {
+    expect(suggestAccountForSheet('pangea-raport.xlsx', [{ id: 'p', name: 'pan' }])).toBe('p')
+  })
 })
 
 describe('looksLikeStockSheet', () => {
