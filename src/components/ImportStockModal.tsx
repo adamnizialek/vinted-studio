@@ -4,17 +4,18 @@ import clsx from 'clsx'
 import { FileUp, Loader2 } from 'lucide-react'
 import { db, importStock } from '@/db/db'
 import {
-  parseStockCsv,
+  parseStockTable,
   matchAccounts,
   stockImportKey,
   type StockBucket,
   type ResolvedStockDraft,
 } from '@/lib/stockImport'
+import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import type { Account } from '@/db/types'
 import { money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { FileDrop } from '@/components/FileDrop'
-import { Button, Modal, Select } from '@/components/ui'
+import { Button, Field, Modal, Select } from '@/components/ui'
 
 interface EditRow {
   /** Stabilny klucz Reacta: `${plik}#${rowIndex}`. */
@@ -32,14 +33,19 @@ interface EditRow {
   include: boolean
 }
 
-const isCsv = (f: File) =>
-  /\.csv$/i.test(f.name) || f.type.includes('csv') || f.type === 'text/plain'
+// Domyślny arkusz dla magazynu: preferuj „all items" (finessin), w razie czego pierwszy.
+const STOCK_SHEET_RE = /finessin|all|wszystk|magazyn|stan/i
+const pickStockSheet = (names: string[]) => names.find((n) => STOCK_SHEET_RE.test(n)) ?? names[0]
 
 export function ImportStockModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const accounts = useLiveQuery(() => db.accounts.orderBy('createdAt').toArray(), [])
   const sales = useLiveQuery(() => db.sales.toArray(), [])
   const [rows, setRows] = useState<EditRow[]>([])
   const [busy, setBusy] = useState(false)
+  // Wczytany skoroszyt (CSV → 1 arkusz; XLSX → wiele). `sheet` = aktualnie wybrany arkusz.
+  const [workbook, setWorkbook] = useState<{ wb: Workbook; names: string[]; sheet: string } | null>(
+    null,
+  )
 
   // Klucze treści przedmiotów już w magazynie (multizbiór) — TYLKO do podglądu licznika.
   // Faktyczną deduplikację robi importStock.
@@ -52,49 +58,62 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
 
   const close = () => {
     setRows([])
+    setWorkbook(null)
     onClose()
+  }
+
+  // Klasyfikuje wybrany arkusz i auto-dopasowuje konta do niesprzedanych przedmiotów.
+  const processStock = (table: string[][], sheet: string) => {
+    const salesForMatch = (sales ?? []).map((s) => ({
+      productName: s.productName,
+      accountId: s.accountId,
+    }))
+    const parsed = parseStockTable(table)
+    const stock = parsed.filter((r) => r.bucket === 'stock')
+    const matches = matchAccounts(stock, salesForMatch)
+    const byRow = new Map(stock.map((r, i) => [r.rowIndex, matches[i]]))
+    const next: EditRow[] = parsed.map((r) => {
+      const m = byRow.get(r.rowIndex)
+      const confidence = m?.confidence ?? 'none'
+      return {
+        key: `${sheet}#${r.rowIndex}`,
+        rowIndex: r.rowIndex,
+        bucket: r.bucket,
+        name: r.name,
+        purchaseCost: r.purchaseCost,
+        salePrice: r.salePrice,
+        issues: r.issues,
+        accountId: m?.accountId,
+        candidates: m?.candidates ?? [],
+        confidence,
+        // Pewne dopasowania zaznaczone domyślnie; reszta czeka na ręczne przypisanie.
+        include: r.bucket === 'stock' && confidence === 'single',
+      }
+    })
+    if (!next.some((r) => r.bucket === 'stock')) {
+      toast.error('Nie znaleziono przedmiotów w magazynie w tym arkuszu.')
+      setRows([])
+      return
+    }
+    setRows(next)
   }
 
   const onFiles = async (files: File[]) => {
     try {
-      const salesForMatch = (sales ?? []).map((s) => ({
-        productName: s.productName,
-        accountId: s.accountId,
-      }))
-      const next: EditRow[] = []
-      for (const f of files) {
-        const text = await f.text()
-        const parsed = parseStockCsv(text)
-        const stock = parsed.filter((r) => r.bucket === 'stock')
-        const matches = matchAccounts(stock, salesForMatch)
-        const byRow = new Map(stock.map((r, i) => [r.rowIndex, matches[i]]))
-        for (const r of parsed) {
-          const m = byRow.get(r.rowIndex)
-          const confidence = m?.confidence ?? 'none'
-          next.push({
-            key: `${f.name}#${r.rowIndex}`,
-            rowIndex: r.rowIndex,
-            bucket: r.bucket,
-            name: r.name,
-            purchaseCost: r.purchaseCost,
-            salePrice: r.salePrice,
-            issues: r.issues,
-            accountId: m?.accountId,
-            candidates: m?.candidates ?? [],
-            confidence,
-            // Pewne dopasowania zaznaczone domyślnie; reszta czeka na ręczne przypisanie.
-            include: r.bucket === 'stock' && confidence === 'single',
-          })
-        }
-      }
-      if (!next.some((r) => r.bucket === 'stock')) {
-        toast.error('Nie znaleziono przedmiotów w magazynie w tym pliku.')
-        return
-      }
-      setRows(next)
+      const wb = await readWorkbook(files[0])
+      const sheet = pickStockSheet(wb.sheetNames)
+      setWorkbook({ wb, names: wb.sheetNames, sheet })
+      processStock(wb.tableOf(sheet), sheet)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
+  }
+
+  // Zmiana arkusza (tylko XLSX z wieloma arkuszami) — przeparsuj wybrany.
+  const onSheet = (sheet: string) => {
+    if (!workbook) return
+    setWorkbook({ ...workbook, sheet })
+    processStock(workbook.wb.tableOf(sheet), sheet)
   }
 
   // Wybór konta w recenzji: ustaw konto i automatycznie zaznacz wiersz do importu.
@@ -181,15 +200,32 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
       }
     >
       <div className="space-y-5">
-        <FileDrop onFiles={onFiles} accept=".csv,text/csv" filter={isCsv} multiple={false}>
+        <FileDrop
+          onFiles={onFiles}
+          accept=".csv,.xlsx,.xls,text/csv"
+          filter={isSpreadsheet}
+          multiple={false}
+        >
           <FileUp className="text-brand-500" />
           <span className="text-sm font-semibold text-ink-700">
-            Przeciągnij plik „all items" (finessin) lub kliknij
+            Przeciągnij plik „all items" (finessin) — CSV lub XLSX — lub kliknij
           </span>
           <span className="text-xs text-ink-400">
             Importują się tylko niesprzedane przedmioty — konto dobierane z Twojej sprzedaży.
           </span>
         </FileDrop>
+
+        {workbook && workbook.names.length > 1 && (
+          <Field label="Arkusz do zaimportowania">
+            <Select value={workbook.sheet} onChange={(e) => onSheet(e.target.value)}>
+              {workbook.names.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {(!sales || sales.length === 0) && (
           <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 ring-1 ring-amber-200">
