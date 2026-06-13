@@ -18,6 +18,12 @@ import {
   type DraftSale,
   type KeyedDraft,
 } from '@/lib/salesImport'
+import {
+  stockImportKey,
+  dedupKeyedStock,
+  type ResolvedStockDraft,
+  type KeyedStockDraft,
+} from '@/lib/stockImport'
 
 export class VintedStudioDB extends Dexie {
   products!: Table<Product, string>
@@ -217,6 +223,51 @@ export async function importSales(
 
     if (sales.length) await db.sales.bulkAdd(sales)
     return { inserted: sales.length, skippedDuplicates: skipped }
+  })
+}
+
+/**
+ * Importuje NIESPRZEDANE przedmioty do magazynu (tabela `products`) jako `in_stock`.
+ * Konto bierze z auto-dopasowania / recenzji (może być puste). Deduplikacja multizbiorów
+ * względem wcześniej zaimportowanych przedmiotów (po `importKey`) czyni ponowny import idempotentnym.
+ */
+export async function importStock(
+  drafts: ResolvedStockDraft[],
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+  return db.transaction('rw', db.products, async () => {
+    const existing = await db.products.toArray()
+    const counts = new Map<string, number>()
+    for (const p of existing) {
+      if (p.importKey) counts.set(p.importKey, (counts.get(p.importKey) ?? 0) + 1)
+    }
+
+    const keyed: KeyedStockDraft[] = drafts.map((d) => ({
+      key: stockImportKey(d.name, d.purchaseCost),
+      draft: d,
+    }))
+    const { toInsert, skipped } = dedupKeyedStock(counts, keyed)
+
+    const now = Date.now()
+    const products: Product[] = toInsert.map(({ key, draft }) => ({
+      id: uid(),
+      name: draft.name,
+      condition: 'dobry',
+      purchasePrice: draft.purchaseCost,
+      currency: 'PLN',
+      quantity: 1,
+      status: 'in_stock',
+      accountId: draft.accountId,
+      photoIds: [],
+      generatedPhotoIds: [],
+      descriptions: [],
+      tags: [],
+      importKey: key,
+      createdAt: now,
+      updatedAt: now,
+    }))
+
+    if (products.length) await db.products.bulkAdd(products)
+    return { inserted: products.length, skippedDuplicates: skipped }
   })
 }
 
