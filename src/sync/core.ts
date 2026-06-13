@@ -2,12 +2,13 @@
 // No DOM, no Cloudflare, no Dexie — just the last-write-wins + stamp rules, so both
 // sides agree and the logic is unit-testable in isolation.
 
-/** The six synced entity tables (mirror of the Dexie/D1 schema). */
+/** The synced entity tables (mirror of the Dexie/D1 schema). */
 export const SYNC_TABLES = [
   'products',
   'models',
   'accounts',
   'sales',
+  'expenses',
   'images',
   'settings',
 ] as const

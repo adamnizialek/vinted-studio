@@ -3,6 +3,7 @@ import type {
   Account,
   AiModel,
   AppSettings,
+  Expense,
   ImageRecord,
   Product,
   Sale,
@@ -17,7 +18,9 @@ import { type SyncTable } from '@/sync/core'
 import {
   saleImportKey,
   dedupKeyed,
+  expenseImportKey,
   type DraftSale,
+  type DraftExpense,
   type KeyedDraft,
 } from '@/lib/salesImport'
 import {
@@ -53,6 +56,7 @@ export class VintedStudioDB extends Dexie {
   models!: Table<AiModel, string>
   accounts!: Table<Account, string>
   sales!: Table<Sale, string>
+  expenses!: Table<Expense, string>
   images!: Table<ImageRecord, string>
   settings!: Table<AppSettings, string>
   outbox!: Table<OutboxEntry, [SyncTable, string]>
@@ -92,12 +96,17 @@ export class VintedStudioDB extends Dexie {
             if (s.updatedAt == null) s.updatedAt = Date.now()
           })
       })
+    // v3: dodaje tabelę kosztów promocji (podbicia/ekspozycja). Czysto addytywne —
+    // nowa pusta tabela, brak migracji danych.
+    this.version(3).stores({
+      expenses: 'id, accountId, incurredAt, createdAt',
+    })
   }
 }
 
 export const db = new VintedStudioDB()
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const DEFAULT_SETTINGS: AppSettings = {
   id: 'app',
@@ -122,6 +131,7 @@ interface EntityMap {
   models: AiModel
   accounts: Account
   sales: Sale
+  expenses: Expense
   images: ImageRecord
   settings: AppSettings
 }
@@ -297,11 +307,12 @@ export async function deleteModelCascade(modelId: string): Promise<void> {
 
 /** Pelny eksport bazy do obiektu JSON (obrazy jako data URL). */
 export async function exportAll() {
-  const [products, models, accounts, sales, settings, images] = await Promise.all([
+  const [products, models, accounts, sales, expenses, settings, images] = await Promise.all([
     db.products.toArray(),
     db.models.toArray(),
     db.accounts.toArray(),
     db.sales.toArray(),
+    db.expenses.toArray(),
     getSettings(),
     db.images.toArray(),
   ])
@@ -323,6 +334,7 @@ export async function exportAll() {
     models,
     accounts,
     sales,
+    expenses,
     settings: { ...settings, geminiApiKey: '' }, // klucz API NIE jest eksportowany
     images: imagesSerialized,
   }
@@ -351,10 +363,11 @@ export async function importAll(data: any): Promise<void> {
   const models = (data.models ?? []).map(withUpdatedAt)
   const accounts = (data.accounts ?? []).map(withUpdatedAt)
   const sales = (data.sales ?? []).map(withUpdatedAt)
+  const expenses = (data.expenses ?? []).map(withUpdatedAt)
 
   await db.transaction(
     'rw',
-    [db.products, db.models, db.accounts, db.sales, db.images, db.settings, db.outbox],
+    [db.products, db.models, db.accounts, db.sales, db.expenses, db.images, db.settings, db.outbox],
     async () => {
       const queue = (table: SyncTable, rows: { id: string; updatedAt: number }[]) =>
         Promise.all(
@@ -378,6 +391,10 @@ export async function importAll(data: any): Promise<void> {
       if (sales.length) {
         await db.sales.bulkPut(sales)
         await queue('sales', sales)
+      }
+      if (expenses.length) {
+        await db.expenses.bulkPut(expenses)
+        await queue('expenses', expenses)
       }
       if (images.length) {
         await db.images.bulkPut(images)
@@ -414,7 +431,7 @@ export async function clearAllData(): Promise<void> {
   const now = Date.now()
   await db.transaction(
     'rw',
-    [db.products, db.models, db.accounts, db.sales, db.images, db.outbox],
+    [db.products, db.models, db.accounts, db.sales, db.expenses, db.images, db.outbox],
     async () => {
       const tombstoneAll = async (table: SyncTable, tbl: Table<{ id: string }, string>) => {
         const ids = await tbl.toCollection().primaryKeys()
@@ -429,6 +446,7 @@ export async function clearAllData(): Promise<void> {
       await tombstoneAll('models', db.models as Table<{ id: string }, string>)
       await tombstoneAll('accounts', db.accounts as Table<{ id: string }, string>)
       await tombstoneAll('sales', db.sales as Table<{ id: string }, string>)
+      await tombstoneAll('expenses', db.expenses as Table<{ id: string }, string>)
       await tombstoneAll('images', db.images as Table<{ id: string }, string>)
     },
   )
@@ -479,6 +497,65 @@ export async function importSales(
       )
     }
     return { inserted: sales.length, skippedDuplicates: skipped }
+  })
+}
+
+/**
+ * Importuje koszty promocji do wybranego konta. Idempotentny względem wcześniej
+ * zaimportowanych kosztów (różnica multizbiorów po `importKey`). Pomija szkice bez daty.
+ */
+export async function importExpenses(
+  drafts: DraftExpense[],
+  accountId: string,
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+  return db.transaction('rw', db.expenses, db.outbox, async () => {
+    const existing = await db.expenses.where('accountId').equals(accountId).toArray()
+    const counts = new Map<string, number>()
+    for (const e of existing) {
+      if (e.importKey) counts.set(e.importKey, (counts.get(e.importKey) ?? 0) + 1)
+    }
+
+    const keyed = drafts
+      .filter((d) => d.incurredAt !== null)
+      .map((d) => ({
+        key: expenseImportKey(accountId, d.incurredAt, d.kind, d.description, d.amount),
+        draft: d,
+      }))
+
+    const seen = new Map(counts)
+    const toInsert: typeof keyed = []
+    let skipped = 0
+    for (const item of keyed) {
+      const c = seen.get(item.key) ?? 0
+      if (c > 0) {
+        seen.set(item.key, c - 1)
+        skipped++
+      } else {
+        toInsert.push(item)
+      }
+    }
+
+    const now = Date.now()
+    const expenses: Expense[] = toInsert.map(({ key, draft }) => ({
+      id: uid(),
+      accountId,
+      kind: draft.kind,
+      description: draft.description,
+      amount: draft.amount,
+      currency: 'PLN',
+      incurredAt: draft.incurredAt as number,
+      createdAt: now,
+      updatedAt: now,
+      importKey: key,
+    }))
+
+    if (expenses.length) {
+      await db.expenses.bulkAdd(expenses)
+      await db.outbox.bulkPut(
+        expenses.map((e) => ({ table: 'expenses' as const, id: e.id, deleted: 0 as const, updatedAt: now })),
+      )
+    }
+    return { inserted: expenses.length, skippedDuplicates: skipped }
   })
 }
 
