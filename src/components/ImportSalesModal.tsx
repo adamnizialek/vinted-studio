@@ -1,174 +1,154 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
-import { FileUp, Loader2, Plus } from 'lucide-react'
+import { FileUp, Loader2, Plus, X } from 'lucide-react'
 import { db, importSales, importExpenses, putEntity } from '@/db/db'
 import {
   parseSalesTable,
   parseExpenseDrafts,
   saleImportKey,
+  suggestAccountForSheet,
+  looksLikeStockSheet,
   type ParsedRow,
   type DraftSale,
   type DraftExpense,
 } from '@/lib/salesImport'
-import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
+import { readWorkbook, isSpreadsheet } from '@/lib/spreadsheet'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
 import { dateFromInput, dateInputValue, dateShort, money } from '@/lib/format'
+import type { Account } from '@/db/types'
 import { toast } from '@/state/toast'
 import { FileDrop } from '@/components/FileDrop'
 import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
 
+const rowValid = (r: { salePrice?: number; dateTs: number | null }) =>
+  r.salePrice != null && r.salePrice > 0 && r.dateTs != null
+
 interface EditRow extends ParsedRow {
-  /** Stabilny klucz Reacta: `${arkusz}#${rowIndex}` (arkusz = nazwa zakładki XLSX lub pliku CSV). */
+  /** Stabilny klucz Reacta: `${sourceId}#${rowIndex}`. */
   key: string
   include: boolean
 }
 
-const rowValid = (r: { salePrice?: number; dateTs: number | null }) =>
-  r.salePrice != null && r.salePrice > 0 && r.dateTs != null
+/** Jeden plik/arkusz wczytany do importu — z własnym kontem i własnymi wierszami. */
+interface Source {
+  /** `${nazwaPliku}::${nazwaArkusza}` — unikalne i stabilne. */
+  id: string
+  fileName: string
+  sheetName: string
+  header: string[]
+  /** Wykryto plik „wszystkie przedmioty" (finessin) — nie importujemy go jako sprzedaży. */
+  isStock: boolean
+  /** Przypisane konto ('' = jeszcze nie wybrano). */
+  accountId: string
+  rows: EditRow[]
+}
+
+/** Pochodne dla jednego źródła: co wejdzie do importu i co jest duplikatem. */
+interface Computed {
+  source: Source
+  drafts: DraftSale[]
+  expenseDrafts: DraftExpense[]
+  dup: Set<string>
+  newCount: number
+  expenseCount: number
+}
 
 export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const accounts = useLiveQuery(() => db.accounts.orderBy('createdAt').toArray(), [])
-  const [accountId, setAccountId] = useState('')
-  const [newName, setNewName] = useState('')
+  const [sources, setSources] = useState<Source[]>([])
   const [creating, setCreating] = useState(false)
-  const [rows, setRows] = useState<EditRow[]>([])
+  const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false)
-  // Wczytany skoroszyt (CSV → 1 arkusz; XLSX → wiele). `sheet` = aktualnie wybrany arkusz.
-  const [workbook, setWorkbook] = useState<{ wb: Workbook; names: string[]; sheet: string } | null>(
-    null,
-  )
 
-  // Klucze treści sprzedaży już zaimportowanych na wybranym koncie (multizbiór) —
-  // wyłącznie do PODGLĄDU (ile wierszy już jest w bazie). Faktyczną deduplikację
-  // robi importSales — tu nic nie odfiltrowujemy z importu.
+  // Multizbiór importKeyów już w bazie (importKey zawiera accountId), wyłącznie do PODGLĄDU
+  // duplikatów. Faktyczną deduplikację robi importSales.
   const existingCounts = useLiveQuery(async () => {
-    if (!accountId) return new Map<string, number>()
-    const sales = await db.sales.where('accountId').equals(accountId).toArray()
+    const sales = await db.sales.toArray()
     const m = new Map<string, number>()
     for (const s of sales) if (s.importKey) m.set(s.importKey, (m.get(s.importKey) ?? 0) + 1)
     return m
-  }, [accountId])
-
-  // Zapamiętane edycje per arkusz — zmiana zakładki nie kasuje recenzji poprzedniej.
-  const sheetCache = useRef<Map<string, EditRow[]>>(new Map())
+  }, [])
 
   const reset = () => {
-    setRows([])
-    setNewName('')
+    setSources([])
     setCreating(false)
-    setWorkbook(null)
-    sheetCache.current.clear()
+    setNewName('')
   }
-
-  // Zamknięcie czyści wczytane wiersze (zachowuje wybrane konto na kolejny import).
   const close = () => {
     reset()
     onClose()
   }
 
-  // Klasyfikuje wybrany arkusz sprzedaży i wstępnie zaznacza gotowe wiersze.
-  const processSales = (table: string[][], sheet: string) => {
-    const { rows: parsed } = parseSalesTable(table)
-    const next: EditRow[] = parsed.map((r) => ({
-      ...r,
-      key: `${sheet}#${r.rowIndex}`,
-      // Sprzedaże gotowe oraz koszty promocji (excluded/fee) domyślnie zaznaczone.
-      include: r.bucket === 'ready' || r.bucket === 'excluded',
-    }))
-    if (!next.length) {
-      toast.error('Nie znaleziono wierszy w tym arkuszu.')
-      setRows([])
-      return
-    }
-    setRows(next)
-  }
-
   const onFiles = async (files: File[]) => {
-    try {
-      const wb = await readWorkbook(files[0])
-      const sheet = wb.sheetNames[0]
-      sheetCache.current = new Map()
-      setWorkbook({ wb, names: wb.sheetNames, sheet })
-      processSales(wb.tableOf(sheet), sheet)
-    } catch (e) {
-      // Nieudany odczyt (np. uszkodzony XLSX) — wyczyść podgląd, by nie zaimportować starych danych.
-      setWorkbook(null)
-      setRows([])
-      toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
-    }
-  }
-
-  // Zmiana arkusza (XLSX z wieloma arkuszami): zachowaj edycje bieżącego, przywróć lub przeparsuj docelowy.
-  const onSheet = (sheet: string) => {
-    if (!workbook || sheet === workbook.sheet) return
-    sheetCache.current.set(workbook.sheet, rows)
-    setWorkbook({ ...workbook, sheet })
-    const cached = sheetCache.current.get(sheet)
-    if (cached) setRows(cached)
-    else processSales(workbook.wb.tableOf(sheet), sheet)
-  }
-
-  const setRow = (key: string, patch: Partial<EditRow>) =>
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
-
-  // Edycja wiersza „do sprawdzenia": gdy stał się poprawny, automatycznie zaznacz do importu.
-  const patchReviewRow = (key: string, patch: Partial<EditRow>) =>
-    setRows((rs) =>
-      rs.map((r) => {
-        if (r.key !== key) return r
-        const merged = { ...r, ...patch }
-        const include = !rowValid(r) && rowValid(merged) ? true : merged.include
-        return { ...merged, include }
-      }),
-    )
-
-  // Wiersze, które trafią do importu (zaznaczone i poprawne). importSales sam zdeduplikuje.
-  const includable = useMemo(() => rows.filter((r) => r.include && rowValid(r)), [rows])
-
-  // Które z włączanych wierszy już istnieją na koncie (multizbiór) — TYLKO do podglądu/licznika.
-  const dupKeys = useMemo(() => {
-    const counts = new Map(existingCounts ?? [])
-    const dup = new Set<string>()
-    for (const r of includable) {
-      const k = saleImportKey(accountId, r.dateTs as number, r.productName, r.salePrice as number, r.purchaseCost)
-      const c = counts.get(k) ?? 0
-      if (c > 0) {
-        counts.set(k, c - 1)
-        dup.add(r.key)
+    const next: Source[] = []
+    for (const f of files) {
+      try {
+        const wb = await readWorkbook(f)
+        for (const sheetName of wb.sheetNames) {
+          const table = wb.tableOf(sheetName)
+          const header = table[0] ?? []
+          const { rows: parsed } = parseSalesTable(table)
+          if (!parsed.length) continue
+          const isStock = looksLikeStockSheet(header)
+          const id = `${f.name}::${sheetName}`
+          const rows: EditRow[] = parsed.map((r) => ({
+            ...r,
+            key: `${id}#${r.rowIndex}`,
+            // Stock-plik nic nie zaznacza; reszta: gotowe sprzedaże + koszty promocji.
+            include: !isStock && (r.bucket === 'ready' || r.bucket === 'excluded'),
+          }))
+          const accountId = isStock
+            ? ''
+            : suggestAccountForSheet(`${f.name} ${sheetName}`, accounts ?? []) ?? ''
+          next.push({ id, fileName: f.name, sheetName, header, isStock, accountId, rows })
+        }
+      } catch (e) {
+        toast.error(`${f.name}: ${e instanceof Error ? e.message : 'Nie udało się odczytać pliku.'}`)
       }
     }
-    return dup
-  }, [includable, existingCounts, accountId])
+    if (!next.length) {
+      toast.error('Nie znaleziono wierszy sprzedaży w wybranych plikach.')
+      return
+    }
+    // Pomiń źródła już wczytane (ten sam plik+arkusz), by ponowny drop nie dublował sekcji.
+    setSources((prev) => {
+      const have = new Set(prev.map((s) => s.id))
+      return [...prev, ...next.filter((s) => !have.has(s.id))]
+    })
+  }
 
-  // Ile faktycznie zostanie dodanych (importSales pominie duplikaty).
-  const newCount = includable.length - dupKeys.size
+  const setRow = (sourceId: string, key: string, patch: Partial<EditRow>) =>
+    setSources((ss) =>
+      ss.map((s) =>
+        s.id !== sourceId ? s : { ...s, rows: s.rows.map((r) => (r.key === key ? { ...r, ...patch } : r)) },
+      ),
+    )
 
-  // Do importu przekazujemy WSZYSTKIE włączane wiersze — importSales jest jedynym
-  // miejscem deduplikacji (inaczej liczby istniejące odjęłyby się podwójnie).
-  const drafts = useMemo<DraftSale[]>(
-    () =>
-      includable.map((r) => ({
-        soldAt: r.dateTs as number,
-        productName: r.productName,
-        salePrice: r.salePrice as number,
-        purchaseCost: r.purchaseCost,
-        status: r.status,
-      })),
-    [includable],
-  )
+  // Edycja wiersza „do sprawdzenia": gdy stał się poprawny, automatycznie zaznacz do importu.
+  const patchReviewRow = (sourceId: string, key: string, patch: Partial<EditRow>) =>
+    setSources((ss) =>
+      ss.map((s) =>
+        s.id !== sourceId
+          ? s
+          : {
+              ...s,
+              rows: s.rows.map((r) => {
+                if (r.key !== key) return r
+                const merged = { ...r, ...patch }
+                const include = !rowValid(r) && rowValid(merged) ? true : merged.include
+                return { ...merged, include }
+              }),
+            },
+      ),
+    )
 
-  // Wiersze opłat (bucket 'excluded'/'fee') → szkice kosztów promocji (tylko zaznaczone).
-  const expenseDrafts = useMemo<DraftExpense[]>(
-    () => parseExpenseDrafts(rows.filter((r) => r.include)),
-    [rows],
-  )
-  // Koszty faktycznie importowalne (z datą) — do licznika w stopce.
-  const expenseCount = useMemo(
-    () => expenseDrafts.filter((d) => d.incurredAt !== null).length,
-    [expenseDrafts],
-  )
+  const setSourceAccount = (sourceId: string, accountId: string) =>
+    setSources((ss) => ss.map((s) => (s.id === sourceId ? { ...s, accountId } : s)))
+
+  const removeSource = (sourceId: string) =>
+    setSources((ss) => ss.filter((s) => s.id !== sourceId))
 
   const createAccount = async () => {
     if (!newName.trim()) return toast.error('Podaj nazwę konta.')
@@ -180,23 +160,65 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
-    setAccountId(id)
     setNewName('')
     setCreating(false)
-    toast.success('Utworzono konto.')
+    toast.success('Utworzono konto. Wybierz je przy odpowiednim pliku.')
   }
 
+  // Pochodne per źródło: drafty, koszty, duplikaty (każde źródło liczone niezależnie wobec bazy).
+  const computed = useMemo<Computed[]>(() => {
+    const existing = existingCounts ?? new Map<string, number>()
+    return sources.map((s) => {
+      const includable = s.isStock ? [] : s.rows.filter((r) => r.include && rowValid(r))
+      const counts = new Map(existing)
+      const dup = new Set<string>()
+      if (s.accountId) {
+        for (const r of includable) {
+          const k = saleImportKey(s.accountId, r.dateTs as number, r.productName, r.salePrice as number, r.purchaseCost)
+          const c = counts.get(k) ?? 0
+          if (c > 0) {
+            counts.set(k, c - 1)
+            dup.add(r.key)
+          }
+        }
+      }
+      const drafts: DraftSale[] = includable.map((r) => ({
+        soldAt: r.dateTs as number,
+        productName: r.productName,
+        salePrice: r.salePrice as number,
+        purchaseCost: r.purchaseCost,
+        status: r.status,
+      }))
+      const expenseDrafts: DraftExpense[] = s.isStock
+        ? []
+        : parseExpenseDrafts(s.rows.filter((r) => r.include))
+      const expenseCount = expenseDrafts.filter((d) => d.incurredAt !== null).length
+      return { source: s, drafts, expenseDrafts, dup, newCount: includable.length - dup.size, expenseCount }
+    })
+  }, [sources, existingCounts])
+
+  const totalToImport = computed.reduce((n, c) => n + c.newCount + c.expenseCount, 0)
+  const unassigned = computed.filter(
+    (c) => !c.source.isStock && !c.source.accountId && c.drafts.length + c.expenseDrafts.length > 0,
+  )
+
   const doImport = async () => {
-    if (!accountId) return toast.error('Wybierz konto.')
-    if (!drafts.length && !expenseDrafts.length) return toast.error('Brak wierszy do importu.')
+    if (unassigned.length) return toast.error('Przypisz konto do każdego pliku ze sprzedażą.')
+    const toRun = computed.filter((c) => c.source.accountId && (c.drafts.length || c.expenseDrafts.length))
+    if (!toRun.length) return toast.error('Brak wierszy do importu.')
     setBusy(true)
     try {
-      const res = await importSales(drafts, accountId)
-      const expRes = await importExpenses(expenseDrafts, accountId)
-      toast.success(
-        `Zaimportowano: ${res.inserted} sprzedaży, ${expRes.inserted} kosztów. ` +
-          `Pominięto duplikaty: ${res.skippedDuplicates + expRes.skippedDuplicates}.`,
-      )
+      let salesIns = 0
+      let expIns = 0
+      let dups = 0
+      for (const c of toRun) {
+        const res = await importSales(c.drafts, c.source.accountId)
+        const expRes = await importExpenses(c.expenseDrafts, c.source.accountId)
+        salesIns += res.inserted
+        expIns += expRes.inserted
+        dups += res.skippedDuplicates + expRes.skippedDuplicates
+      }
+      toast.success(`Zaimportowano: ${salesIns} sprzedaży, ${expIns} kosztów. Pominięto duplikaty: ${dups}.`)
       close()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd importu.')
@@ -205,144 +227,168 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     }
   }
 
-  const ready = rows.filter((r) => r.bucket === 'ready' && !dupKeys.has(r.key))
-  const alreadyImported = rows.filter((r) => r.bucket === 'ready' && dupKeys.has(r.key))
-  const review = rows.filter((r) => r.bucket === 'review')
-  const excluded = rows.filter((r) => r.bucket === 'excluded')
-
   return (
     <Modal
       open={open}
       onClose={close}
       size="xl"
-      title="Import sprzedaży z CSV"
+      title="Import sprzedaży z CSV / XLSX"
       footer={
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-ink-500">{newCount + expenseCount} do importu</span>
+          <span className="text-sm text-ink-500">{totalToImport} do importu</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={close}>
               Anuluj
             </Button>
-            <Button
-              onClick={doImport}
-              disabled={busy || !accountId || newCount + expenseCount === 0}
-            >
-              {busy ? (
-                <Loader2 size={16} className="animate-spin-slow" />
-              ) : (
-                <>Zaimportuj {newCount + expenseCount}</>
-              )}
+            <Button onClick={doImport} disabled={busy || totalToImport === 0}>
+              {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <>Zaimportuj {totalToImport}</>}
             </Button>
           </div>
         </div>
       }
     >
       <div className="space-y-5">
-        <Field label="Konto, do którego przypisać sprzedaż">
+        <FileDrop onFiles={onFiles} accept=".csv,.xlsx,.xls,text/csv" filter={isSpreadsheet} multiple>
+          <FileUp className="text-brand-500" />
+          <span className="text-sm font-semibold text-ink-700">
+            Przeciągnij pliki sprzedaży (po jednym na konto) — CSV lub XLSX — lub kliknij
+          </span>
+          <span className="text-xs text-ink-400">
+            Każdy plik/arkusz przypiszesz do konta poniżej. Plik „wszystkie przedmioty" (finessin) zaimportuj w Magazynie.
+          </span>
+        </FileDrop>
+
+        <div>
           {creating ? (
             <div className="flex gap-2">
-              <TextInput
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="np. Main / Zosia"
-                autoFocus
-              />
+              <TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="np. Main / Zosia" autoFocus />
               <Button onClick={createAccount}>Utwórz</Button>
               <Button variant="ghost" onClick={() => setCreating(false)}>
                 Anuluj
               </Button>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="flex-1">
-                <option value="">— wybierz —</option>
-                {accounts?.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
-              <Button variant="ghost" onClick={() => setCreating(true)}>
-                <Plus size={16} /> Nowe
-              </Button>
-            </div>
+            <Button variant="ghost" onClick={() => setCreating(true)}>
+              <Plus size={16} /> Nowe konto
+            </Button>
           )}
-        </Field>
+        </div>
 
-        <FileDrop
-          onFiles={onFiles}
-          accept=".csv,.xlsx,.xls,text/csv"
-          filter={isSpreadsheet}
-          multiple={false}
+        {computed.map((c) => (
+          <SourceSection
+            key={c.source.id}
+            c={c}
+            accounts={accounts ?? []}
+            onAccount={(id) => setSourceAccount(c.source.id, id)}
+            onRemove={() => removeSource(c.source.id)}
+            onToggle={(key, include) => setRow(c.source.id, key, { include })}
+            onReview={(key, patch) => patchReviewRow(c.source.id, key, patch)}
+          />
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
+function SourceSection({
+  c,
+  accounts,
+  onAccount,
+  onRemove,
+  onToggle,
+  onReview,
+}: {
+  c: Computed
+  accounts: Account[]
+  onAccount: (accountId: string) => void
+  onRemove: () => void
+  onToggle: (key: string, include: boolean) => void
+  onReview: (key: string, patch: Partial<EditRow>) => void
+}) {
+  const s = c.source
+  const ready = s.rows.filter((r) => r.bucket === 'ready' && !c.dup.has(r.key))
+  const alreadyImported = s.rows.filter((r) => r.bucket === 'ready' && c.dup.has(r.key))
+  const review = s.rows.filter((r) => r.bucket === 'review')
+  const excluded = s.rows.filter((r) => r.bucket === 'excluded')
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-ink-200 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-ink-900">{s.fileName}</p>
+          {s.sheetName !== s.fileName && <p className="truncate text-xs text-ink-400">arkusz: {s.sheetName}</p>}
+        </div>
+        <button
+          onClick={onRemove}
+          className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          aria-label="Usuń plik z importu"
         >
-          <FileUp className="text-brand-500" />
-          <span className="text-sm font-semibold text-ink-700">
-            Przeciągnij plik CSV lub XLSX (Arkusze: Plik → Pobierz) lub kliknij
-          </span>
-          <span className="text-xs text-ink-400">
-            Jeden arkusz = jedno konto — importuj osobno dla Main, Zoos…
-          </span>
-        </FileDrop>
+          <X size={16} />
+        </button>
+      </div>
 
-        {workbook && workbook.names.length > 1 && (
-          <Field label="Arkusz do zaimportowania">
-            <Select value={workbook.sheet} onChange={(e) => onSheet(e.target.value)}>
-              {workbook.names.map((n) => (
-                <option key={n} value={n}>
-                  {n}
+      {s.isStock ? (
+        <div className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 ring-1 ring-amber-200">
+          To wygląda na plik „wszystkie przedmioty" (finessin) z kolumną „Miesiąc". Zaimportuj go w{' '}
+          <b>Magazynie</b>, nie tutaj — jako sprzedaż zmieszałby oba konta.
+        </div>
+      ) : (
+        <>
+          <Field label="Konto, do którego przypisać tę sprzedaż">
+            <Select value={s.accountId} onChange={(e) => onAccount(e.target.value)}>
+              <option value="">— wybierz —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
                 </option>
               ))}
             </Select>
           </Field>
-        )}
 
-        {rows.length > 0 && (
-          <div className="space-y-4">
-            <Bucket title={`Gotowe do importu (${ready.length})`} tone="good">
-              {ready.map((r) => (
-                <RowLine key={r.key} r={r} onToggle={(v) => setRow(r.key, { include: v })} />
+          <Bucket title={`Gotowe do importu (${ready.length})`} tone="good">
+            {ready.map((r) => (
+              <RowLine key={r.key} r={r} onToggle={(v) => onToggle(r.key, v)} />
+            ))}
+          </Bucket>
+
+          {review.length > 0 && (
+            <Bucket title={`Do sprawdzenia (${review.length})`} tone="warn">
+              {review.map((r) => (
+                <ReviewLine key={r.key} r={r} onChange={(patch) => onReview(r.key, patch)} />
               ))}
             </Bucket>
+          )}
 
-            {review.length > 0 && (
-              <Bucket title={`Do sprawdzenia (${review.length})`} tone="warn">
-                {review.map((r) => (
-                  <ReviewLine key={r.key} r={r} onChange={(patch) => patchReviewRow(r.key, patch)} />
-                ))}
-              </Bucket>
-            )}
+          {alreadyImported.length > 0 && (
+            <Bucket title={`Już zaimportowane (${alreadyImported.length})`} tone="muted">
+              {alreadyImported.map((r) => (
+                <RowLine key={r.key} r={r} onToggle={() => {}} disabled />
+              ))}
+            </Bucket>
+          )}
 
-            {alreadyImported.length > 0 && (
-              <Bucket title={`Już zaimportowane (${alreadyImported.length})`} tone="muted">
-                {alreadyImported.map((r) => (
-                  <RowLine key={r.key} r={r} onToggle={() => {}} disabled />
-                ))}
-              </Bucket>
-            )}
-
-            {excluded.length > 0 && (
-              <Bucket title={`Koszty promocji (${excluded.length})`} tone="warn">
-                {excluded.map((r) => (
-                  <label key={r.key} className="flex items-center gap-3 px-4 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={r.include}
-                      onChange={(e) => setRow(r.key, { include: e.target.checked })}
-                      className="h-4 w-4 rounded border-ink-300 text-brand-500 focus:ring-brand-400"
-                    />
-                    <span className="flex-1 truncate text-ink-800">{r.productName}</span>
-                    <span className="text-ink-400">{r.dateTs ? dateShort(r.dateTs) : '—'}</span>
-                    <span className="w-20 text-right font-medium tabular-nums text-amber-700 dark:text-amber-400">
-                      {r.purchaseCost != null ? `−${money(r.purchaseCost)}` : '—'}
-                    </span>
-                  </label>
-                ))}
-              </Bucket>
-            )}
-          </div>
-        )}
-      </div>
-    </Modal>
+          {excluded.length > 0 && (
+            <Bucket title={`Koszty promocji (${excluded.length})`} tone="warn">
+              {excluded.map((r) => (
+                <label key={r.key} className="flex items-center gap-3 px-4 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={r.include}
+                    onChange={(e) => onToggle(r.key, e.target.checked)}
+                    className="h-4 w-4 rounded border-ink-300 text-brand-500 focus:ring-brand-400"
+                  />
+                  <span className="flex-1 truncate text-ink-800">{r.productName}</span>
+                  <span className="text-ink-400">{r.dateTs ? dateShort(r.dateTs) : '—'}</span>
+                  <span className="w-20 text-right font-medium tabular-nums text-amber-700 dark:text-amber-400">
+                    {r.purchaseCost != null ? `−${money(r.purchaseCost)}` : '—'}
+                  </span>
+                </label>
+              ))}
+            </Bucket>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

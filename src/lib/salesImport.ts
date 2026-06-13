@@ -233,3 +233,40 @@ export function expenseImportKey(
   const d = description.trim().toLowerCase().replace(/\s+/g, ' ')
   return [accountId, day, kind, d, amount].join('|')
 }
+
+// ---------------------------------------------------------------------------
+// Dopasowanie pliku/arkusza do konta + wykrycie pliku „wszystkie przedmioty".
+// ---------------------------------------------------------------------------
+
+/** Składa tekst do porównań: małe litery, bez polskich znaków diakrytycznych. */
+function fold(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+const NAME_STOPWORDS = new Set(['xlsx', 'xls', 'csv', 'sheet', 'arkusz'])
+
+/**
+ * Najlepsze (jednoznaczne) dopasowanie nazwy pliku/arkusza do konta — po name/notes/vintedUsername.
+ * Słowa krótsze niż 3 znaki oraz rozszerzenia plików są ignorowane. Dopasowanie jest dwukierunkowym
+ * podciągiem (np. słowo „zoos" pasuje do konta „zoos07"). Zwraca id konta tylko gdy pasuje DOKŁADNIE jedno.
+ */
+export function suggestAccountForSheet(
+  sheetName: string,
+  accounts: { id: string; name: string; notes?: string; vintedUsername?: string }[],
+): string | undefined {
+  const base = sheetName.replace(/\.(xlsx|xls|csv)$/i, '')
+  const words = fold(base)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !NAME_STOPWORDS.has(w))
+  if (!words.length) return undefined
+  const matches = accounts.filter((a) => {
+    const fields = [a.name, a.notes ?? '', a.vintedUsername ?? ''].map(fold).filter(Boolean)
+    return words.some((w) => fields.some((f) => f.includes(w) || (f.length >= 3 && w.includes(f))))
+  })
+  return matches.length === 1 ? matches[0].id : undefined
+}
+
+/** Czy nagłówek wygląda na plik „wszystkie przedmioty" (finessin) — sygnaturą jest kolumna „Miesiąc". */
+export function looksLikeStockSheet(header: string[]): boolean {
+  return header.some((h) => fold(h).includes('miesiac'))
+}

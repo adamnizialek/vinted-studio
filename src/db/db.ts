@@ -452,6 +452,52 @@ export async function clearAllData(): Promise<void> {
   )
 }
 
+/** Przedmiot z importu, którego usunięcie jest bezpieczne (brak własnej pracy: zdjęć). */
+const isImportedProduct = (p: Product) =>
+  p.importKey != null && (p.photoIds?.length ?? 0) === 0 && (p.generatedPhotoIds?.length ?? 0) === 0
+
+/** Liczy wiersze pochodzące z importu (z `importKey`), które usunąłby `clearImportedData`. */
+export async function countImportedData(): Promise<{ sales: number; expenses: number; products: number }> {
+  const [sales, expenses, products] = await Promise.all([
+    db.sales.filter((s) => s.importKey != null).count(),
+    db.expenses.filter((e) => e.importKey != null).count(),
+    db.products.filter(isImportedProduct).count(),
+  ])
+  return { sales, expenses, products }
+}
+
+/**
+ * Usuwa WYŁĄCZNIE dane pochodzące z importu CSV/XLSX (z `importKey`): sprzedaże, koszty
+ * promocji oraz przedmioty z magazynu BEZ zdjęć. Ręczne wpisy, konta, ustawienia i produkty,
+ * nad którymi pracowano w Studio (mają zdjęcia), zostają nietknięte. Propaguje usunięcia przez
+ * tombstone'y (jak `clearAllData`), więc czyszczenie obejmuje też chmurę i pozostałe urządzenia.
+ */
+export async function clearImportedData(): Promise<{ sales: number; expenses: number; products: number }> {
+  const now = Date.now()
+  return db.transaction('rw', [db.sales, db.expenses, db.products, db.outbox], async () => {
+    const sales = await db.sales.filter((s) => s.importKey != null).toArray()
+    const expenses = await db.expenses.filter((e) => e.importKey != null).toArray()
+    const products = await db.products.filter(isImportedProduct).toArray()
+
+    const wipe = async (
+      table: SyncTable,
+      tbl: Table<{ id: string }, string>,
+      rows: { id: string }[],
+    ) => {
+      for (const r of rows) {
+        await tbl.delete(r.id)
+        await db.outbox.put({ table, id: r.id, deleted: 1, updatedAt: now })
+      }
+    }
+
+    await wipe('sales', db.sales as Table<{ id: string }, string>, sales)
+    await wipe('expenses', db.expenses as Table<{ id: string }, string>, expenses)
+    await wipe('products', db.products as Table<{ id: string }, string>, products)
+
+    return { sales: sales.length, expenses: expenses.length, products: products.length }
+  })
+}
+
 /**
  * Importuje wiersze sprzedaży do wybranego konta. Liczy klucze treści, odrzuca duplikaty
  * względem wcześniej zaimportowanych wierszy (różnica multizbiorów) i wstawia resztę.

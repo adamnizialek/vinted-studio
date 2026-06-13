@@ -218,3 +218,57 @@ describe('expenseImportKey', () => {
     expect(a).toBe(b)
   })
 })
+
+import { suggestAccountForSheet, looksLikeStockSheet } from '@/lib/salesImport'
+
+describe('suggestAccountForSheet', () => {
+  const accounts = [
+    { id: 'acc-pangea', name: 'pangea', notes: 'main' },
+    { id: 'acc-zoos', name: 'zoos07' },
+  ]
+
+  it('matches a file named "Main" to the account whose note is "main"', () => {
+    expect(suggestAccountForSheet('Main.xlsx', accounts)).toBe('acc-pangea')
+  })
+
+  it('matches "Zoos" / "zoos07 …" to "zoos07" by substring', () => {
+    expect(suggestAccountForSheet('Zoos.xlsx', accounts)).toBe('acc-zoos')
+    expect(suggestAccountForSheet('zoos07 sprzedaż.csv', accounts)).toBe('acc-zoos')
+  })
+
+  it('returns undefined when two accounts match the same word', () => {
+    const ambiguous = [
+      { id: 'a', name: 'sklep ania' },
+      { id: 'b', name: 'sklep zosia' },
+    ]
+    expect(suggestAccountForSheet('sklep.xlsx', ambiguous)).toBeUndefined()
+  })
+
+  it('returns undefined when nothing matches', () => {
+    expect(suggestAccountForSheet('raport-2026.xlsx', accounts)).toBeUndefined()
+  })
+
+  it('ignores tiny words and the file extension', () => {
+    expect(suggestAccountForSheet('a.csv', accounts)).toBeUndefined()
+  })
+
+  it('matches when a file word contains a short account field (reverse substring)', () => {
+    expect(suggestAccountForSheet('pangea-raport.xlsx', [{ id: 'p', name: 'pan' }])).toBe('p')
+  })
+})
+
+describe('looksLikeStockSheet', () => {
+  it('is true when a header has a "Miesiąc" column (finessin)', () => {
+    expect(
+      looksLikeStockSheet(['Data sprzedaży', 'Miesiąc', 'Nazwa przedmiotu', 'Cena zakupu', 'Cena sprzedaży']),
+    ).toBe(true)
+  })
+
+  it('is diacritic-insensitive', () => {
+    expect(looksLikeStockSheet(['data', 'miesiac', 'nazwa'])).toBe(true)
+  })
+
+  it('is false for the Main/Zoos sales header', () => {
+    expect(looksLikeStockSheet(['Data sprzedaży', 'Nazwa', 'Cena zaukupu', 'Cena Sprzedaży'])).toBe(false)
+  })
+})
