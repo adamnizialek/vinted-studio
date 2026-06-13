@@ -6,11 +6,10 @@ compatibility_date = "2024-11-01"
 pages_build_output_dir = "dist"
 
 # --- D1: metadata rows + inline thumbnails ---
-# database_id is filled in by Task 1.3 after `wrangler d1 create vinted-studio`.
 [[d1_databases]]
 binding = "DB"
 database_name = "vinted-studio"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "44f49bb5-2c1f-4d99-b2c4-2fff9cba267a"
 migrations_dir = "migrations"
 
 # --- R2: full image binaries only (key = images/{imageId}) ---
