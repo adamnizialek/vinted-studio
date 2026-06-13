@@ -1,6 +1,8 @@
-import { db, putEntity } from '@/db/db'
+import { putEntity } from '@/db/db'
 import type { GeneratedImageMeta, ImageKind, ImageRecord } from '@/db/types'
 import { uid } from './id'
+import { enqueueBlobUpload, getBlob } from '@/sync/blobSync'
+import { currentRemote } from '@/sync/config'
 
 const MAX_DIM = 1600 // maks. dluzszy bok zapisywanego zdjecia (px)
 const THUMB_DIM = 320 // dluzszy bok miniatury (px)
@@ -81,7 +83,9 @@ export async function addImageFromFile(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
-  return putEntity('images', rec)
+  const saved = await putEntity('images', rec)
+  await enqueueBlobUpload(saved.id)
+  return saved
 }
 
 /** Zapisuje obraz wygenerowany przez Gemini (base64). */
@@ -107,7 +111,9 @@ export async function addGeneratedImage(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
-  return putEntity('images', rec)
+  const saved = await putEntity('images', rec)
+  await enqueueBlobUpload(saved.id)
+  return saved
 }
 
 export function base64ToBlob(base64: string, mime: string): Blob {
@@ -130,7 +136,10 @@ export function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
+/**
+ * Pelny blob obrazu. Jesli nie ma go lokalnie (rekord przyszedl z synchronizacji),
+ * doczytuje go leniwie z R2 i buforuje. Zwraca undefined, gdy nie da sie pobrac.
+ */
 export async function getImageBlob(id: string): Promise<Blob | undefined> {
-  const rec = await db.images.get(id)
-  return rec?.blob
+  return getBlob(id, currentRemote())
 }

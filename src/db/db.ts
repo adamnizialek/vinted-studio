@@ -26,6 +26,11 @@ export interface SyncMeta {
   value: unknown
 }
 
+/** Lokalny (niesynchronizowany) znacznik: blob obrazu czeka na upload do R2. */
+export interface BlobUpload {
+  id: string
+}
+
 export class VintedStudioDB extends Dexie {
   products!: Table<Product, string>
   models!: Table<AiModel, string>
@@ -35,6 +40,7 @@ export class VintedStudioDB extends Dexie {
   settings!: Table<AppSettings, string>
   outbox!: Table<OutboxEntry, [SyncTable, string]>
   sync_meta!: Table<SyncMeta, string>
+  blob_outbox!: Table<BlobUpload, string>
 
   constructor() {
     super('vinted-studio')
@@ -53,6 +59,7 @@ export class VintedStudioDB extends Dexie {
       .stores({
         outbox: '[table+id], table',
         sync_meta: 'key',
+        blob_outbox: 'id',
       })
       .upgrade(async (tx) => {
         const backfill = (r: { createdAt?: number; updatedAt?: number }) => {
