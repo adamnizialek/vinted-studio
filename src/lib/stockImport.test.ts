@@ -88,3 +88,36 @@ describe('matchAccounts', () => {
     expect(m.confidence).toBe('none')
   })
 })
+
+import { stockImportKey, dedupKeyedStock, type KeyedStockDraft } from '@/lib/stockImport'
+
+describe('stockImportKey', () => {
+  it('is stable under whitespace/case/SKU differences and includes purchase cost', () => {
+    expect(stockImportKey('Koszulka  Messi', 35)).toBe(stockImportKey('koszulka messi', 35))
+    expect(stockImportKey('Bluza zebra AX10247937', 42.92)).toBe('bluza zebra|42.92')
+    expect(stockImportKey('Koszulka Messi')).toBe('koszulka messi|')
+  })
+})
+
+describe('dedupKeyedStock', () => {
+  const keyed = (n: number): KeyedStockDraft[] =>
+    Array.from({ length: n }, () => ({ key: 'k', draft: { name: 'x' } }))
+
+  it('inserts everything when nothing exists', () => {
+    const { toInsert, skipped } = dedupKeyedStock(new Map(), keyed(5))
+    expect(toInsert).toHaveLength(5)
+    expect(skipped).toBe(0)
+  })
+
+  it('skips exactly the already-present count (multiset)', () => {
+    const { toInsert, skipped } = dedupKeyedStock(new Map([['k', 2]]), keyed(5))
+    expect(toInsert).toHaveLength(3)
+    expect(skipped).toBe(2)
+  })
+
+  it('is idempotent when counts already cover the incoming rows', () => {
+    const { toInsert, skipped } = dedupKeyedStock(new Map([['k', 5]]), keyed(5))
+    expect(toInsert).toHaveLength(0)
+    expect(skipped).toBe(5)
+  })
+})

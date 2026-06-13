@@ -155,3 +155,40 @@ export function matchAccounts(
     return { draft, accountId: undefined, candidates, confidence: 'none' }
   })
 }
+
+export interface KeyedStockDraft {
+  key: string
+  draft: ResolvedStockDraft
+}
+
+/**
+ * Deterministyczny klucz treści przedmiotu — do wykrywania duplikatów przy ponownym imporcie.
+ * Konto CELOWO nie wchodzi do klucza (źródło `finessin` nie zna konta), więc ponowny import
+ * jest stabilny nawet po ręcznym przypisaniu konta w magazynie.
+ */
+export function stockImportKey(name: string, purchaseCost?: number): string {
+  return [normalizeForMatch(name), purchaseCost ?? ''].join('|')
+}
+
+/**
+ * Różnica multizbiorów: dla każdego klucza wstawia tylko nadmiar ponad już istniejące.
+ * Zachowuje prawdziwe powtórki (np. 5× ta sama koszulka), a ponowny import jest idempotentny.
+ */
+export function dedupKeyedStock(
+  existingCounts: Map<string, number>,
+  keyed: KeyedStockDraft[],
+): { toInsert: KeyedStockDraft[]; skipped: number } {
+  const seen = new Map(existingCounts)
+  const toInsert: KeyedStockDraft[] = []
+  let skipped = 0
+  for (const item of keyed) {
+    const c = seen.get(item.key) ?? 0
+    if (c > 0) {
+      seen.set(item.key, c - 1)
+      skipped++
+    } else {
+      toInsert.push(item)
+    }
+  }
+  return { toInsert, skipped }
+}
