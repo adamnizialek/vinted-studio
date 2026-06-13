@@ -21,5 +21,7 @@ export function parsePlDate(raw: string | undefined): number | null {
   const year = Number(m[3])
   if (mon < 1 || mon > 12 || day < 1 || day > 31) return null
   if (year < 2020 || year > 2030) return null
-  return new Date(year, mon - 1, day, 12, 0, 0, 0).getTime()
+  const d = new Date(year, mon - 1, day, 12, 0, 0, 0)
+  if (d.getFullYear() !== year || d.getMonth() !== mon - 1 || d.getDate() !== day) return null
+  return d.getTime()
 }

@@ -38,5 +38,6 @@ describe('parsePlDate', () => {
     expect(parsePlDate('')).toBeNull()
     expect(parsePlDate('foo')).toBeNull()
     expect(parsePlDate('13.13.2026')).toBeNull()
+    expect(parsePlDate('30.02.2026')).toBeNull()
   })
 })
