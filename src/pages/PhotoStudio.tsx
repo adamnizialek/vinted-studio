@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
-import { EST_IMAGE_COST_USD } from '@/lib/constants'
+import { DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_RESOLUTION, estimateImageCostUsd } from '@/lib/constants'
 import { SCENE_PRESETS, buildPhotoPrompt, type PhotoMode } from '@/lib/prompts'
 import { generateImage, type InlineImage } from '@/lib/gemini'
 import { addGeneratedImage, blobToBase64 } from '@/lib/images'
@@ -56,7 +56,11 @@ export function PhotoStudio() {
   }, [productId])
 
   const variants = settings?.imageVariants ?? 1
-  const estCost = (variants * EST_IMAGE_COST_USD).toFixed(3)
+  const perImageCost = estimateImageCostUsd(
+    settings?.imageModel ?? DEFAULT_IMAGE_MODEL,
+    settings?.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
+  )
+  const estCost = (variants * perImageCost).toFixed(3)
 
   const noModels = models && models.length === 0
   const canGenerate =
@@ -105,6 +109,8 @@ export function PhotoStudio() {
         const { images } = await generateImage(prompt, inputs, {
           apiKey: settings.geminiApiKey,
           model: settings.imageModel,
+          resolution: settings.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
+          aspectRatio: aspect,
         })
         await bumpImageCount(images.length)
         for (const img of images) {

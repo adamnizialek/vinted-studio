@@ -1,6 +1,8 @@
 // Lekki klient REST Gemini API (bez SDK — zero dodatkowych zaleznosci).
 // Klucz API uzytkownika jest trzymany lokalnie i wysylany wylacznie do Google.
 
+import type { ImageResolution } from '@/db/types'
+
 const BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 export class GeminiError extends Error {
@@ -138,6 +140,61 @@ export interface ImageOptions {
   apiKey: string
   model: string
   temperature?: number
+  /** Rozdzielczosc wyjsciowa — wysylana tylko do modeli Gemini 3 image. */
+  resolution?: ImageResolution
+  /** Proporcje (np. '3:4') — natywne pole imageConfig modeli Gemini 3. */
+  aspectRatio?: string
+}
+
+interface ImageRequestBody {
+  contents: { role: string; parts: GeminiPart[] }[]
+  generationConfig: {
+    responseModalities: string[]
+    temperature?: number
+    imageConfig?: { imageSize?: ImageResolution; aspectRatio?: string }
+  }
+}
+
+/**
+ * Czy model obsluguje natywny `imageConfig` (rozdzielczosc + proporcje).
+ * Dotyczy wylacznie rodziny Gemini 3 image — starszy gemini-2.5-flash-image
+ * odrzuca to pole (HTTP 400) i renderuje zawsze ~1MP.
+ */
+export function supportsImageConfig(model: string): boolean {
+  return /^gemini-3/.test(model)
+}
+
+/**
+ * Buduje cialo zadania `:generateContent` dla generacji obrazu. Wydzielone jako
+ * czysta funkcja, by jednoznacznie testowac, ze rozdzielczosc (imageSize) realnie
+ * trafia do API dla modeli Gemini 3 i NIE trafia do starego modelu 2.5.
+ */
+export function buildImageRequestBody(
+  prompt: string,
+  inputImages: InlineImage[],
+  opts: ImageOptions,
+): ImageRequestBody {
+  const parts: GeminiPart[] = [{ text: prompt }]
+  for (const img of inputImages) {
+    parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
+  }
+
+  const body: ImageRequestBody = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      temperature: opts.temperature ?? 0.9,
+    },
+  }
+
+  if (supportsImageConfig(opts.model)) {
+    const imageConfig: { imageSize?: ImageResolution; aspectRatio?: string } = {}
+    if (opts.resolution) imageConfig.imageSize = opts.resolution
+    if (opts.aspectRatio) imageConfig.aspectRatio = opts.aspectRatio
+    if (Object.keys(imageConfig).length) body.generationConfig.imageConfig = imageConfig
+  }
+
+  return body
 }
 
 /**
@@ -149,17 +206,7 @@ export async function generateImage(
   inputImages: InlineImage[],
   opts: ImageOptions,
 ): Promise<{ images: InlineImage[]; text: string }> {
-  const parts: GeminiPart[] = [{ text: prompt }]
-  for (const img of inputImages) {
-    parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
-  }
-  const body = {
-    contents: [{ role: 'user', parts }],
-    generationConfig: {
-      responseModalities: ['TEXT', 'IMAGE'],
-      temperature: opts.temperature ?? 0.9,
-    },
-  }
+  const body = buildImageRequestBody(prompt, inputImages, opts)
   const resParts = await callGenerate(opts.model, opts.apiKey, body)
   const images = extractImages(resParts)
   const text = extractText(resParts)

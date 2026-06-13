@@ -7,6 +7,7 @@ import type { AiModel } from '@/db/types'
 import { uid } from '@/lib/id'
 import { addImageFromFile, base64ToBlob } from '@/lib/images'
 import { generateImage } from '@/lib/gemini'
+import { DEFAULT_IMAGE_RESOLUTION } from '@/lib/constants'
 import { buildModelGenerationPrompt } from '@/lib/prompts'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
@@ -70,6 +71,8 @@ export function Models() {
       const { images } = await generateImage(prompt, [], {
         apiKey: settings.geminiApiKey,
         model: settings.imageModel,
+        resolution: settings.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
+        aspectRatio: '3:4', // pelnopostaciowy portret referencyjny
       })
       await bumpImageCount(images.length)
       const ids: string[] = []
