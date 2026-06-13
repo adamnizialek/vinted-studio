@@ -239,7 +239,7 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
         )}
 
         {(!sales || sales.length === 0) && (
-          <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 ring-1 ring-amber-200">
+          <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
             Brak sprzedaży w aplikacji — nie ma do czego dopasowywać kont. Zaimportuj najpierw
             sprzedaż (Main, Zoos), a potem stan magazynu, żeby konta dobrały się automatycznie.
           </p>

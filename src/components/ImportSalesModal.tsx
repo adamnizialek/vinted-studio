@@ -332,7 +332,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
                     />
                     <span className="flex-1 truncate text-ink-800">{r.productName}</span>
                     <span className="text-ink-400">{r.dateTs ? dateShort(r.dateTs) : '—'}</span>
-                    <span className="w-20 text-right font-medium tabular-nums text-amber-700">
+                    <span className="w-20 text-right font-medium tabular-nums text-amber-700 dark:text-amber-400">
                       {r.purchaseCost != null ? `−${money(r.purchaseCost)}` : '—'}
                     </span>
                   </label>

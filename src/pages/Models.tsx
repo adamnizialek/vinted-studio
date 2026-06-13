@@ -230,14 +230,14 @@ export function Models() {
                         title="Ustaw jako okładkę"
                         className={clsx(
                           'absolute left-1.5 top-1.5 rounded-lg p-1 text-white',
-                          editing.coverImageId === id ? 'bg-amber-500' : 'bg-ink-900/50 opacity-0 group-hover:opacity-100',
+                          editing.coverImageId === id ? 'bg-amber-500' : 'bg-black/50 opacity-0 group-hover:opacity-100',
                         )}
                       >
                         <Star size={13} fill={editing.coverImageId === id ? 'currentColor' : 'none'} />
                       </button>
                       <button
                         onClick={() => removeImage(id)}
-                        className="absolute right-1.5 top-1.5 rounded-lg bg-ink-900/50 p-1 text-white opacity-0 transition group-hover:opacity-100"
+                        className="absolute right-1.5 top-1.5 rounded-lg bg-black/50 p-1 text-white opacity-0 transition group-hover:opacity-100"
                       >
                         <X size={13} />
                       </button>

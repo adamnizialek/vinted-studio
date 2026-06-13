@@ -13,7 +13,7 @@ export function Toasts() {
             ? 'bg-emerald-600'
             : t.type === 'error'
               ? 'bg-red-600'
-              : 'bg-ink-800'
+              : 'bg-slate-800' /* staly ciemny — nie odwraca sie z rampa ink */
         return (
           <div
             key={t.id}

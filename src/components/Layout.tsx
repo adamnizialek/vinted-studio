@@ -68,7 +68,7 @@ export function Layout() {
   return (
     <div className="min-h-full lg:flex">
       {/* Sidebar (desktop) */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-ink-100 bg-white px-3 py-4 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-ink-100 bg-surface px-3 py-4 lg:flex">
         <Brand />
         <div className="mt-6 flex-1">
           <NavItems />
@@ -80,7 +80,7 @@ export function Layout() {
       </aside>
 
       {/* Mobile header */}
-      <header className="sticky top-0 z-40 flex items-center justify-between border-b border-ink-100 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-40 flex items-center justify-between border-b border-ink-100 bg-surface/90 px-4 py-3 backdrop-blur lg:hidden">
         <Brand />
         <button
           onClick={() => setOpen(true)}
@@ -94,8 +94,8 @@ export function Layout() {
       {/* Mobile drawer */}
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-72 bg-white p-3 shadow-pop">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-0 h-full w-72 bg-surface p-3 shadow-pop">
             <div className="flex items-center justify-between">
               <Brand />
               <button onClick={() => setOpen(false)} className="rounded-lg p-2 text-ink-500 hover:bg-ink-100">
@@ -114,7 +114,7 @@ export function Layout() {
         {needsKey && (
           <Link
             to="/ustawienia"
-            className="flex items-center gap-2 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            className="flex items-center gap-2 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60"
           >
             <AlertTriangle size={16} />
             Dodaj klucz API Gemini w Ustawieniach, aby włączyć generowanie zdjęć i opisów.

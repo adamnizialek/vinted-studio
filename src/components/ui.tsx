@@ -77,7 +77,7 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 bg-white/50 px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 bg-surface/50 px-6 py-14 text-center">
       {icon && <div className="mb-3 text-ink-300">{icon}</div>}
       <h3 className="text-base font-semibold text-ink-800">{title}</h3>
       {description && <p className="mt-1 max-w-sm text-sm text-ink-500">{description}</p>}
@@ -146,11 +146,11 @@ export function Modal({
   if (!open) return null
   const widths = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/40 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div className="absolute inset-0" onClick={onClose} />
       <div
         className={clsx(
-          'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-pop sm:rounded-2xl',
+          'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-pop sm:rounded-2xl',
           widths[size],
         )}
       >

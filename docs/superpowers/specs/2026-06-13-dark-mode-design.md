@@ -70,6 +70,20 @@ Proposed dark ramp (RGB channels; tunable during implementation):
 - **`bg-white` → `bg-surface`** across pages/components (~11 usages) and the three
   component classes above.
 - **`text-white`** on colored buttons stays `text-white` (correct on dark).
+- **Constant-dark overlays** — scrims and overlay chips that pair a dark `ink` background
+  with `text-white` would *wrongly* invert to light and hide their white content. Pin these
+  to theme-independent values:
+  - Modal/drawer scrims (`bg-ink-950/40` in `ui.tsx`, `Layout.tsx`) → `bg-black/50`.
+  - Image-overlay icon buttons (`bg-ink-900/50 text-white` in `Models.tsx`,
+    `ProductEditor.tsx`) → `bg-black/50` (keep `text-white`).
+  - Info/neutral toast (`bg-ink-800 text-white` in `Toasts.tsx`) → `bg-slate-800`
+    (fixed dark; success/error toasts already use constant `*-600`).
+- **Inverting pills** — `bg-ink-900 text-white` (the active segmented tab in `Sales.tsx`)
+  must use `text-ink-50` instead of `text-white`, so the foreground inverts in lockstep
+  with the background and stays legible in both themes.
+- **Component classes with pastel tints** — `.btn-soft`, `.btn-danger`, and
+  `.nav-link-active` bake in `*-50` tints; give each a `dark:` variant alongside the
+  `bg-surface` updates to `.card`/`.btn-ghost`/`.input`.
 - **Soft pastel tints** that would glow on dark — `bg-amber-50`, `bg-red-50`,
   `bg-brand-50` and any matching soft border/text pairings (~12 spots): add a `dark:`
   variant per spot, e.g. `bg-amber-50 dark:bg-amber-950/40`,

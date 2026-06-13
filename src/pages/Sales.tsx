@@ -223,7 +223,7 @@ export function Sales() {
                           <button onClick={() => { setEditing(s); setOpen(true) }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
                             <Pencil size={14} />
                           </button>
-                          <button onClick={() => remove(s.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600">
+                          <button onClick={() => remove(s.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -264,7 +264,7 @@ export function Sales() {
                         <span className="ml-2 chip">{EXPENSE_KIND_LABELS[e.kind]}</span>
                       </td>
                       <td className="px-4 py-2.5 text-ink-500">{accName(e.accountId)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-amber-700">
+                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-amber-700 dark:text-amber-400">
                         −{money(e.amount, e.currency)}
                       </td>
                       <td className="px-4 py-2.5">
@@ -272,7 +272,7 @@ export function Sales() {
                           <button onClick={() => { setEditingExp(e); setExpOpen(true) }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
                             <Pencil size={14} />
                           </button>
-                          <button onClick={() => removeExpense(e.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600">
+                          <button onClick={() => removeExpense(e.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -309,7 +309,7 @@ function ViewChip({
       onClick={onClick}
       className={clsx(
         'inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold transition',
-        active ? 'bg-ink-900 text-white' : 'bg-white text-ink-600 ring-1 ring-ink-200 hover:bg-ink-50',
+        active ? 'bg-ink-900 text-ink-50' : 'bg-surface text-ink-600 ring-1 ring-ink-200 hover:bg-ink-50',
       )}
     >
       {color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}

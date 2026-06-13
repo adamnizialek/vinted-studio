@@ -161,7 +161,7 @@ export function PhotoStudio() {
       />
 
       {noModels && mode === 'tryOn' && (
-        <div className="mb-4 flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="mb-4 flex items-center justify-between rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           <span>Nie masz jeszcze modelki AI — utwórz ją, aby przymierzać ubrania.</span>
           <Link to="/modelki" className="btn-soft btn-sm">
             <Shirt size={14} /> Modelki
@@ -219,7 +219,9 @@ export function PhotoStudio() {
                   onClick={() => setSceneId(s.id)}
                   className={clsx(
                     'rounded-xl px-3 py-2 text-left text-sm font-medium transition',
-                    sceneId === s.id ? 'bg-brand-50 text-brand-700 ring-2 ring-brand-300' : 'bg-ink-50 text-ink-600 hover:bg-ink-100',
+                    sceneId === s.id
+                      ? 'bg-brand-50 text-brand-700 ring-2 ring-brand-300 dark:bg-brand-950/40 dark:text-brand-300'
+                      : 'bg-ink-50 text-ink-600 hover:bg-ink-100',
                   )}
                 >
                   <span className="mr-1">{s.emoji}</span>
@@ -307,11 +309,11 @@ export function PhotoStudio() {
               {product.generatedPhotoIds.map((id) => (
                 <div key={id} className="group relative overflow-hidden rounded-2xl bg-ink-100 ring-1 ring-ink-100">
                   <FullImage imageId={id} className="aspect-[3/4] w-full object-cover" />
-                  <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-ink-950/60 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
-                    <button onClick={() => download(id)} className="rounded-lg bg-white/90 p-1.5 text-ink-700 hover:bg-white" title="Pobierz">
+                  <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
+                    <button onClick={() => download(id)} className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface" title="Pobierz">
                       <Download size={15} />
                     </button>
-                    <button onClick={() => removeGenerated(id)} className="rounded-lg bg-white/90 p-1.5 text-red-600 hover:bg-white" title="Usuń">
+                    <button onClick={() => removeGenerated(id)} className="rounded-lg bg-surface/90 p-1.5 text-red-600 hover:bg-surface" title="Usuń">
                       <Trash2 size={15} />
                     </button>
                   </div>

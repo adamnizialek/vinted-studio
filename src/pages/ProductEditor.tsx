@@ -490,7 +490,7 @@ function PhotoCell({ id, onRemove, ai }: { id: string; onRemove: () => void; ai?
       )}
       <button
         onClick={onRemove}
-        className="absolute right-1.5 top-1.5 rounded-lg bg-ink-900/50 p-1 text-white opacity-0 transition group-hover:opacity-100"
+        className="absolute right-1.5 top-1.5 rounded-lg bg-black/50 p-1 text-white opacity-0 transition group-hover:opacity-100"
       >
         <X size={13} />
       </button>

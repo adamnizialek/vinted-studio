@@ -17,6 +17,7 @@ import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
 import { aggregateProfit, countsAsRevenue, dateShort, money } from '@/lib/format'
 import { StatCard } from '@/components/ui'
+import { useChartColors } from '@/lib/hooks'
 
 const ACTIVE_STATUSES = new Set(['draft', 'in_stock', 'listed', 'reserved'])
 
@@ -27,6 +28,7 @@ export function Dashboard() {
   const expenses = useLiveQuery(() => db.expenses.toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
   const currency = settings?.currency ?? 'PLN'
+  const chartColors = useChartColors()
 
   const active = (products ?? []).filter((p) => ACTIVE_STATUSES.has(p.status))
   const inventoryValue = active.reduce((s, p) => s + (p.listingPrice ?? 0) * (p.quantity || 1), 0)
@@ -100,15 +102,21 @@ export function Dashboard() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chart} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eceef2" />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} stroke="#8290a5" />
-                <YAxis tickLine={false} axisLine={false} fontSize={12} stroke="#8290a5" width={56} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} stroke={chartColors.axis} />
+                <YAxis tickLine={false} axisLine={false} fontSize={12} stroke={chartColors.axis} width={56} />
                 <Tooltip
-                  cursor={{ fill: '#f6f7f9' }}
+                  cursor={{ fill: chartColors.cursor }}
                   formatter={(v: number) => [money(v, currency), 'Przychód']}
-                  contentStyle={{ borderRadius: 12, border: '1px solid #eceef2', fontSize: 13 }}
+                  contentStyle={{
+                    borderRadius: 12,
+                    border: `1px solid ${chartColors.tooltipBorder}`,
+                    background: chartColors.tooltipBg,
+                    color: chartColors.tooltipText,
+                    fontSize: 13,
+                  }}
                 />
-                <Bar dataKey="value" fill="#0b9b82" radius={[6, 6, 0, 0]} maxBarSize={48} />
+                <Bar dataKey="value" fill={chartColors.bar} radius={[6, 6, 0, 0]} maxBarSize={48} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -123,7 +131,7 @@ export function Dashboard() {
             </div>
             <p className="mt-2 text-3xl font-extrabold text-ink-900">{toList}</p>
             <p className="text-sm text-ink-500">przedmiotów gotowych / szkiców</p>
-            <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-xs text-brand-700">
+            <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-xs text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">
               💡 Najwięcej kupujących jest wieczorem — wystawiaj między 18:00 a 22:00.
             </p>
             <Link to="/magazyn" className="btn-ghost btn-sm mt-3 w-full">
@@ -133,7 +141,7 @@ export function Dashboard() {
 
           {accounts && accounts.length === 0 && (
             <Link to="/modelki" className="card flex items-center gap-3 p-4 transition hover:shadow-pop">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950/40 dark:text-brand-300">
                 <Shirt size={18} />
               </div>
               <div>
@@ -181,7 +189,7 @@ export function Dashboard() {
             <div className="space-y-1">
               {recent.map((s) => (
                 <div key={s.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-ink-50">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
                     <Wallet size={15} />
                   </span>
                   <div className="min-w-0 flex-1">

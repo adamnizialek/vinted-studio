@@ -246,7 +246,7 @@ export function SettingsPage() {
           <Coins size={18} className="text-amber-500" />
           <h3 className="font-bold">Generowanie zdjęć i koszty</h3>
         </div>
-        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           Uwaga: generowanie obrazów przez Gemini API jest <b>płatne od pierwszego użycia</b> (brak
           darmowego limitu). Orientacyjnie ok. <b>${perImageCost.toFixed(3)}</b> za obraz przy{' '}
           <b>{form.imageModel}</b> @ <b>{form.imageResolution}</b>. Opisy tekstowe mają hojny darmowy limit.

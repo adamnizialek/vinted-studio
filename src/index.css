@@ -3,8 +3,47 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Motyw jest sterowany wylacznie systemowo (prefers-color-scheme) — brak
+   * przelacznika w aplikacji. Neutralna rampa "ink" oraz "surface"/"checker"
+   * to zmienne CSS (kanaly RGB), ktore odwracamy w jednym bloku @media ponizej.
+   * Dzieki temu ~95% UI przelacza sie automatycznie, bez wariantow dark: i bez JS.
+   */
   :root {
     color-scheme: light;
+    --ink-50: 246 247 249;
+    --ink-100: 236 238 242;
+    --ink-200: 212 217 225;
+    --ink-300: 174 183 198;
+    --ink-400: 130 144 165;
+    --ink-500: 99 113 137;
+    --ink-600: 78 90 112;
+    --ink-700: 64 73 91;
+    --ink-800: 55 62 77;
+    --ink-900: 31 36 46;
+    --ink-950: 19 22 28;
+    --surface: 255 255 255;
+    --checker: 236 238 242;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      /* Odwrocenie rol: tla ciemnieja, tekst jasnieje, a tony srodkowe
+         (przyciszony tekst ink-400/500) pozostaja czytelne. */
+      --ink-50: 19 22 28;
+      --ink-100: 27 31 39;
+      --ink-200: 38 43 53;
+      --ink-300: 51 58 70;
+      --ink-400: 138 151 171;
+      --ink-500: 164 175 193;
+      --ink-600: 184 193 208;
+      --ink-700: 204 211 222;
+      --ink-800: 221 226 234;
+      --ink-900: 238 241 245;
+      --ink-950: 246 247 249;
+      --surface: 30 35 44;
+      --checker: 38 43 53;
+    }
   }
   html,
   body,
@@ -40,26 +79,28 @@
     @apply btn bg-brand-500 text-white shadow-sm hover:bg-brand-600;
   }
   .btn-ghost {
-    @apply btn bg-white text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50;
+    @apply btn bg-surface text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50;
   }
   .btn-soft {
-    @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100;
+    @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100
+      dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-950/60;
   }
   .btn-danger {
-    @apply btn bg-red-50 text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-100;
+    @apply btn bg-red-50 text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-100
+      dark:bg-red-950/40 dark:text-red-400 dark:ring-red-900 dark:hover:bg-red-950/60;
   }
   .btn-sm {
     @apply px-2.5 py-1.5 text-xs;
   }
   .card {
-    @apply rounded-2xl bg-white shadow-card ring-1 ring-ink-100;
+    @apply rounded-2xl bg-surface shadow-card ring-1 ring-ink-100;
   }
   .label {
     @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-500;
   }
   .input {
     @apply w-full rounded-xl border-0 bg-ink-50 px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-200
-      placeholder:text-ink-400 focus:bg-white focus:ring-2 focus:ring-brand-400 focus:outline-none;
+      placeholder:text-ink-400 focus:bg-surface focus:ring-2 focus:ring-brand-400 focus:outline-none;
   }
   textarea.input {
     @apply leading-relaxed;
@@ -75,17 +116,20 @@
       transition hover:bg-ink-100 hover:text-ink-900;
   }
   .nav-link-active {
-    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700;
+    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700
+      dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-950/40 dark:hover:text-brand-300;
   }
 }
 
-/* Wzorek tla "w kratke" pod podgladem obrazow z przezroczystoscia */
+/* Wzorek tla "w kratke" pod podgladem obrazow z przezroczystoscia.
+   Kolor pochodzi ze zmiennej --checker, wiec ciemnieje w trybie ciemnym. */
 .checker {
+  --c: rgb(var(--checker));
   background-image:
-    linear-gradient(45deg, #eceef2 25%, transparent 25%),
-    linear-gradient(-45deg, #eceef2 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #eceef2 75%),
-    linear-gradient(-45deg, transparent 75%, #eceef2 75%);
+    linear-gradient(45deg, var(--c) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--c) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--c) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--c) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }

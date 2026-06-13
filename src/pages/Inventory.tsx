@@ -127,7 +127,7 @@ export function Inventory() {
           }
         />
       ) : filtered.length === 0 ? (
-        <p className="rounded-2xl bg-white px-4 py-10 text-center text-sm text-ink-400 ring-1 ring-ink-100">
+        <p className="rounded-2xl bg-surface px-4 py-10 text-center text-sm text-ink-400 ring-1 ring-ink-100">
           Brak produktów pasujących do filtrów.
         </p>
       ) : (

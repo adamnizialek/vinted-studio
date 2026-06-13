@@ -100,7 +100,7 @@ export function Accounts() {
                   </button>
                   <button
                     onClick={() => remove(a.id)}
-                    className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600"
+                    className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
                   >
                     <Trash2 size={15} />
                   </button>

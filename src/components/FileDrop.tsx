@@ -47,7 +47,9 @@ export function FileDrop({
       }}
       className={clsx(
         'flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-8 text-center transition',
-        over ? 'border-brand-400 bg-brand-50' : 'border-ink-200 bg-ink-50/60 hover:border-brand-300 hover:bg-brand-50/40',
+        over
+          ? 'border-brand-400 bg-brand-50 dark:bg-brand-950/40'
+          : 'border-ink-200 bg-ink-50/60 hover:border-brand-300 hover:bg-brand-50/40 dark:hover:bg-brand-950/30',
         disabled && 'pointer-events-none opacity-50',
         className,
       )}

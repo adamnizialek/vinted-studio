@@ -18,19 +18,25 @@ export default {
           900: '#0c423b',
           950: '#022621',
         },
+        // Neutralna rampa "ink" jest sterowana zmiennymi CSS, by motyw mogl sie
+        // odwracac w jednym bloku @media (prefers-color-scheme: dark) — patrz index.css.
+        // Wartosci to kanaly RGB ("R G B"), dzieki czemu modyfikatory przezroczystosci
+        // (np. bg-ink-100/60) dzialaja przez rgb(var(--x) / <alpha-value>).
         ink: {
-          50: '#f6f7f9',
-          100: '#eceef2',
-          200: '#d4d9e1',
-          300: '#aeb7c6',
-          400: '#8290a5',
-          500: '#637189',
-          600: '#4e5a70',
-          700: '#40495b',
-          800: '#373e4d',
-          900: '#1f242e',
-          950: '#13161c',
+          50: 'rgb(var(--ink-50) / <alpha-value>)',
+          100: 'rgb(var(--ink-100) / <alpha-value>)',
+          200: 'rgb(var(--ink-200) / <alpha-value>)',
+          300: 'rgb(var(--ink-300) / <alpha-value>)',
+          400: 'rgb(var(--ink-400) / <alpha-value>)',
+          500: 'rgb(var(--ink-500) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          950: 'rgb(var(--ink-950) / <alpha-value>)',
         },
+        // Powierzchnia "kartowa" — w jasnym motywie biala, w ciemnym podniesiony panel.
+        surface: 'rgb(var(--surface) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
