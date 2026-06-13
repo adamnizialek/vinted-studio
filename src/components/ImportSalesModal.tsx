@@ -12,14 +12,16 @@ import { FileDrop } from '@/components/FileDrop'
 import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
 
 interface EditRow extends ParsedRow {
-  /** Stabilny klucz Reacta: `${plik}#${rowIndex}`. */
+  /** Stabilny klucz Reacta: `${index pliku}:${plik}#${rowIndex}`. */
   key: string
-  sourceFile: string
   include: boolean
 }
 
 const isCsv = (f: File) =>
   /\.csv$/i.test(f.name) || f.type.includes('csv') || f.type === 'text/plain'
+
+const rowValid = (r: { salePrice?: number; dateTs: number | null }) =>
+  r.salePrice != null && r.salePrice > 0 && r.dateTs != null
 
 export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const accounts = useLiveQuery(() => db.accounts.orderBy('createdAt').toArray(), [])
@@ -35,34 +37,55 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     setCreating(false)
   }
 
+  // Zamknięcie czyści wczytane wiersze (zachowuje wybrane konto na kolejny import).
+  const close = () => {
+    reset()
+    onClose()
+  }
+
   const onFiles = async (files: File[]) => {
-    const next: EditRow[] = []
-    for (const f of files) {
-      const text = await f.text()
-      const { rows: parsed } = parseSalesCsv(text)
-      for (const r of parsed) {
-        next.push({
-          ...r,
-          key: `${f.name}#${r.rowIndex}`,
-          sourceFile: f.name,
-          include: r.bucket === 'ready',
-        })
+    try {
+      const next: EditRow[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const text = await f.text()
+        const { rows: parsed } = parseSalesCsv(text)
+        for (const r of parsed) {
+          next.push({
+            ...r,
+            key: `${i}:${f.name}#${r.rowIndex}`,
+            include: r.bucket === 'ready',
+          })
+        }
       }
+      if (!next.length) {
+        toast.error('Nie znaleziono wierszy w pliku CSV.')
+        return
+      }
+      setRows(next)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
-    if (!next.length) {
-      toast.error('Nie znaleziono wierszy w pliku CSV.')
-      return
-    }
-    setRows(next)
   }
 
   const setRow = (key: string, patch: Partial<EditRow>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
 
+  // Edycja wiersza „do sprawdzenia": gdy stał się poprawny, automatycznie zaznacz go do importu.
+  const patchReviewRow = (key: string, patch: Partial<EditRow>) =>
+    setRows((rs) =>
+      rs.map((r) => {
+        if (r.key !== key) return r
+        const merged = { ...r, ...patch }
+        const include = !rowValid(r) && rowValid(merged) ? true : merged.include
+        return { ...merged, include }
+      }),
+    )
+
   const drafts = useMemo<DraftSale[]>(
     () =>
       rows
-        .filter((r) => r.include && r.salePrice != null && r.salePrice > 0 && r.dateTs != null)
+        .filter((r) => r.include && rowValid(r))
         .map((r) => ({
           soldAt: r.dateTs as number,
           productName: r.productName,
@@ -95,8 +118,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     try {
       const res = await importSales(drafts, accountId)
       toast.success(`Zaimportowano ${res.inserted}, pominięto duplikaty: ${res.skippedDuplicates}.`)
-      reset()
-      onClose()
+      close()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd importu.')
     } finally {
@@ -111,14 +133,14 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={close}
       size="xl"
       title="Import sprzedaży z CSV"
       footer={
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm text-ink-500">{drafts.length} do importu</span>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={close}>
               Anuluj
             </Button>
             <Button onClick={doImport} disabled={busy || !accountId || drafts.length === 0}>
@@ -179,7 +201,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
             {review.length > 0 && (
               <Bucket title={`Do sprawdzenia (${review.length})`} tone="warn">
                 {review.map((r) => (
-                  <ReviewLine key={r.key} r={r} onChange={(patch) => setRow(r.key, patch)} />
+                  <ReviewLine key={r.key} r={r} onChange={(patch) => patchReviewRow(r.key, patch)} />
                 ))}
               </Bucket>
             )}
@@ -187,7 +209,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
             {excluded.length > 0 && (
               <Bucket title={`Pominięte — nie sprzedaż (${excluded.length})`} tone="muted">
                 {excluded.map((r) => (
-                  <RowLine key={r.key} r={r} onToggle={(v) => setRow(r.key, { include: v })} />
+                  <RowLine key={r.key} r={r} onToggle={() => {}} disabled />
                 ))}
               </Bucket>
             )}
@@ -218,14 +240,23 @@ function Bucket({
   )
 }
 
-function RowLine({ r, onToggle }: { r: EditRow; onToggle: (v: boolean) => void }) {
+function RowLine({
+  r,
+  onToggle,
+  disabled,
+}: {
+  r: EditRow
+  onToggle: (v: boolean) => void
+  disabled?: boolean
+}) {
   return (
-    <label className="flex items-center gap-3 px-4 py-2 text-sm">
+    <label className={clsx('flex items-center gap-3 px-4 py-2 text-sm', disabled && 'opacity-60')}>
       <input
         type="checkbox"
         checked={r.include}
+        disabled={disabled}
         onChange={(e) => onToggle(e.target.checked)}
-        className="h-4 w-4 rounded border-ink-300 text-brand-500 focus:ring-brand-400"
+        className="h-4 w-4 rounded border-ink-300 text-brand-500 focus:ring-brand-400 disabled:opacity-40"
       />
       <span className="flex-1 truncate text-ink-800">
         {r.productName || <em className="text-ink-400">bez nazwy</em>}
@@ -239,11 +270,12 @@ function RowLine({ r, onToggle }: { r: EditRow; onToggle: (v: boolean) => void }
 }
 
 function ReviewLine({ r, onChange }: { r: EditRow; onChange: (patch: Partial<EditRow>) => void }) {
-  const valid = r.salePrice != null && r.salePrice > 0 && r.dateTs != null
+  const valid = rowValid(r)
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
       <input
         type="checkbox"
+        aria-label="Importuj ten wiersz"
         checked={r.include}
         disabled={!valid}
         onChange={(e) => onChange({ include: e.target.checked })}
