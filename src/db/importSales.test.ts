@@ -62,4 +62,21 @@ describe('importSales end-to-end (fake-indexeddb)', () => {
     expect(other.inserted).toBe(3) // inne konto → brak kolizji kluczy
     expect(await db.sales.count()).toBe(6)
   })
+
+  it('persists a (zwrot) row as a returned Sale with PLN / qty 1 / importKey', async () => {
+    const csv = 'Data sprzedaży,Nazwa,Cena zaukupu,Cena Sprzedaży\n10.01.2026,Kurtka (zwrot),30,80'
+    const drafts = draftsFromReady(csv)
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0].status).toBe('returned')
+
+    await importSales(drafts, 'acc-ret')
+    const sales = await db.sales.where('accountId').equals('acc-ret').toArray()
+    expect(sales).toHaveLength(1)
+    const s = sales[0]
+    expect(s.status).toBe('returned')
+    expect(s.currency).toBe('PLN')
+    expect(s.quantity).toBe(1)
+    expect(s.salePrice).toBe(80)
+    expect(s.importKey).toBeTruthy()
+  })
 })

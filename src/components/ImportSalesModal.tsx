@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { FileUp, Loader2, Plus } from 'lucide-react'
 import { db, importSales } from '@/db/db'
-import { parseSalesCsv, type ParsedRow, type DraftSale } from '@/lib/salesImport'
+import { parseSalesCsv, saleImportKey, type ParsedRow, type DraftSale } from '@/lib/salesImport'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
 import { dateFromInput, dateInputValue, dateShort, money } from '@/lib/format'
@@ -30,6 +30,16 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
   const [creating, setCreating] = useState(false)
   const [rows, setRows] = useState<EditRow[]>([])
   const [busy, setBusy] = useState(false)
+
+  // Klucze treści sprzedaży już zaimportowanych na wybranym koncie (multizbiór) —
+  // do oznaczenia wierszy „już w bazie" w podglądzie.
+  const existingCounts = useLiveQuery(async () => {
+    if (!accountId) return new Map<string, number>()
+    const sales = await db.sales.where('accountId').equals(accountId).toArray()
+    const m = new Map<string, number>()
+    for (const s of sales) if (s.importKey) m.set(s.importKey, (m.get(s.importKey) ?? 0) + 1)
+    return m
+  }, [accountId])
 
   const reset = () => {
     setRows([])
@@ -71,7 +81,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
   const setRow = (key: string, patch: Partial<EditRow>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
 
-  // Edycja wiersza „do sprawdzenia": gdy stał się poprawny, automatycznie zaznacz go do importu.
+  // Edycja wiersza „do sprawdzenia": gdy stał się poprawny, automatycznie zaznacz do importu.
   const patchReviewRow = (key: string, patch: Partial<EditRow>) =>
     setRows((rs) =>
       rs.map((r) => {
@@ -82,10 +92,27 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       }),
     )
 
+  // Wiersze „gotowe", których klucz treści już istnieje na koncie — pokazujemy osobno
+  // i nie liczymy do importu. Walk multizbioru w kolejności wierszy.
+  const dupKeys = useMemo(() => {
+    const counts = new Map(existingCounts ?? [])
+    const dup = new Set<string>()
+    for (const r of rows) {
+      if (r.bucket !== 'ready' || r.salePrice == null || r.dateTs == null) continue
+      const k = saleImportKey(accountId, r.dateTs, r.productName, r.salePrice, r.purchaseCost)
+      const c = counts.get(k) ?? 0
+      if (c > 0) {
+        counts.set(k, c - 1)
+        dup.add(r.key)
+      }
+    }
+    return dup
+  }, [rows, existingCounts, accountId])
+
   const drafts = useMemo<DraftSale[]>(
     () =>
       rows
-        .filter((r) => r.include && rowValid(r))
+        .filter((r) => r.include && rowValid(r) && !dupKeys.has(r.key))
         .map((r) => ({
           soldAt: r.dateTs as number,
           productName: r.productName,
@@ -93,7 +120,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
           purchaseCost: r.purchaseCost,
           status: r.status,
         })),
-    [rows],
+    [rows, dupKeys],
   )
 
   const createAccount = async () => {
@@ -126,7 +153,8 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     }
   }
 
-  const ready = rows.filter((r) => r.bucket === 'ready')
+  const ready = rows.filter((r) => r.bucket === 'ready' && !dupKeys.has(r.key))
+  const alreadyImported = rows.filter((r) => r.bucket === 'ready' && dupKeys.has(r.key))
   const review = rows.filter((r) => r.bucket === 'review')
   const excluded = rows.filter((r) => r.bucket === 'excluded')
 
@@ -182,12 +210,14 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
           )}
         </Field>
 
-        <FileDrop onFiles={onFiles} accept=".csv,text/csv" filter={isCsv} multiple>
+        <FileDrop onFiles={onFiles} accept=".csv,text/csv" filter={isCsv} multiple={false}>
           <FileUp className="text-brand-500" />
           <span className="text-sm font-semibold text-ink-700">
             Przeciągnij plik CSV (Arkusze: Plik → Pobierz → .csv) lub kliknij
           </span>
-          <span className="text-xs text-ink-400">Jeden plik = jedno konto (Main, Zoos…)</span>
+          <span className="text-xs text-ink-400">
+            Jeden plik = jedno konto — importuj osobno dla Main, Zoos…
+          </span>
         </FileDrop>
 
         {rows.length > 0 && (
@@ -202,6 +232,14 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
               <Bucket title={`Do sprawdzenia (${review.length})`} tone="warn">
                 {review.map((r) => (
                   <ReviewLine key={r.key} r={r} onChange={(patch) => patchReviewRow(r.key, patch)} />
+                ))}
+              </Bucket>
+            )}
+
+            {alreadyImported.length > 0 && (
+              <Bucket title={`Już zaimportowane (${alreadyImported.length})`} tone="muted">
+                {alreadyImported.map((r) => (
+                  <RowLine key={r.key} r={r} onToggle={() => {}} disabled />
                 ))}
               </Bucket>
             )}
