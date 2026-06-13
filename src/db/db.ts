@@ -187,35 +187,37 @@ export async function importSales(
   drafts: DraftSale[],
   accountId: string,
 ): Promise<{ inserted: number; skippedDuplicates: number }> {
-  const existing = await db.sales.where('accountId').equals(accountId).toArray()
-  const counts = new Map<string, number>()
-  for (const s of existing) {
-    if (s.importKey) counts.set(s.importKey, (counts.get(s.importKey) ?? 0) + 1)
-  }
+  return db.transaction('rw', db.sales, async () => {
+    const existing = await db.sales.where('accountId').equals(accountId).toArray()
+    const counts = new Map<string, number>()
+    for (const s of existing) {
+      if (s.importKey) counts.set(s.importKey, (counts.get(s.importKey) ?? 0) + 1)
+    }
 
-  const keyed: KeyedDraft[] = drafts.map((d) => ({
-    key: saleImportKey(accountId, d.soldAt, d.productName, d.salePrice, d.purchaseCost),
-    draft: d,
-  }))
-  const { toInsert, skipped } = dedupKeyed(counts, keyed)
+    const keyed: KeyedDraft[] = drafts.map((d) => ({
+      key: saleImportKey(accountId, d.soldAt, d.productName, d.salePrice, d.purchaseCost),
+      draft: d,
+    }))
+    const { toInsert, skipped } = dedupKeyed(counts, keyed)
 
-  const now = Date.now()
-  const sales: Sale[] = toInsert.map(({ key, draft }) => ({
-    id: uid(),
-    productName: draft.productName,
-    accountId,
-    salePrice: draft.salePrice,
-    currency: 'PLN',
-    quantity: 1,
-    status: draft.status,
-    purchaseCost: draft.purchaseCost,
-    soldAt: draft.soldAt,
-    createdAt: now,
-    importKey: key,
-  }))
+    const now = Date.now()
+    const sales: Sale[] = toInsert.map(({ key, draft }) => ({
+      id: uid(),
+      productName: draft.productName,
+      accountId,
+      salePrice: draft.salePrice,
+      currency: 'PLN',
+      quantity: 1,
+      status: draft.status,
+      purchaseCost: draft.purchaseCost,
+      soldAt: draft.soldAt,
+      createdAt: now,
+      importKey: key,
+    }))
 
-  if (sales.length) await db.sales.bulkAdd(sales)
-  return { inserted: sales.length, skippedDuplicates: skipped }
+    if (sales.length) await db.sales.bulkAdd(sales)
+    return { inserted: sales.length, skippedDuplicates: skipped }
+  })
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
