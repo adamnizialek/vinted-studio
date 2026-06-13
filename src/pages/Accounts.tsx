@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Pencil, Plus, Trash2, Users } from 'lucide-react'
 import clsx from 'clsx'
-import { db } from '@/db/db'
+import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Account } from '@/db/types'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
@@ -25,6 +25,7 @@ export function Accounts() {
       color: ACCOUNT_COLORS[(accounts?.length ?? 0) % ACCOUNT_COLORS.length],
       notes: '',
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     })
     setOpen(true)
   }
@@ -32,7 +33,7 @@ export function Accounts() {
   const save = async () => {
     if (!editing) return
     if (!editing.name.trim()) return toast.error('Podaj nazwę konta.')
-    await db.accounts.put(editing)
+    await putEntity('accounts', editing)
     setOpen(false)
     toast.success('Zapisano konto.')
   }
@@ -40,7 +41,7 @@ export function Accounts() {
   const remove = async (id: string) => {
     if (!window.confirm('Usunąć to konto? Produkty i sprzedaże pozostaną, ale stracą przypisanie.'))
       return
-    await db.accounts.delete(id)
+    await deleteEntity('accounts', id)
     toast.success('Usunięto konto.')
   }
 

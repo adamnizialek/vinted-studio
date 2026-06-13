@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Loader2, Plus, Sparkles, Star, Trash2, Shirt, X } from 'lucide-react'
 import clsx from 'clsx'
-import { db, deleteModelCascade } from '@/db/db'
+import { db, deleteEntity, deleteModelCascade, putEntity } from '@/db/db'
 import type { AiModel } from '@/db/types'
 import { uid } from '@/lib/id'
 import { addImageFromFile, base64ToBlob } from '@/lib/images'
@@ -30,7 +30,7 @@ export function Models() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await db.models.put(m)
+    await putEntity('models', m)
     setEditing(m)
     setOpen(true)
   }
@@ -40,7 +40,7 @@ export function Models() {
     if (!editing) return
     const next = { ...editing, ...p, updatedAt: Date.now() }
     setEditing(next)
-    await db.models.put(next)
+    await putEntity('models', next)
   }
 
   const addImages = async (files: File[]) => {
@@ -90,7 +90,7 @@ export function Models() {
 
   const removeImage = async (id: string) => {
     if (!editing) return
-    await db.images.delete(id)
+    await deleteEntity('images', id)
     const refs = editing.referenceImageIds.filter((x) => x !== id)
     await patch({
       referenceImageIds: refs,

@@ -27,7 +27,11 @@ export type ImageKind = 'product' | 'generated' | 'model' | 'reference'
 
 export interface ImageRecord {
   id: ID
-  blob: Blob
+  /**
+   * Pelny obraz. Opcjonalny: rekord moze istniec lokalnie bez bloba, gdy metadane
+   * przyszly z synchronizacji z innego urzadzenia — blob doczytujemy leniwie z R2.
+   */
+  blob?: Blob
   mime: string
   width: number
   height: number
@@ -40,6 +44,8 @@ export interface ImageRecord {
   /** Metadane generacji (gdy kind === 'generated'). */
   meta?: GeneratedImageMeta
   createdAt: number
+  /** Czas ostatniej zmiany (ms) — klucz porownania last-write-wins przy synchronizacji. */
+  updatedAt: number
 }
 
 export interface GeneratedImageMeta {
@@ -60,6 +66,7 @@ export interface Account {
   /** Domyslna prowizja/oplata platnosci kupujacego — pomocniczo w kalkulacjach. */
   notes?: string
   createdAt: number
+  updatedAt: number
 }
 
 /** Zapisana modelka AI — zestaw zdjec referencyjnych zapewniajacych spojnosc postaci. */
@@ -168,6 +175,7 @@ export interface Sale {
   notes?: string
   soldAt: number
   createdAt: number
+  updatedAt: number
 }
 
 /** Globalne ustawienia aplikacji (pojedynczy wiersz w tabeli `settings`). */
@@ -188,6 +196,8 @@ export interface AppSettings {
   imageVariants: number
   /** Wersja schematu — do migracji. */
   schemaVersion: number
+  /** Czas ostatniej zmiany (ms) — klucz porownania last-write-wins przy synchronizacji. */
+  updatedAt: number
 }
 
 /** Wynik kalkulacji zysku — uzywany w ewidencji i na dashboardzie. */

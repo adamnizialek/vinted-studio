@@ -1,4 +1,4 @@
-import { db } from '@/db/db'
+import { db, putEntity } from '@/db/db'
 import type { GeneratedImageMeta, ImageKind, ImageRecord } from '@/db/types'
 import { uid } from './id'
 
@@ -79,9 +79,9 @@ export async function addImageFromFile(
     productId: links?.productId,
     modelId: links?.modelId,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   }
-  await db.images.add(rec)
-  return rec
+  return putEntity('images', rec)
 }
 
 /** Zapisuje obraz wygenerowany przez Gemini (base64). */
@@ -105,9 +105,9 @@ export async function addGeneratedImage(
     modelId: meta.modelId,
     meta,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   }
-  await db.images.add(rec)
-  return rec
+  return putEntity('images', rec)
 }
 
 export function base64ToBlob(base64: string, mime: string): Blob {

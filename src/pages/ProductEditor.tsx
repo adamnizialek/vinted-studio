@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { db, deleteProductCascade } from '@/db/db'
+import { db, deleteEntity, deleteProductCascade, putEntity } from '@/db/db'
 import type { Condition, Measurements, Product, SavedDescription } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -84,7 +84,7 @@ export function ProductEditor() {
       if (!prev) return prev
       const p = typeof patch === 'function' ? patch(prev) : patch
       const next = { ...prev, ...p, updatedAt: Date.now() }
-      void db.products.put(next)
+      void putEntity('products', next)
       return next
     })
   }
@@ -435,7 +435,7 @@ function PhotosTab({ draft, update }: { draft: Product; update: UpdateFn }) {
   }
 
   const removePhoto = async (id: string, kind: 'orig' | 'gen') => {
-    await db.images.delete(id)
+    await deleteEntity('images', id)
     if (kind === 'orig') update((prev) => ({ photoIds: prev.photoIds.filter((x) => x !== id) }))
     else update((prev) => ({ generatedPhotoIds: prev.generatedPhotoIds.filter((x) => x !== id) }))
   }
@@ -697,7 +697,7 @@ function SoldModal({
   const confirm = async () => {
     const salePrice = Number(price)
     if (!salePrice || salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
-    await db.sales.put({
+    await putEntity('sales', {
       id: uid(),
       productId: product.id,
       productName: product.name || 'Bez nazwy',

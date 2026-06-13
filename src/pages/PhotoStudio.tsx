@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Camera, Download, Loader2, Shirt, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import clsx from 'clsx'
-import { db } from '@/db/db'
+import { db, deleteEntity, patchEntity, putEntity } from '@/db/db'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EST_IMAGE_COST_USD } from '@/lib/constants'
 import { SCENE_PRESETS, buildPhotoPrompt, type PhotoMode } from '@/lib/prompts'
 import { generateImage, type InlineImage } from '@/lib/gemini'
-import { addGeneratedImage, blobToBase64 } from '@/lib/images'
+import { addGeneratedImage, blobToBase64, getImageBlob } from '@/lib/images'
 import { downloadBlob } from '@/lib/csv'
 import { Button, EmptyState, Field, Select, TextArea, SectionTitle } from '@/components/ui'
 import { FullImage, Thumb } from '@/components/ImageView'
@@ -23,7 +23,9 @@ const ASPECTS: { value: string; label: string; hint: string }[] = [
 async function toInline(imageId: string): Promise<InlineImage | undefined> {
   const rec = await db.images.get(imageId)
   if (!rec) return undefined
-  return { mime: rec.mime, base64: await blobToBase64(rec.blob) }
+  const blob = await getImageBlob(imageId)
+  if (!blob) return undefined
+  return { mime: rec.mime, base64: await blobToBase64(blob) }
 }
 
 export function PhotoStudio() {
@@ -116,10 +118,9 @@ export function PhotoStudio() {
           )
           const fresh = await db.products.get(product.id)
           if (fresh)
-            await db.products.put({
+            await putEntity('products', {
               ...fresh,
               generatedPhotoIds: [rec.id, ...fresh.generatedPhotoIds],
-              updatedAt: Date.now(),
             })
           saved++
         }
@@ -135,15 +136,15 @@ export function PhotoStudio() {
 
   const removeGenerated = async (imageId: string) => {
     if (!product) return
-    await db.images.delete(imageId)
-    await db.products.update(product.id, {
+    await deleteEntity('images', imageId)
+    await patchEntity('products', product.id, {
       generatedPhotoIds: product.generatedPhotoIds.filter((x) => x !== imageId),
     })
   }
 
   const download = async (imageId: string) => {
-    const rec = await db.images.get(imageId)
-    if (rec) downloadBlob(`vinted-${product?.name || 'zdjecie'}-${imageId.slice(0, 6)}.jpg`, rec.blob)
+    const blob = await getImageBlob(imageId)
+    if (blob) downloadBlob(`vinted-${product?.name || 'zdjecie'}-${imageId.slice(0, 6)}.jpg`, blob)
   }
 
   return (

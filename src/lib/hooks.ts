@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { db } from '@/db/db'
+import { getImageBlob } from '@/lib/images'
 
 /**
  * Zwraca objectURL dla pelnego bloba obrazu (po id). Sam zwalnia URL przy zmianie/odmontowaniu.
  * Do list uzywaj raczej `rec.thumb` (data URL) — taniej.
+ * Blob pobierany jest przez getImageBlob, ktore (po wlaczeniu synchronizacji) doczytuje go
+ * leniwie z R2, jesli nie ma go lokalnie.
  */
 export function useObjectUrl(imageId?: string): string | undefined {
   const [url, setUrl] = useState<string>()
@@ -17,9 +19,9 @@ export function useObjectUrl(imageId?: string): string | undefined {
       return
     }
 
-    db.images.get(imageId).then((rec) => {
-      if (revoked || !rec) return
-      current = URL.createObjectURL(rec.blob)
+    getImageBlob(imageId).then((blob) => {
+      if (revoked || !blob) return
+      current = URL.createObjectURL(blob)
       setUrl(current)
     })
 

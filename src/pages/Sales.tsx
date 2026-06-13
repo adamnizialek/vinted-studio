@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { startOfMonth, startOfYear } from 'date-fns'
 import { Download, Pencil, Plus, Trash2, Wallet } from 'lucide-react'
 import clsx from 'clsx'
-import { db } from '@/db/db'
+import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Sale, SaleStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -50,13 +50,14 @@ export function Sales() {
       status: 'completed',
       soldAt: Date.now(),
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     })
     setOpen(true)
   }
 
   const remove = async (id: string) => {
     if (!window.confirm('Usunąć ten wpis sprzedaży?')) return
-    await db.sales.delete(id)
+    await deleteEntity('sales', id)
     toast.success('Usunięto wpis.')
   }
 
@@ -244,7 +245,7 @@ function SaleModal({
   const save = async () => {
     if (!form.productName.trim()) return toast.error('Podaj nazwę produktu.')
     if (!form.salePrice || form.salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
-    await db.sales.put(form)
+    await putEntity('sales', form)
     onClose()
     toast.success('Zapisano sprzedaż.')
   }

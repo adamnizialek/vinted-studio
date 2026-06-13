@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Package, Plus, Search } from 'lucide-react'
 import clsx from 'clsx'
-import { db } from '@/db/db'
+import { db, putEntity } from '@/db/db'
 import type { Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -54,7 +54,7 @@ export function Inventory() {
       createdAt: now,
       updatedAt: now,
     }
-    await db.products.put(p)
+    await putEntity('products', p)
     nav(`/magazyn/${p.id}`)
   }
 
