@@ -173,3 +173,48 @@ describe('dedupKeyed (multiset diff)', () => {
     expect(skipped).toBe(0)
   })
 })
+
+import { expenseKindOf, parseExpenseDrafts, expenseImportKey } from '@/lib/salesImport'
+
+describe('expenseKindOf', () => {
+  it('maps boost/exposure names, else other', () => {
+    expect(expenseKindOf('Podbicia')).toBe('boost')
+    expect(expenseKindOf('Podbicia main')).toBe('boost')
+    expect(expenseKindOf('podbica')).toBe('boost')
+    expect(expenseKindOf('Ekspozycja')).toBe('exposure')
+    expect(expenseKindOf('Pakowanie')).toBe('other')
+  })
+})
+
+describe('parseExpenseDrafts', () => {
+  const CSV = [
+    'Data sprzedaży,Nazwa,Cena zaukupu,Cena Sprzedaży',
+    '14.01.2026,Szalik kości,"22,4",55', // sprzedaż — nie koszt
+    '30.01.2026,Ekspozycja,"18,1",', // koszt 18.10 (ekspozycja)
+    '31.01.2026,Podbicia main,"34,39",', // koszt 34.39 (boost)
+    ',Podbicia,,', // bez kwoty → pominięte
+  ].join('\n')
+
+  it('extracts fee rows that have an amount, deriving kind + date', () => {
+    const { rows } = parseSalesCsv(CSV)
+    const drafts = parseExpenseDrafts(rows)
+    expect(drafts).toHaveLength(2)
+    expect(drafts[0]).toMatchObject({ kind: 'exposure', amount: 18.1, description: 'Ekspozycja' })
+    expect(drafts[1]).toMatchObject({ kind: 'boost', amount: 34.39 })
+    expect(drafts[0].incurredAt).not.toBeNull()
+  })
+
+  it('skips fee rows with no amount', () => {
+    const { rows } = parseSalesCsv(CSV)
+    const drafts = parseExpenseDrafts(rows)
+    expect(drafts.find((d) => d.description === 'Podbicia')).toBeUndefined()
+  })
+})
+
+describe('expenseImportKey', () => {
+  it('is stable under whitespace/case in the description', () => {
+    const a = expenseImportKey('acc', 1769000000000, 'exposure', 'Ekspozycja ', 18.1)
+    const b = expenseImportKey('acc', 1769000000000, 'exposure', 'ekspozycja', 18.1)
+    expect(a).toBe(b)
+  })
+})

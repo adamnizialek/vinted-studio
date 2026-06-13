@@ -189,6 +189,28 @@ export interface Sale {
   importKey?: string
 }
 
+export type ExpenseKind = 'boost' | 'exposure' | 'other' // podbicie / ekspozycja / inne
+
+/** Koszt promocji (podbicie/ekspozycja) lub inny koszt nie-towarowy. */
+export interface Expense {
+  id: ID
+  /** Konto, którego dotyczy koszt (z importu = wybrane konto; ręczny = opcjonalny). */
+  accountId?: ID
+  kind: ExpenseKind
+  /** Oryginalna nazwa z arkusza ("Podbicia", "Ekspozycja", "Podbicia main"). */
+  description: string
+  /** Kwota kosztu (zł). */
+  amount: number
+  currency: string
+  /** Data poniesienia (ms, lokalne południe — spójnie ze sprzedażą). */
+  incurredAt: number
+  notes?: string
+  createdAt: number
+  updatedAt: number
+  /** Klucz treści wiersza — do idempotentnego re-importu. */
+  importKey?: string
+}
+
 /** Globalne ustawienia aplikacji (pojedynczy wiersz w tabeli `settings`). */
 export interface AppSettings {
   id: 'app'

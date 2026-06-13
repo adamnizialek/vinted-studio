@@ -1,5 +1,6 @@
 // Czysta logika importu sprzedaży z CSV (Arkusze Google) — bez React i bez Dexie.
 import { parseCsv } from '@/lib/csv'
+import type { ExpenseKind } from '@/db/types'
 
 /** Parsuje liczbę w formacie PL (przecinek dziesiętny). Zwraca undefined, gdy brak liczby. */
 export function parsePlNumber(raw: string | undefined): number | undefined {
@@ -179,4 +180,56 @@ export function dedupKeyed(
     }
   }
   return { toInsert, skipped }
+}
+
+// ---------------------------------------------------------------------------
+// Koszty promocji (podbicia / ekspozycja) — wyłuskiwane z tych samych arkuszy.
+// ---------------------------------------------------------------------------
+
+/** Szkic kosztu promocji gotowy do zapisu. `incurredAt` null → wymaga uzupełnienia daty. */
+export interface DraftExpense {
+  incurredAt: number | null
+  description: string
+  amount: number
+  kind: ExpenseKind
+}
+
+/** Mapuje nazwę opłaty na rodzaj kosztu (spójnie z FEE_RE). */
+export function expenseKindOf(name: string): ExpenseKind {
+  if (/podbic/i.test(name)) return 'boost'
+  if (/ekspozycj/i.test(name)) return 'exposure'
+  return 'other'
+}
+
+/**
+ * Z już sklasyfikowanych wierszy wyłuskuje opłaty (bucket 'excluded', reason 'fee')
+ * jako szkice kosztów. Kwota = `purchaseCost` (opłata siedzi w kolumnie „Cena zakupu").
+ * Wiersze bez kwoty są pomijane (nie tworzymy kosztu „0").
+ */
+export function parseExpenseDrafts(rows: ParsedRow[]): DraftExpense[] {
+  const out: DraftExpense[] = []
+  for (const r of rows) {
+    if (r.bucket !== 'excluded' || r.excludedReason !== 'fee') continue
+    if (r.purchaseCost == null || r.purchaseCost <= 0) continue
+    out.push({
+      incurredAt: r.dateTs,
+      description: r.productName,
+      amount: r.purchaseCost,
+      kind: expenseKindOf(r.productName),
+    })
+  }
+  return out
+}
+
+/** Deterministyczny klucz treści kosztu — do idempotentnego re-importu. */
+export function expenseImportKey(
+  accountId: string,
+  incurredAt: number | null,
+  kind: ExpenseKind,
+  description: string,
+  amount: number,
+): string {
+  const day = incurredAt === null ? 'nodate' : new Date(incurredAt).toISOString().slice(0, 10)
+  const d = description.trim().toLowerCase().replace(/\s+/g, ' ')
+  return [accountId, day, kind, d, amount].join('|')
 }

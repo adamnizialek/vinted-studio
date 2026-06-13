@@ -1,4 +1,4 @@
-import type { Condition, ImageResolution, ProductStatus, SaleStatus } from '@/db/types'
+import type { Condition, ExpenseKind, ImageResolution, ProductStatus, SaleStatus } from '@/db/types'
 
 export const CONDITION_LABELS: Record<Condition, string> = {
   nowy_z_metka: 'Nowy z metką',
@@ -40,6 +40,12 @@ export const SALE_STATUS_LABELS: Record<SaleStatus, string> = {
   pending: 'W toku',
   cancelled: 'Anulowana',
   returned: 'Zwrot',
+}
+
+export const EXPENSE_KIND_LABELS: Record<ExpenseKind, string> = {
+  boost: 'Podbicie',
+  exposure: 'Ekspozycja',
+  other: 'Inne',
 }
 
 /** Podpowiedzi kategorii (Vinted PL) — pole pozostaje dowolnym tekstem. */
