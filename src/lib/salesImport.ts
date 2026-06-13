@@ -77,7 +77,7 @@ function detectColumns(header: string[]): ColumnMap | null {
   return { date, name, purchase, sale }
 }
 
-const FEE_RE = /podbic|ekspozycj/i
+export const FEE_RE = /podbic|ekspozycj/i
 const RETURN_RE = /\(zwrot\)/i
 
 function classifyRow(cells: string[], col: ColumnMap, rowIndex: number): ParsedRow | null {
