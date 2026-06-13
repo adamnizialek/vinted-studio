@@ -121,6 +121,22 @@
   }
 }
 
+/* Niewidoczny cel dotyku 44x44 px (WCAG 2.5.5) dla malych przyciskow (np. pigulki
+   statusu/konta na kartach). Tylko na mobile — na desktopie precyzja myszy wystarcza,
+   a powiekszony obszar przechwytywalby sasiednie klikniecia. Element musi byc
+   pozycjonowany (absolute/relative), by ::before zakotwiczyl sie wzgledem niego. */
+@media (max-width: 639px) {
+  .tap-target::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    height: 2.75rem;
+    width: 2.75rem;
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* Wzorek tla "w kratke" pod podgladem obrazow z przezroczystoscia.
    Kolor pochodzi ze zmiennej --checker, wiec ciemnieje w trybie ciemnym. */
 .checker {

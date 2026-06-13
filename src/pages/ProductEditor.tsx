@@ -28,6 +28,7 @@ import {
   STATUS_OPTIONS,
 } from '@/lib/constants'
 import { money } from '@/lib/format'
+import { requiresSaleModal } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
 import {
   DESCRIPTION_STYLES,
@@ -38,9 +39,10 @@ import {
 } from '@/lib/prompts'
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile } from '@/lib/images'
-import { Button, Field, Modal, Select, TextArea, TextInput } from '@/components/ui'
+import { Button, Field, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
+import { SoldModal } from '@/components/SoldModal'
 
 async function copy(text: string) {
   try {
@@ -125,7 +127,7 @@ export function ProductEditor() {
               </option>
             ))}
           </Select>
-          {draft.status !== 'sold' && (
+          {!requiresSaleModal(draft.status) && (
             <Button variant="soft" onClick={() => setSoldOpen(true)}>
               <Check size={16} /> Sprzedane
             </Button>
@@ -669,87 +671,3 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
   )
 }
 
-// ── Modal sprzedaży ──────────────────────────────────────────────────────────
-function SoldModal({
-  open,
-  onClose,
-  product,
-  onSold,
-}: {
-  open: boolean
-  onClose: () => void
-  product: Product
-  onSold: () => void
-}) {
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
-  const [price, setPrice] = useState('')
-  const [accountId, setAccountId] = useState('')
-  const [buyer, setBuyer] = useState('')
-
-  useEffect(() => {
-    if (open) {
-      setPrice(product.listingPrice ? String(product.listingPrice) : '')
-      setAccountId(product.accountId ?? '')
-      setBuyer('')
-    }
-  }, [open, product])
-
-  const confirm = async () => {
-    const salePrice = Number(price)
-    if (!salePrice || salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
-    await putEntity('sales', {
-      id: uid(),
-      productId: product.id,
-      productName: product.name || 'Bez nazwy',
-      brand: product.brand,
-      accountId: accountId || undefined,
-      salePrice,
-      currency: product.currency,
-      purchaseCost: product.purchasePrice,
-      quantity: 1,
-      buyer: buyer || undefined,
-      status: 'completed',
-      soldAt: Date.now(),
-      createdAt: Date.now(),
-    })
-    toast.success('Dodano do ewidencji sprzedaży 💸')
-    onSold()
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Oznacz jako sprzedane"
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Anuluj
-          </Button>
-          <Button onClick={confirm}>
-            <Check size={16} /> Zapisz sprzedaż
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <Field label={`Cena sprzedaży (${product.currency})`}>
-          <TextInput type="number" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} autoFocus />
-        </Field>
-        <Field label="Konto">
-          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <option value="">— brak —</option>
-            {accounts?.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Kupujący (opcjonalnie)">
-          <TextInput value={buyer} onChange={(e) => setBuyer(e.target.value)} placeholder="nick z Vinted" />
-        </Field>
-      </div>
-    </Modal>
-  )
-}
