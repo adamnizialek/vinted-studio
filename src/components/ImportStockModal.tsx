@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { FileUp, Loader2 } from 'lucide-react'
@@ -18,7 +18,7 @@ import { FileDrop } from '@/components/FileDrop'
 import { Button, Field, Modal, Select } from '@/components/ui'
 
 interface EditRow {
-  /** Stabilny klucz Reacta: `${plik}#${rowIndex}`. */
+  /** Stabilny klucz Reacta: `${arkusz}#${rowIndex}` (arkusz = nazwa zakładki XLSX lub pliku CSV). */
   key: string
   rowIndex: number
   bucket: StockBucket
@@ -56,9 +56,13 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     return m
   }, [])
 
+  // Zapamiętane edycje per arkusz — zmiana zakładki nie kasuje recenzji poprzedniej.
+  const sheetCache = useRef<Map<string, EditRow[]>>(new Map())
+
   const close = () => {
     setRows([])
     setWorkbook(null)
+    sheetCache.current.clear()
     onClose()
   }
 
@@ -102,18 +106,25 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     try {
       const wb = await readWorkbook(files[0])
       const sheet = pickStockSheet(wb.sheetNames)
+      sheetCache.current = new Map()
       setWorkbook({ wb, names: wb.sheetNames, sheet })
       processStock(wb.tableOf(sheet), sheet)
     } catch (e) {
+      // Nieudany odczyt (np. uszkodzony XLSX) — wyczyść podgląd, by nie zaimportować starych danych.
+      setWorkbook(null)
+      setRows([])
       toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
   }
 
-  // Zmiana arkusza (tylko XLSX z wieloma arkuszami) — przeparsuj wybrany.
+  // Zmiana arkusza (XLSX z wieloma arkuszami): zachowaj edycje bieżącego, przywróć lub przeparsuj docelowy.
   const onSheet = (sheet: string) => {
-    if (!workbook) return
+    if (!workbook || sheet === workbook.sheet) return
+    sheetCache.current.set(workbook.sheet, rows)
     setWorkbook({ ...workbook, sheet })
-    processStock(workbook.wb.tableOf(sheet), sheet)
+    const cached = sheetCache.current.get(sheet)
+    if (cached) setRows(cached)
+    else processStock(workbook.wb.tableOf(sheet), sheet)
   }
 
   // Wybór konta w recenzji: ustaw konto i automatycznie zaznacz wiersz do importu.

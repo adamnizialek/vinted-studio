@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { FileUp, Loader2, Plus } from 'lucide-react'
@@ -13,7 +13,7 @@ import { FileDrop } from '@/components/FileDrop'
 import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
 
 interface EditRow extends ParsedRow {
-  /** Stabilny klucz Reacta: `${index pliku}:${plik}#${rowIndex}`. */
+  /** Stabilny klucz Reacta: `${arkusz}#${rowIndex}` (arkusz = nazwa zakładki XLSX lub pliku CSV). */
   key: string
   include: boolean
 }
@@ -44,11 +44,15 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     return m
   }, [accountId])
 
+  // Zapamiętane edycje per arkusz — zmiana zakładki nie kasuje recenzji poprzedniej.
+  const sheetCache = useRef<Map<string, EditRow[]>>(new Map())
+
   const reset = () => {
     setRows([])
     setNewName('')
     setCreating(false)
     setWorkbook(null)
+    sheetCache.current.clear()
   }
 
   // Zamknięcie czyści wczytane wiersze (zachowuje wybrane konto na kolejny import).
@@ -77,18 +81,25 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     try {
       const wb = await readWorkbook(files[0])
       const sheet = wb.sheetNames[0]
+      sheetCache.current = new Map()
       setWorkbook({ wb, names: wb.sheetNames, sheet })
       processSales(wb.tableOf(sheet), sheet)
     } catch (e) {
+      // Nieudany odczyt (np. uszkodzony XLSX) — wyczyść podgląd, by nie zaimportować starych danych.
+      setWorkbook(null)
+      setRows([])
       toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
   }
 
-  // Zmiana arkusza (tylko XLSX z wieloma arkuszami) — przeparsuj wybrany.
+  // Zmiana arkusza (XLSX z wieloma arkuszami): zachowaj edycje bieżącego, przywróć lub przeparsuj docelowy.
   const onSheet = (sheet: string) => {
-    if (!workbook) return
+    if (!workbook || sheet === workbook.sheet) return
+    sheetCache.current.set(workbook.sheet, rows)
     setWorkbook({ ...workbook, sheet })
-    processSales(workbook.wb.tableOf(sheet), sheet)
+    const cached = sheetCache.current.get(sheet)
+    if (cached) setRows(cached)
+    else processSales(workbook.wb.tableOf(sheet), sheet)
   }
 
   const setRow = (key: string, patch: Partial<EditRow>) =>

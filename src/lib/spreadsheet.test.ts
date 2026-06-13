@@ -26,9 +26,22 @@ describe('cellToString', () => {
   it('formats dates as dd.MM.yyyy, numbers with dot, passes strings', () => {
     expect(cellToString(new Date(2024, 2, 15))).toBe('15.03.2024')
     expect(cellToString(22.4)).toBe('22.4')
+    expect(cellToString(35)).toBe('35')
+    expect(cellToString(42.92)).toBe('42.92')
     expect(cellToString('Koszulka')).toBe('Koszulka')
     expect(cellToString(null)).toBe('')
     expect(cellToString(undefined)).toBe('')
+  })
+
+  it('strips IEEE-754 float noise from computed cells', () => {
+    expect(cellToString(0.1 + 0.2)).toBe('0.3') // 0.30000000000000004 → "0.3"
+    expect(cellToString(42.92000000000001)).toBe('42.92')
+    expect(cellToString(1700)).toBe('1700')
+  })
+
+  it('drops non-finite numbers to empty string', () => {
+    expect(cellToString(Infinity)).toBe('')
+    expect(cellToString(NaN)).toBe('')
   })
 })
 
@@ -41,6 +54,25 @@ describe('readWorkbook', () => {
       ['Nazwa', 'Cena'],
       ['Foo', '22,4'],
     ])
+  })
+
+  it('routes a .csv to the CSV path even when MIME is application/vnd.ms-excel (Windows)', async () => {
+    // Windows z Excelem raportuje .csv jako application/vnd.ms-excel — NIE wolno tego
+    // przepuścić przez SheetJS (zniszczyłby przecinki dziesiętne i polskie znaki).
+    const f = new File(['Nazwa,Cena\nFoo,"22,4"\n'], 'finessin.csv', {
+      type: 'application/vnd.ms-excel',
+    })
+    const wb = await readWorkbook(f)
+    expect(wb.sheetNames).toEqual(['finessin.csv'])
+    expect(wb.tableOf('finessin.csv')).toEqual([
+      ['Nazwa', 'Cena'],
+      ['Foo', '22,4'],
+    ])
+  })
+
+  it('rejects files above the size cap', async () => {
+    const big = new File([new Uint8Array(26 * 1024 * 1024)], 'huge.xlsx')
+    await expect(readWorkbook(big)).rejects.toThrow(/zbyt duży/)
   })
 
   it('reads XLSX sheets, coercing numbers to dot-strings and listing all tabs', async () => {

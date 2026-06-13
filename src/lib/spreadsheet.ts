@@ -6,6 +6,8 @@ import { parseCsv } from '@/lib/csv'
 
 const XLSX_RE = /\.xlsx?$/i
 const CSV_RE = /\.csv$/i
+// Zabezpieczenie przed zawieszeniem zakładki/OOM na ogromnym (lub spreparowanym) pliku.
+const MAX_BYTES = 25 * 1024 * 1024
 
 /** Czy plik wygląda na arkusz, który umiemy wczytać (CSV/XLSX/XLS) — po rozszerzeniu lub MIME. */
 export function isSpreadsheet(file: File): boolean {
@@ -20,6 +22,9 @@ export function isSpreadsheet(file: File): boolean {
 }
 
 function looksXlsx(file: File): boolean {
+  // Rozszerzenie wygrywa z MIME: Windows mapuje .csv na "application/vnd.ms-excel",
+  // więc plik .csv MUSI iść przez parseCsv (locale PL, przecinki dziesiętne), nie przez SheetJS.
+  if (CSV_RE.test(file.name)) return false
   return (
     XLSX_RE.test(file.name) ||
     file.type.includes('spreadsheetml') ||
@@ -31,6 +36,10 @@ function looksXlsx(file: File): boolean {
 export function cellToString(v: unknown): string {
   if (v == null) return ''
   if (v instanceof Date) return format(v, 'dd.MM.yyyy')
+  // Liczby z XLSX to surowe double — utnij szum IEEE-754 (np. 0.1+0.2 → 0.30000000000000004)
+  // zanim trafią do parsePlNumber i do kluczy deduplikacji. toPrecision(15) zwija szum,
+  // zostawiając 35, 22.4, 42.92 nietknięte. Nieskończoności/NaN → pusty string.
+  if (typeof v === 'number') return Number.isFinite(v) ? String(Number(v.toPrecision(15))) : ''
   return String(v)
 }
 
@@ -43,6 +52,9 @@ export interface Workbook {
 
 /** Wczytuje plik (CSV lub XLSX) i udostępnia jego arkusze jako tabele string[][]. */
 export async function readWorkbook(file: File): Promise<Workbook> {
+  if (file.size > MAX_BYTES) {
+    throw new Error('Plik jest zbyt duży (limit 25 MB).')
+  }
   if (looksXlsx(file)) {
     const XLSX = await import('xlsx')
     const data = new Uint8Array(await file.arrayBuffer())
