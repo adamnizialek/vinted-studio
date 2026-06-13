@@ -63,6 +63,19 @@ describe('importSales end-to-end (fake-indexeddb)', () => {
     expect(await db.sales.count()).toBe(6)
   })
 
+  it('multiset: re-importing a file with an extra copy inserts only the surplus', async () => {
+    const drafts = draftsFromReady(SAMPLE) // 3 distinct ready rows
+    const first = await importSales(drafts, 'acc-ms')
+    expect(first.inserted).toBe(3)
+
+    // Re-import the same 3 PLUS one extra copy of the first row → only the surplus (1) is new.
+    const withExtra = [...drafts, drafts[0]]
+    const second = await importSales(withExtra, 'acc-ms')
+    expect(second.inserted).toBe(1)
+    expect(second.skippedDuplicates).toBe(3)
+    expect(await db.sales.count()).toBe(4)
+  })
+
   it('persists a (zwrot) row as a returned Sale with PLN / qty 1 / importKey', async () => {
     const csv = 'Data sprzedaży,Nazwa,Cena zaukupu,Cena Sprzedaży\n10.01.2026,Kurtka (zwrot),30,80'
     const drafts = draftsFromReady(csv)

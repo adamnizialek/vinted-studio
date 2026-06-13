@@ -32,7 +32,8 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
   const [busy, setBusy] = useState(false)
 
   // Klucze treści sprzedaży już zaimportowanych na wybranym koncie (multizbiór) —
-  // do oznaczenia wierszy „już w bazie" w podglądzie.
+  // wyłącznie do PODGLĄDU (ile wierszy już jest w bazie). Faktyczną deduplikację
+  // robi importSales — tu nic nie odfiltrowujemy z importu.
   const existingCounts = useLiveQuery(async () => {
     if (!accountId) return new Map<string, number>()
     const sales = await db.sales.where('accountId').equals(accountId).toArray()
@@ -92,14 +93,15 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       }),
     )
 
-  // Wiersze „gotowe", których klucz treści już istnieje na koncie — pokazujemy osobno
-  // i nie liczymy do importu. Walk multizbioru w kolejności wierszy.
+  // Wiersze, które trafią do importu (zaznaczone i poprawne). importSales sam zdeduplikuje.
+  const includable = useMemo(() => rows.filter((r) => r.include && rowValid(r)), [rows])
+
+  // Które z włączanych wierszy już istnieją na koncie (multizbiór) — TYLKO do podglądu/licznika.
   const dupKeys = useMemo(() => {
     const counts = new Map(existingCounts ?? [])
     const dup = new Set<string>()
-    for (const r of rows) {
-      if (r.bucket !== 'ready' || r.salePrice == null || r.dateTs == null) continue
-      const k = saleImportKey(accountId, r.dateTs, r.productName, r.salePrice, r.purchaseCost)
+    for (const r of includable) {
+      const k = saleImportKey(accountId, r.dateTs as number, r.productName, r.salePrice as number, r.purchaseCost)
       const c = counts.get(k) ?? 0
       if (c > 0) {
         counts.set(k, c - 1)
@@ -107,20 +109,23 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       }
     }
     return dup
-  }, [rows, existingCounts, accountId])
+  }, [includable, existingCounts, accountId])
 
+  // Ile faktycznie zostanie dodanych (importSales pominie duplikaty).
+  const newCount = includable.length - dupKeys.size
+
+  // Do importu przekazujemy WSZYSTKIE włączane wiersze — importSales jest jedynym
+  // miejscem deduplikacji (inaczej liczby istniejące odjęłyby się podwójnie).
   const drafts = useMemo<DraftSale[]>(
     () =>
-      rows
-        .filter((r) => r.include && rowValid(r) && !dupKeys.has(r.key))
-        .map((r) => ({
-          soldAt: r.dateTs as number,
-          productName: r.productName,
-          salePrice: r.salePrice as number,
-          purchaseCost: r.purchaseCost,
-          status: r.status,
-        })),
-    [rows, dupKeys],
+      includable.map((r) => ({
+        soldAt: r.dateTs as number,
+        productName: r.productName,
+        salePrice: r.salePrice as number,
+        purchaseCost: r.purchaseCost,
+        status: r.status,
+      })),
+    [includable],
   )
 
   const createAccount = async () => {
@@ -166,13 +171,13 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       title="Import sprzedaży z CSV"
       footer={
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-ink-500">{drafts.length} do importu</span>
+          <span className="text-sm text-ink-500">{newCount} do importu</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={close}>
               Anuluj
             </Button>
-            <Button onClick={doImport} disabled={busy || !accountId || drafts.length === 0}>
-              {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <>Zaimportuj {drafts.length}</>}
+            <Button onClick={doImport} disabled={busy || !accountId || newCount === 0}>
+              {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <>Zaimportuj {newCount}</>}
             </Button>
           </div>
         </div>
