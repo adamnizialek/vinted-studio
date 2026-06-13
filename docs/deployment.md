@@ -24,14 +24,17 @@ Repo → **Settings** → **Secrets and variables** → **Actions** → **New re
 - `CLOUDFLARE_ACCOUNT_ID` = `23a85aea8c2d5ac5954eedd74cc46a88`
 
 > Set both secrets **before** merging the workflow to `main`, so the first auto-deploy
-> succeeds. If the workflow runs without them, it fails harmlessly at the Wrangler step
-> and production is left untouched.
+> succeeds. If the workflow runs without them, both Wrangler steps (D1 migrate and Pages
+> deploy) fail at the authentication check — no migrations are applied and nothing is
+> deployed, so production is left untouched.
 
 ## Manual deploy / fallback
 Still available locally:
 ```bash
 npm run cf:deploy   # npm run build && wrangler pages deploy dist
 ```
+Note: `cf:deploy` does **not** apply D1 migrations. If the release includes schema
+changes, run `npm run db:migrate` first.
 
 ## Verify a deploy
 ```bash
@@ -40,7 +43,11 @@ npx wrangler pages deployment list --project-name vinted-studio
 The newest entry's source commit should match `main` HEAD.
 
 ## Rollback
-Cloudflare keeps deployment history. In the dashboard
-(Pages → vinted-studio → Deployments) pick a previous successful deployment →
-**Rollback**. Or re-run the workflow from an earlier commit via **Run workflow**
-(workflow_dispatch) on that ref.
+Fastest path — Cloudflare dashboard: Pages → vinted-studio → Deployments → pick a
+previous successful deployment → **Rollback** (serves that build immediately; does not
+touch git or D1).
+
+Code-level rollback: `git revert <bad-commit>` and push to `main` — the workflow
+redeploys the reverted state automatically. Use this when you want `main` and production
+to match. Note: neither path undoes an already-applied D1 migration; write a new forward
+migration if the schema needs reverting.
