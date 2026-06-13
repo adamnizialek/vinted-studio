@@ -28,6 +28,7 @@ import {
   STATUS_OPTIONS,
 } from '@/lib/constants'
 import { money } from '@/lib/format'
+import { requiresSaleModal } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
 import {
   DESCRIPTION_STYLES,
@@ -126,7 +127,7 @@ export function ProductEditor() {
               </option>
             ))}
           </Select>
-          {draft.status !== 'sold' && (
+          {!requiresSaleModal(draft.status) && (
             <Button variant="soft" onClick={() => setSoldOpen(true)}>
               <Check size={16} /> Sprzedane
             </Button>

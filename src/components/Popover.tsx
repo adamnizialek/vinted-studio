@@ -105,9 +105,8 @@ function PopoverPanel({
 
 export interface PickerTriggerProps {
   ref: RefObject<HTMLButtonElement>
-  open: boolean
   toggle: () => void
-  /** Spread directly onto the trigger button. */
+  /** Spread directly onto the trigger button (carries the open state via aria-expanded). */
   aria: { 'aria-haspopup': 'menu'; 'aria-expanded': boolean }
 }
 
@@ -147,7 +146,6 @@ export function ResponsivePicker({
     <>
       {trigger({
         ref,
-        open,
         toggle: () => setOpen((v) => !v),
         aria: { 'aria-haspopup': 'menu', 'aria-expanded': open },
       })}

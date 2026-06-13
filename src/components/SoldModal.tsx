@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Check } from 'lucide-react'
 import { db, putEntity } from '@/db/db'
@@ -28,12 +28,18 @@ export function SoldModal({
   const [accountId, setAccountId] = useState('')
   const [buyer, setBuyer] = useState('')
 
+  // Seed the form only on the RISING EDGE of `open`, not on every `product` identity
+  // change. In the grid, `product` comes from useLiveQuery and gets a fresh object on
+  // any products-table write or sync pull — keying on it would wipe the user's typed
+  // price/buyer mid-entry (e.g. when a sync fires on window.focus).
+  const prevOpen = useRef(false)
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
       setPrice(product.listingPrice ? String(product.listingPrice) : '')
       setAccountId(product.accountId ?? '')
       setBuyer('')
     }
+    prevOpen.current = open
   }, [open, product])
 
   const confirm = async () => {

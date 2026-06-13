@@ -45,10 +45,9 @@ export function AccountPicker({
             e.stopPropagation()
             toggle()
           }}
+          // `tap-target` adds a mobile-only 44px hit area (needs the `relative` here).
           className={clsx(
-            'relative inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-[11px] transition hover:bg-ink-100',
-            // Mobile-only 44px tap target via a centered pseudo-element.
-            "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] sm:before:hidden",
+            'tap-target relative inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-[11px] transition hover:bg-ink-100',
             current ? 'text-ink-500' : 'text-ink-400 ring-1 ring-dashed ring-ink-200',
             className,
           )}

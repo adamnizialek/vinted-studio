@@ -44,14 +44,8 @@ export function StatusPicker({ product, className }: { product: Product; classNa
               e.stopPropagation()
               toggle()
             }}
-            className={clsx(
-              'badge shadow-sm',
-              // Mobile-only 44px tap target via a centered pseudo-element (doesn't grow
-              // the visible pill or intercept neighbouring clicks on desktop).
-              "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] sm:before:hidden",
-              STATUS_TONE[product.status],
-              className,
-            )}
+            // `tap-target` adds a mobile-only 44px hit area without growing the pill.
+            className={clsx('badge tap-target shadow-sm', STATUS_TONE[product.status], className)}
             {...aria}
           >
             {STATUS_LABELS[product.status]}
@@ -74,15 +68,19 @@ export function StatusPicker({ product, className }: { product: Product; classNa
         )}
       </ResponsivePicker>
 
-      <SoldModal
-        open={soldOpen}
-        onClose={() => setSoldOpen(false)}
-        product={product}
-        onSold={() => {
-          void patchEntity('products', product.id, { status: 'sold', soldAt: Date.now() })
-          setSoldOpen(false)
-        }}
-      />
+      {/* Mounted only while open so each grid card doesn't hold an idle
+          useLiveQuery(accounts) subscription (one per card otherwise). */}
+      {soldOpen && (
+        <SoldModal
+          open
+          onClose={() => setSoldOpen(false)}
+          product={product}
+          onSold={() => {
+            void patchEntity('products', product.id, { status: 'sold', soldAt: Date.now() })
+            setSoldOpen(false)
+          }}
+        />
+      )}
     </>
   )
 }
