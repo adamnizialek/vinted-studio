@@ -9,6 +9,31 @@ import type { RemoteClient } from './remote'
 import { stripForPush } from './serialize'
 
 const CURSOR_KEY = 'cursor'
+const SEEDED_KEY = 'seeded'
+
+/**
+ * One-time migration: enqueue every existing local row (and image blob) so the data
+ * created before sync was enabled gets pushed to the cloud. Idempotent — guarded by a
+ * 'seeded' flag, and re-queuing is harmless (server LWW skips ties).
+ */
+export async function seedOutbox(): Promise<void> {
+  const flag = await db.sync_meta.get(SEEDED_KEY)
+  if (flag?.value) return
+  const fallback = Date.now()
+  for (const table of SYNC_TABLES) {
+    const ids = (await db.table(table).toCollection().primaryKeys()) as string[]
+    for (const id of ids) {
+      const rec = (await db.table(table).get(id)) as { updatedAt?: number } | undefined
+      await db.outbox.put({ table, id, deleted: 0, updatedAt: rec?.updatedAt ?? fallback })
+    }
+  }
+  const imageIds = (await db.images.toCollection().primaryKeys()) as string[]
+  for (const id of imageIds) {
+    const img = await db.images.get(id)
+    if (img?.blob) await db.blob_outbox.put({ id })
+  }
+  await db.sync_meta.put({ key: SEEDED_KEY, value: true })
+}
 
 // applyRemoteUpsert is generic on a literal table; the engine works with the union,
 // so route through a non-generic alias (runtime branches on the table string anyway).

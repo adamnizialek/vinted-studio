@@ -11,3 +11,4 @@ dist-ssr
 coverage
 *.tsbuildinfo
 .wrangler
+.dev.vars

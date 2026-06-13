@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSettings } from '@/state/settings'
+import { SyncBadge, useSyncTriggers } from '@/components/SyncStatus'
 
 const NAV = [
   { to: '/', label: 'Pulpit', icon: LayoutDashboard, end: true },
@@ -62,6 +63,7 @@ export function Layout() {
   const [open, setOpen] = useState(false)
   const settings = useSettings((s) => s.settings)
   const needsKey = settings && !settings.geminiApiKey
+  useSyncTriggers()
 
   return (
     <div className="min-h-full lg:flex">
@@ -71,8 +73,9 @@ export function Layout() {
         <div className="mt-6 flex-1">
           <NavItems />
         </div>
+        <SyncBadge className="mb-2" />
         <p className="px-3 text-[11px] leading-relaxed text-ink-400">
-          Działa lokalnie w przeglądarce. Dane i klucz API nie opuszczają tego urządzenia.
+          Klucz API nie opuszcza tego urządzenia. Synchronizację między urządzeniami włączysz w Ustawieniach.
         </p>
       </aside>
 

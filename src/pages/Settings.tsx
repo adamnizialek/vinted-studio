@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Cloud,
   Database,
   Download,
   Eye,
   EyeOff,
   KeyRound,
   Loader2,
+  RefreshCw,
   Upload,
   Trash2,
   Wand2,
   Coins,
 } from 'lucide-react'
 import { useSettings } from '@/state/settings'
+import { useSync } from '@/state/sync'
 import { toast } from '@/state/toast'
 import { Button, Field, Select, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import {
@@ -23,6 +26,8 @@ import {
 } from '@/lib/constants'
 import { testConnection } from '@/lib/gemini'
 import { clearAllData, exportAll, importAll } from '@/db/db'
+import { getSyncToken, setSyncToken } from '@/sync/config'
+import { seedOutbox } from '@/sync/syncEngine'
 import { downloadText } from '@/lib/csv'
 
 export function SettingsPage() {
@@ -32,6 +37,9 @@ export function SettingsPage() {
   const [testing, setTesting] = useState(false)
   const [busy, setBusy] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
+  const [syncToken, setSyncTokenInput] = useState(getSyncToken() ?? '')
+  const [connected, setConnected] = useState(!!getSyncToken())
+  const syncStatus = useSync((s) => s.status)
 
   useEffect(() => setForm(settings), [settings])
   if (!form) return null
@@ -74,6 +82,39 @@ export function SettingsPage() {
       toast.success('Zaimportowano dane z kopii zapasowej.')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Nie udało się zaimportować pliku.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connectSync = async () => {
+    if (!syncToken.trim()) return toast.error('Wpisz token synchronizacji.')
+    setSyncToken(syncToken.trim())
+    setConnected(true)
+    setBusy(true)
+    try {
+      await seedOutbox()
+      await useSync.getState().syncNow()
+      const st = useSync.getState()
+      if (st.status === 'error') toast.error(st.error ?? 'Błąd synchronizacji.')
+      else toast.success('Połączono. Dane synchronizują się między urządzeniami ☁️')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnectSync = () => {
+    setSyncToken(null)
+    setConnected(false)
+    setSyncTokenInput('')
+    useSync.setState({ status: 'disabled', error: null })
+    toast.success('Rozłączono synchronizację (dane pozostają lokalnie).')
+  }
+
+  const manualSync = async () => {
+    setBusy(true)
+    try {
+      await useSync.getState().syncNow()
     } finally {
       setBusy(false)
     }
@@ -247,6 +288,54 @@ export function SettingsPage() {
             placeholder="np. Wysyłka w 24h 📦 Łączę przesyłki!"
           />
         </Field>
+      </div>
+
+      {/* SYNCHRONIZACJA */}
+      <div className="card space-y-4 p-5">
+        <div className="flex items-center gap-2 text-ink-900">
+          <Cloud size={18} className="text-brand-500" />
+          <h3 className="font-bold">Synchronizacja między urządzeniami</h3>
+        </div>
+        <div className="rounded-xl bg-ink-50 px-4 py-3 text-sm text-ink-600">
+          Wpisz token synchronizacji (ustawiony w Twoim projekcie Cloudflare). Produkty, zdjęcia,
+          modelki i sprzedaże zapiszą się w Twojej darmowej chmurze i będą dostępne na telefonie i
+          komputerze. Token i klucz Gemini przechowywane są wyłącznie na tym urządzeniu.
+        </div>
+        <Field label="Token synchronizacji">
+          <div className="flex gap-2">
+            <TextInput
+              type="password"
+              value={syncToken}
+              onChange={(e) => setSyncTokenInput(e.target.value)}
+              placeholder="wklej token…"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {connected ? (
+              <Button variant="ghost" onClick={disconnectSync} disabled={busy}>
+                Rozłącz
+              </Button>
+            ) : (
+              <Button onClick={connectSync} disabled={busy}>
+                {busy ? <Loader2 size={16} className="animate-spin-slow" /> : 'Połącz'}
+              </Button>
+            )}
+          </div>
+        </Field>
+        {connected && (
+          <div className="flex items-center gap-3 text-sm">
+            <Button variant="ghost" onClick={manualSync} disabled={busy || syncStatus === 'syncing'}>
+              <RefreshCw size={16} className={syncStatus === 'syncing' ? 'animate-spin' : undefined} />
+              Synchronizuj teraz
+            </Button>
+            <span className="text-ink-400">
+              {syncStatus === 'syncing' && 'Synchronizacja…'}
+              {syncStatus === 'idle' && 'Połączono ✔'}
+              {syncStatus === 'offline' && 'Offline — zsynchronizuje się później'}
+              {syncStatus === 'error' && 'Błąd — sprawdź token'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* DANE */}

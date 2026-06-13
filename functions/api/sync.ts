@@ -26,13 +26,17 @@ class D1Store implements SyncStore {
   ) {}
 
   async maxStamp(): Promise<number> {
-    const union = SYNC_TABLES.map((t) => `SELECT MAX(sync_stamp) AS s FROM ${t}`).join(
-      ' UNION ALL ',
+    // One MAX(sync_stamp) per table, batched into a single round trip. (A 6-way
+    // UNION ALL trips D1's "too many terms in compound SELECT" limit.)
+    const results = await this.db.batch<{ s: number | null }>(
+      SYNC_TABLES.map((t) => this.db.prepare(`SELECT MAX(sync_stamp) AS s FROM ${t}`)),
     )
-    const row = await this.db.prepare(`SELECT MAX(s) AS m FROM (${union})`).first<{
-      m: number | null
-    }>()
-    return row?.m ?? 0
+    let max = 0
+    for (const r of results) {
+      const s = r.results[0]?.s
+      if (s != null) max = Math.max(max, s)
+    }
+    return max
   }
 
   async getContentUpdatedAt(table: SyncTable, id: string): Promise<number | undefined> {
