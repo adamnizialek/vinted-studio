@@ -1,3 +1,58 @@
+/**
+ * Tokenizuje CSV do tablicy wierszy (string[][]). Obsługuje pola w cudzysłowach
+ * z przecinkami (polskie liczby "22,4"), zdublowane cudzysłowy "", CRLF i BOM.
+ * Pusty końcowy wiersz (po końcowym \n) jest pomijany.
+ */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0 // pomiń BOM
+
+  const pushField = () => {
+    row.push(field)
+    field = ''
+  }
+  const pushRow = () => {
+    rows.push(row)
+    row = []
+  }
+
+  for (; i < text.length; i++) {
+    const c = text[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        field += c
+      }
+    } else if (c === '"') {
+      inQuotes = true
+    } else if (c === ',') {
+      pushField()
+    } else if (c === '\n') {
+      pushField()
+      pushRow()
+    } else if (c === '\r') {
+      // pomijamy — koniec wiersza obsługuje \n
+    } else {
+      field += c
+    }
+  }
+  // Domknij ostatni wiersz, o ile coś w nim jest.
+  if (field !== '' || row.length > 0) {
+    pushField()
+    pushRow()
+  }
+  return rows
+}
+
 /** Eksport tablicy obiektow do CSV (separator ; — przyjazny dla Excela PL). */
 export function toCsv(rows: Record<string, unknown>[], headers?: string[]): string {
   if (rows.length === 0) return ''
