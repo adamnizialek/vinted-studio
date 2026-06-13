@@ -26,17 +26,34 @@ class D1Store implements SyncStore {
   ) {}
 
   async maxStamp(): Promise<number> {
-    // One MAX(sync_stamp) per table, batched into a single round trip. (A 6-way
-    // UNION ALL trips D1's "too many terms in compound SELECT" limit.)
-    const results = await this.db.batch<{ s: number | null }>(
-      SYNC_TABLES.map((t) => this.db.prepare(`SELECT MAX(sync_stamp) AS s FROM ${t}`)),
-    )
+    // One MAX(sync_stamp) per table, batched into a single round trip. (A UNION ALL
+    // across every table trips D1's "too many terms in compound SELECT" limit.)
     let max = 0
-    for (const r of results) {
-      const s = r.results[0]?.s
-      if (s != null) max = Math.max(max, s)
+    try {
+      const results = await this.db.batch<{ s: number | null }>(
+        SYNC_TABLES.map((t) => this.db.prepare(`SELECT MAX(sync_stamp) AS s FROM ${t}`)),
+      )
+      for (const r of results) {
+        const s = r.results[0]?.s
+        if (s != null) max = Math.max(max, s)
+      }
+      return max
+    } catch {
+      // Okno wdrożenia: klient z nową tabelą w SYNC_TABLES (np. `expenses`) wysłany PRZED
+      // migracją D1 (0002). Batch padłby na brakującej tabeli i zerwał CAŁY sync — degraduj
+      // łagodnie, odpytując tabele pojedynczo i pomijając te, których jeszcze nie ma.
+      for (const t of SYNC_TABLES) {
+        try {
+          const r = await this.db
+            .prepare(`SELECT MAX(sync_stamp) AS s FROM ${t}`)
+            .first<{ s: number | null }>()
+          if (r?.s != null) max = Math.max(max, r.s)
+        } catch {
+          // tabela jeszcze nie istnieje — pomiń
+        }
+      }
+      return max
     }
-    return max
   }
 
   async getContentUpdatedAt(table: SyncTable, id: string): Promise<number | undefined> {
@@ -62,20 +79,25 @@ class D1Store implements SyncStore {
   async rowsSince(cursor: number): Promise<Partial<Record<SyncTable, PulledRow[]>>> {
     const out: Partial<Record<SyncTable, PulledRow[]>> = {}
     for (const t of SYNC_TABLES) {
-      const res = await this.db
-        .prepare(
-          `SELECT id, content_updated_at AS c, deleted, data FROM ${t}
-           WHERE sync_stamp > ? ORDER BY sync_stamp`,
-        )
-        .bind(cursor)
-        .all<{ id: string; c: number; deleted: number; data: string }>()
-      if (res.results.length) {
-        out[t] = res.results.map((r) => ({
-          id: r.id,
-          deleted: (r.deleted ? 1 : 0) as 0 | 1,
-          updatedAt: r.c,
-          data: JSON.parse(r.data),
-        }))
+      try {
+        const res = await this.db
+          .prepare(
+            `SELECT id, content_updated_at AS c, deleted, data FROM ${t}
+             WHERE sync_stamp > ? ORDER BY sync_stamp`,
+          )
+          .bind(cursor)
+          .all<{ id: string; c: number; deleted: number; data: string }>()
+        if (res.results.length) {
+          out[t] = res.results.map((r) => ({
+            id: r.id,
+            deleted: (r.deleted ? 1 : 0) as 0 | 1,
+            updatedAt: r.c,
+            data: JSON.parse(r.data),
+          }))
+        }
+      } catch {
+        // Tabela jeszcze nie istnieje (okno wdrożenia przed migracją) — pomiń;
+        // zsynchronizuje się po zastosowaniu migracji D1.
       }
     }
     return out
