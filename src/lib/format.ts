@@ -1,6 +1,6 @@
 import { format, formatDistanceToNow } from 'date-fns'
 import { pl } from 'date-fns/locale'
-import type { ProfitBreakdown, Sale } from '@/db/types'
+import type { Expense, ProfitBreakdown, Sale } from '@/db/types'
 
 export function money(amount: number | undefined | null, currency = 'PLN'): string {
   const value = Number.isFinite(amount as number) ? (amount as number) : 0
@@ -74,25 +74,21 @@ export function countsAsRevenue(status: Sale['status']): boolean {
   return status === 'completed' || status === 'pending'
 }
 
-/** Agreguje zysk z listy sprzedazy (pomija anulowane i zwroty). */
-export function aggregateProfit(sales: Sale[]): ProfitBreakdown {
-  return sales
+/** Agreguje zysk z listy sprzedazy (pomija anulowane i zwroty) minus koszty promocji. */
+export function aggregateProfit(sales: Sale[], expenses: Expense[] = []): ProfitBreakdown {
+  const base = sales
     .filter((s) => countsAsRevenue(s.status))
-    .reduce<ProfitBreakdown>(
+    .reduce(
       (acc, s) => {
         const p = profitOf(s)
-        const revenue = acc.revenue + p.revenue
-        const costs = acc.costs + p.costs
-        const profit = acc.profit + p.profit
-        return {
-          revenue,
-          costs,
-          profit,
-          margin: revenue > 0 ? profit / revenue : 0,
-        }
+        return { revenue: acc.revenue + p.revenue, costs: acc.costs + p.costs }
       },
-      { revenue: 0, costs: 0, profit: 0, margin: 0 },
+      { revenue: 0, costs: 0 },
     )
+  const adSpend = expenses.reduce((sum, e) => sum + (e.amount || 0), 0)
+  const costs = base.costs + adSpend
+  const profit = base.revenue - costs
+  return { revenue: base.revenue, costs, profit, margin: base.revenue > 0 ? profit / base.revenue : 0 }
 }
 
 export function pluralPl(n: number, one: string, few: string, many: string): string {
