@@ -135,3 +135,44 @@ export function parseSalesCsv(text: string): ParsedSheet {
   }
   return { rows, headerDetected: detected !== null }
 }
+
+export interface KeyedDraft {
+  key: string
+  draft: DraftSale
+}
+
+/** Deterministyczny klucz treści wiersza — do wykrywania duplikatów przy ponownym imporcie. */
+export function saleImportKey(
+  accountId: string,
+  dateTs: number | null,
+  name: string,
+  salePrice: number,
+  purchaseCost?: number,
+): string {
+  const day = dateTs === null ? 'nodate' : new Date(dateTs).toISOString().slice(0, 10)
+  const n = name.trim().toLowerCase().replace(/\s+/g, ' ')
+  return [accountId, day, n, salePrice, purchaseCost ?? ''].join('|')
+}
+
+/**
+ * Różnica multizbiorów: dla każdego klucza wstawia tylko nadmiar ponad już istniejące.
+ * Zachowuje prawdziwe powtórki, a ponowny import tych samych wierszy jest idempotentny.
+ */
+export function dedupKeyed(
+  existingCounts: Map<string, number>,
+  keyed: KeyedDraft[],
+): { toInsert: KeyedDraft[]; skipped: number } {
+  const seen = new Map(existingCounts)
+  const toInsert: KeyedDraft[] = []
+  let skipped = 0
+  for (const item of keyed) {
+    const c = seen.get(item.key) ?? 0
+    if (c > 0) {
+      seen.set(item.key, c - 1)
+      skipped++
+    } else {
+      toInsert.push(item)
+    }
+  }
+  return { toInsert, skipped }
+}

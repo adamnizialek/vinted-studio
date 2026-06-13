@@ -125,3 +125,40 @@ describe('parseSalesCsv classification edge cases', () => {
     expect(r.status).toBe('returned')
   })
 })
+
+import { saleImportKey, dedupKeyed, type KeyedDraft } from '@/lib/salesImport'
+
+describe('saleImportKey', () => {
+  it('is stable and normalizes name + date to the day', () => {
+    const ts = parsePlDate('13.01.2026') as number
+    const a = saleImportKey('acc1', ts, '  Szalik  Kości ', 55, 22.4)
+    const b = saleImportKey('acc1', ts, 'szalik kości', 55, 22.4)
+    expect(a).toBe(b)
+  })
+
+  it('differs when account, price or name differ', () => {
+    const ts = parsePlDate('13.01.2026') as number
+    expect(saleImportKey('acc1', ts, 'x', 55, 1)).not.toBe(saleImportKey('acc2', ts, 'x', 55, 1))
+    expect(saleImportKey('acc1', ts, 'x', 55, 1)).not.toBe(saleImportKey('acc1', ts, 'x', 56, 1))
+  })
+})
+
+describe('dedupKeyed (multiset diff)', () => {
+  const mk = (key: string): KeyedDraft => ({
+    key,
+    draft: { soldAt: 0, productName: key, salePrice: 1, status: 'completed' },
+  })
+
+  it('inserts only the difference over existing counts', () => {
+    const existing = new Map<string, number>([['A', 1]])
+    const { toInsert, skipped } = dedupKeyed(existing, [mk('A'), mk('A'), mk('B')])
+    expect(toInsert.map((k) => k.key)).toEqual(['A', 'B']) // one A absorbed by existing
+    expect(skipped).toBe(1)
+  })
+
+  it('inserts everything when nothing exists', () => {
+    const { toInsert, skipped } = dedupKeyed(new Map(), [mk('A'), mk('A')])
+    expect(toInsert).toHaveLength(2)
+    expect(skipped).toBe(0)
+  })
+})
