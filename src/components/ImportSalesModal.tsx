@@ -2,8 +2,15 @@ import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { FileUp, Loader2, Plus } from 'lucide-react'
-import { db, importSales, putEntity } from '@/db/db'
-import { parseSalesTable, saleImportKey, type ParsedRow, type DraftSale } from '@/lib/salesImport'
+import { db, importSales, importExpenses, putEntity } from '@/db/db'
+import {
+  parseSalesTable,
+  parseExpenseDrafts,
+  saleImportKey,
+  type ParsedRow,
+  type DraftSale,
+  type DraftExpense,
+} from '@/lib/salesImport'
 import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
@@ -67,7 +74,8 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     const next: EditRow[] = parsed.map((r) => ({
       ...r,
       key: `${sheet}#${r.rowIndex}`,
-      include: r.bucket === 'ready',
+      // Sprzedaże gotowe oraz koszty promocji (excluded/fee) domyślnie zaznaczone.
+      include: r.bucket === 'ready' || r.bucket === 'excluded',
     }))
     if (!next.length) {
       toast.error('Nie znaleziono wierszy w tym arkuszu.')
@@ -151,6 +159,17 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     [includable],
   )
 
+  // Wiersze opłat (bucket 'excluded'/'fee') → szkice kosztów promocji (tylko zaznaczone).
+  const expenseDrafts = useMemo<DraftExpense[]>(
+    () => parseExpenseDrafts(rows.filter((r) => r.include)),
+    [rows],
+  )
+  // Koszty faktycznie importowalne (z datą) — do licznika w stopce.
+  const expenseCount = useMemo(
+    () => expenseDrafts.filter((d) => d.incurredAt !== null).length,
+    [expenseDrafts],
+  )
+
   const createAccount = async () => {
     if (!newName.trim()) return toast.error('Podaj nazwę konta.')
     const id = uid()
@@ -169,11 +188,15 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
 
   const doImport = async () => {
     if (!accountId) return toast.error('Wybierz konto.')
-    if (!drafts.length) return toast.error('Brak wierszy do importu.')
+    if (!drafts.length && !expenseDrafts.length) return toast.error('Brak wierszy do importu.')
     setBusy(true)
     try {
       const res = await importSales(drafts, accountId)
-      toast.success(`Zaimportowano ${res.inserted}, pominięto duplikaty: ${res.skippedDuplicates}.`)
+      const expRes = await importExpenses(expenseDrafts, accountId)
+      toast.success(
+        `Zaimportowano: ${res.inserted} sprzedaży, ${expRes.inserted} kosztów. ` +
+          `Pominięto duplikaty: ${res.skippedDuplicates + expRes.skippedDuplicates}.`,
+      )
       close()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Błąd importu.')
@@ -195,13 +218,20 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       title="Import sprzedaży z CSV"
       footer={
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-ink-500">{newCount} do importu</span>
+          <span className="text-sm text-ink-500">{newCount + expenseCount} do importu</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={close}>
               Anuluj
             </Button>
-            <Button onClick={doImport} disabled={busy || !accountId || newCount === 0}>
-              {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <>Zaimportuj {newCount}</>}
+            <Button
+              onClick={doImport}
+              disabled={busy || !accountId || newCount + expenseCount === 0}
+            >
+              {busy ? (
+                <Loader2 size={16} className="animate-spin-slow" />
+              ) : (
+                <>Zaimportuj {newCount + expenseCount}</>
+              )}
             </Button>
           </div>
         </div>
@@ -291,9 +321,21 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
             )}
 
             {excluded.length > 0 && (
-              <Bucket title={`Pominięte — nie sprzedaż (${excluded.length})`} tone="muted">
+              <Bucket title={`Koszty promocji (${excluded.length})`} tone="warn">
                 {excluded.map((r) => (
-                  <RowLine key={r.key} r={r} onToggle={() => {}} disabled />
+                  <label key={r.key} className="flex items-center gap-3 px-4 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={r.include}
+                      onChange={(e) => setRow(r.key, { include: e.target.checked })}
+                      className="h-4 w-4 rounded border-ink-300 text-brand-500 focus:ring-brand-400"
+                    />
+                    <span className="flex-1 truncate text-ink-800">{r.productName}</span>
+                    <span className="text-ink-400">{r.dateTs ? dateShort(r.dateTs) : '—'}</span>
+                    <span className="w-20 text-right font-medium tabular-nums text-amber-700">
+                      {r.purchaseCost != null ? `−${money(r.purchaseCost)}` : '—'}
+                    </span>
+                  </label>
                 ))}
               </Bucket>
             )}
@@ -346,6 +388,14 @@ function RowLine({
         {r.productName || <em className="text-ink-400">bez nazwy</em>}
       </span>
       <span className="text-ink-400">{r.dateTs ? dateShort(r.dateTs) : '—'}</span>
+      {r.purchaseCost != null && r.salePrice != null && (
+        <span className="hidden w-32 text-right text-xs tabular-nums text-ink-400 sm:inline">
+          koszt {money(r.purchaseCost)} · zysk{' '}
+          <span className={r.salePrice - r.purchaseCost >= 0 ? 'text-emerald-600' : 'text-red-500'}>
+            {money(r.salePrice - r.purchaseCost)}
+          </span>
+        </span>
+      )}
       <span className="w-20 text-right font-medium tabular-nums">
         {r.salePrice != null ? money(r.salePrice) : '—'}
       </span>
