@@ -3,7 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { FileUp, Loader2, Plus } from 'lucide-react'
 import { db, importSales, putEntity } from '@/db/db'
-import { parseSalesCsv, saleImportKey, type ParsedRow, type DraftSale } from '@/lib/salesImport'
+import { parseSalesTable, saleImportKey, type ParsedRow, type DraftSale } from '@/lib/salesImport'
+import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
 import { dateFromInput, dateInputValue, dateShort, money } from '@/lib/format'
@@ -17,9 +18,6 @@ interface EditRow extends ParsedRow {
   include: boolean
 }
 
-const isCsv = (f: File) =>
-  /\.csv$/i.test(f.name) || f.type.includes('csv') || f.type === 'text/plain'
-
 const rowValid = (r: { salePrice?: number; dateTs: number | null }) =>
   r.salePrice != null && r.salePrice > 0 && r.dateTs != null
 
@@ -30,6 +28,10 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
   const [creating, setCreating] = useState(false)
   const [rows, setRows] = useState<EditRow[]>([])
   const [busy, setBusy] = useState(false)
+  // Wczytany skoroszyt (CSV → 1 arkusz; XLSX → wiele). `sheet` = aktualnie wybrany arkusz.
+  const [workbook, setWorkbook] = useState<{ wb: Workbook; names: string[]; sheet: string } | null>(
+    null,
+  )
 
   // Klucze treści sprzedaży już zaimportowanych na wybranym koncie (multizbiór) —
   // wyłącznie do PODGLĄDU (ile wierszy już jest w bazie). Faktyczną deduplikację
@@ -46,6 +48,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     setRows([])
     setNewName('')
     setCreating(false)
+    setWorkbook(null)
   }
 
   // Zamknięcie czyści wczytane wiersze (zachowuje wybrane konto na kolejny import).
@@ -54,29 +57,38 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     onClose()
   }
 
+  // Klasyfikuje wybrany arkusz sprzedaży i wstępnie zaznacza gotowe wiersze.
+  const processSales = (table: string[][], sheet: string) => {
+    const { rows: parsed } = parseSalesTable(table)
+    const next: EditRow[] = parsed.map((r) => ({
+      ...r,
+      key: `${sheet}#${r.rowIndex}`,
+      include: r.bucket === 'ready',
+    }))
+    if (!next.length) {
+      toast.error('Nie znaleziono wierszy w tym arkuszu.')
+      setRows([])
+      return
+    }
+    setRows(next)
+  }
+
   const onFiles = async (files: File[]) => {
     try {
-      const next: EditRow[] = []
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]
-        const text = await f.text()
-        const { rows: parsed } = parseSalesCsv(text)
-        for (const r of parsed) {
-          next.push({
-            ...r,
-            key: `${i}:${f.name}#${r.rowIndex}`,
-            include: r.bucket === 'ready',
-          })
-        }
-      }
-      if (!next.length) {
-        toast.error('Nie znaleziono wierszy w pliku CSV.')
-        return
-      }
-      setRows(next)
+      const wb = await readWorkbook(files[0])
+      const sheet = wb.sheetNames[0]
+      setWorkbook({ wb, names: wb.sheetNames, sheet })
+      processSales(wb.tableOf(sheet), sheet)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
+  }
+
+  // Zmiana arkusza (tylko XLSX z wieloma arkuszami) — przeparsuj wybrany.
+  const onSheet = (sheet: string) => {
+    if (!workbook) return
+    setWorkbook({ ...workbook, sheet })
+    processSales(workbook.wb.tableOf(sheet), sheet)
   }
 
   const setRow = (key: string, patch: Partial<EditRow>) =>
@@ -216,15 +228,32 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
           )}
         </Field>
 
-        <FileDrop onFiles={onFiles} accept=".csv,text/csv" filter={isCsv} multiple={false}>
+        <FileDrop
+          onFiles={onFiles}
+          accept=".csv,.xlsx,.xls,text/csv"
+          filter={isSpreadsheet}
+          multiple={false}
+        >
           <FileUp className="text-brand-500" />
           <span className="text-sm font-semibold text-ink-700">
-            Przeciągnij plik CSV (Arkusze: Plik → Pobierz → .csv) lub kliknij
+            Przeciągnij plik CSV lub XLSX (Arkusze: Plik → Pobierz) lub kliknij
           </span>
           <span className="text-xs text-ink-400">
-            Jeden plik = jedno konto — importuj osobno dla Main, Zoos…
+            Jeden arkusz = jedno konto — importuj osobno dla Main, Zoos…
           </span>
         </FileDrop>
+
+        {workbook && workbook.names.length > 1 && (
+          <Field label="Arkusz do zaimportowania">
+            <Select value={workbook.sheet} onChange={(e) => onSheet(e.target.value)}>
+              {workbook.names.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {rows.length > 0 && (
           <div className="space-y-4">
