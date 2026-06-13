@@ -1,4 +1,4 @@
-import type { Condition, ProductStatus, SaleStatus } from '@/db/types'
+import type { Condition, ImageResolution, ProductStatus, SaleStatus } from '@/db/types'
 
 export const CONDITION_LABELS: Record<Condition, string> = {
   nowy_z_metka: 'Nowy z metką',
@@ -78,21 +78,45 @@ export const TEXT_MODEL_OPTIONS = [
 ]
 
 export const IMAGE_MODEL_OPTIONS = [
-  { value: 'gemini-2.5-flash-image', label: 'gemini-2.5-flash-image (Nano Banana)' },
-  { value: 'gemini-3.1-flash-image', label: 'gemini-3.1-flash-image (Nano Banana 2)' },
-  { value: 'gemini-3-pro-image', label: 'gemini-3-pro-image (Nano Banana Pro)' },
+  { value: 'gemini-3.1-flash-image', label: 'gemini-3.1-flash-image (Nano Banana 2) — zalecany' },
+  { value: 'gemini-3-pro-image', label: 'gemini-3-pro-image (Nano Banana Pro) — najwyższa jakość' },
+  { value: 'gemini-2.5-flash-image', label: 'gemini-2.5-flash-image (Nano Banana, tylko 1024px)' },
+]
+
+export const IMAGE_RESOLUTION_OPTIONS: { value: ImageResolution; label: string }[] = [
+  { value: '1K', label: '1K (~1024px, najtaniej)' },
+  { value: '2K', label: '2K (~2048px, zalecane dla Vinted)' },
+  { value: '4K', label: '4K (~4096px, maks. jakość)' },
 ]
 
 export const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash'
-export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
+export const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image'
+export const DEFAULT_IMAGE_RESOLUTION: ImageResolution = '2K'
 
 /**
- * Szacunkowy koszt jednego wygenerowanego obrazu (USD) dla Gemini 2.5 Flash Image
- * przy 1024x1024 (1290 tokenow x $30/1M). Modele 3.x / wyzsze rozdzielczosci moga
- * kosztowac wiecej. UWAGA: generowanie obrazow przez API NIE ma darmowego limitu.
- * Zrodlo: https://ai.google.dev/gemini-api/docs/pricing
+ * Orientacyjny koszt jednego wygenerowanego obrazu (USD) wg modelu i rozdzielczosci.
+ * Zrodlo: oficjalny cennik Gemini API (https://ai.google.dev/gemini-api/docs/pricing).
+ * UWAGA: generowanie obrazow przez API NIE ma darmowego limitu — placisz od 1. uzycia.
+ * - gemini-2.5-flash-image renderuje zawsze ~1MP, wiec ignoruje wyzsza rozdzielczosc.
  */
-export const EST_IMAGE_COST_USD = 0.039
+const IMAGE_COST_USD: Record<
+  string,
+  { default: number } & Partial<Record<ImageResolution, number>>
+> = {
+  'gemini-2.5-flash-image': { '1K': 0.039, default: 0.039 },
+  'gemini-3.1-flash-image': { '1K': 0.067, '2K': 0.101, '4K': 0.15, default: 0.101 },
+  'gemini-3-pro-image': { '1K': 0.134, '2K': 0.134, '4K': 0.24, default: 0.134 },
+}
+
+/** Ostrozny fallback dla nieznanego modelu (zeby kosztorys nie pokazywal $0). */
+const FALLBACK_IMAGE_COST_USD = 0.1
+
+/** Szacunkowy koszt (USD) jednego obrazu dla danego modelu i rozdzielczosci. */
+export function estimateImageCostUsd(model: string, resolution: ImageResolution): number {
+  const perModel = IMAGE_COST_USD[model]
+  if (!perModel) return FALLBACK_IMAGE_COST_USD
+  return perModel[resolution] ?? perModel.default
+}
 
 /** Przybliżony kurs USD→PLN tylko do orientacyjnego pokazania kosztu. */
 export const USD_PLN = 4.0

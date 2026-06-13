@@ -25,6 +25,13 @@ export type Condition =
 /** Rodzaj obrazu — uzywany do filtrowania galerii. */
 export type ImageKind = 'product' | 'generated' | 'model' | 'reference'
 
+/**
+ * Rozdzielczosc wyjsciowa generowanego obrazu. Obslugiwana natywnie tylko przez
+ * rodzine Gemini 3 image (imageConfig.imageSize); litery "K" muszą być wielkie.
+ * 1K ≈ 1024px (~1MP), 2K ≈ 2048px (~4MP), 4K ≈ 4096px (~16MP).
+ */
+export type ImageResolution = '1K' | '2K' | '4K'
+
 export interface ImageRecord {
   id: ID
   /**
@@ -188,6 +195,8 @@ export interface AppSettings {
   geminiApiKey: string
   textModel: string
   imageModel: string
+  /** Rozdzielczosc generowanych zdjec (dotyczy modeli Gemini 3 image). */
+  imageResolution: ImageResolution
   currency: string
   defaultAccountId?: ID
   /** Domyslna sygnatura/stopka doklejana do opisow (np. info o wysylce). */

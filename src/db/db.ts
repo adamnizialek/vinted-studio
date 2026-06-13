@@ -7,7 +7,11 @@ import type {
   Product,
   Sale,
 } from './types'
-import { DEFAULT_IMAGE_MODEL, DEFAULT_TEXT_MODEL } from '@/lib/constants'
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_RESOLUTION,
+  DEFAULT_TEXT_MODEL,
+} from '@/lib/constants'
 import { uid } from '@/lib/id'
 import { type SyncTable } from '@/sync/core'
 import {
@@ -100,6 +104,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKey: '',
   textModel: DEFAULT_TEXT_MODEL,
   imageModel: DEFAULT_IMAGE_MODEL,
+  imageResolution: DEFAULT_IMAGE_RESOLUTION,
   currency: 'PLN',
   appendSignature: false,
   signature: 'Wysyłka w 24h 📦 Pytaj śmiało, łączę przesyłki! 💌',
@@ -213,10 +218,33 @@ export async function applyRemoteDelete(table: SyncTable, id: string): Promise<v
 // Ustawienia
 // ---------------------------------------------------------------------------
 
-/** Odczyt ustawien z domyslnymi wartosciami (uzupelnia brakujace pola). */
+/**
+ * Migracje ustawien miedzy wersjami schematu. Czysta funkcja (idempotentna) —
+ * wynik jest stabilny przy ponownym wywolaniu i nie zalezy od IndexedDB.
+ */
+export function migrateSettings(row: AppSettings): AppSettings {
+  let next = row
+  if ((next.schemaVersion ?? 1) < 2) {
+    // v2: domyslny model obrazow -> gemini-3.1-flash-image @ 2K (wyzsza rozdzielczosc
+    // dla Vinted). Migrujemy tylko uzytkownikow ze starego domyslnego 2.5-flash-image,
+    // by nie nadpisac swiadomego wyboru innego modelu.
+    next = {
+      ...next,
+      imageModel:
+        next.imageModel === 'gemini-2.5-flash-image'
+          ? 'gemini-3.1-flash-image'
+          : next.imageModel,
+      imageResolution: next.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
+      schemaVersion: 2,
+    }
+  }
+  return next
+}
+
+/** Odczyt ustawien z domyslnymi wartosciami (uzupelnia brakujace pola + migracje). */
 export async function getSettings(): Promise<AppSettings> {
   const row = await db.settings.get('app')
-  return { ...DEFAULT_SETTINGS, ...(row ?? {}), id: 'app' }
+  return migrateSettings({ ...DEFAULT_SETTINGS, ...(row ?? {}), id: 'app' })
 }
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {

@@ -19,8 +19,10 @@ import { toast } from '@/state/toast'
 import { Button, Field, Select, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import {
   CURRENCY_OPTIONS,
-  EST_IMAGE_COST_USD,
+  DEFAULT_IMAGE_RESOLUTION,
+  estimateImageCostUsd,
   IMAGE_MODEL_OPTIONS,
+  IMAGE_RESOLUTION_OPTIONS,
   TEXT_MODEL_OPTIONS,
   USD_PLN,
 } from '@/lib/constants'
@@ -129,8 +131,9 @@ export function SettingsPage() {
     toast.success('Wyczyszczono dane.')
   }
 
-  const estCost = (form.imagesGenerated * EST_IMAGE_COST_USD).toFixed(2)
-  const estCostPln = (form.imagesGenerated * EST_IMAGE_COST_USD * USD_PLN).toFixed(0)
+  const perImageCost = estimateImageCostUsd(form.imageModel, form.imageResolution)
+  const estCost = (form.imagesGenerated * perImageCost).toFixed(2)
+  const estCostPln = (form.imagesGenerated * perImageCost * USD_PLN).toFixed(0)
 
   return (
     <div className="space-y-5">
@@ -204,7 +207,7 @@ export function SettingsPage() {
           </Field>
           <Field
             label="Model obrazów (zdjęcia)"
-            hint="gemini-2.5-flash-image (Nano Banana) wygasa 02.10.2026 — nowsze: 3.1-flash-image / 3-pro-image."
+            hint="Domyślnie gemini-3.1-flash-image. Stary 2.5-flash-image daje tylko 1024px (ryzyko blokady za niską jakość) i wygasa 02.10.2026."
           >
             <TextInput
               list="image-models"
@@ -219,6 +222,21 @@ export function SettingsPage() {
               ))}
             </datalist>
           </Field>
+          <Field
+            label="Rozdzielczość zdjęć"
+            hint="2K (~2048px) zalecane dla Vinted — znacznie ostrzejsze niż 1024px. Działa dla modeli Gemini 3."
+          >
+            <Select
+              value={form.imageResolution ?? DEFAULT_IMAGE_RESOLUTION}
+              onChange={(e) => set('imageResolution', e.target.value as typeof form.imageResolution)}
+            >
+              {IMAGE_RESOLUTION_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
       </div>
 
@@ -230,8 +248,8 @@ export function SettingsPage() {
         </div>
         <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Uwaga: generowanie obrazów przez Gemini API jest <b>płatne od pierwszego użycia</b> (brak
-          darmowego limitu). Orientacyjnie ok. <b>${EST_IMAGE_COST_USD.toFixed(3)}</b> za obraz 1024px.
-          Opisy tekstowe mają hojny darmowy limit.
+          darmowego limitu). Orientacyjnie ok. <b>${perImageCost.toFixed(3)}</b> za obraz przy{' '}
+          <b>{form.imageModel}</b> @ <b>{form.imageResolution}</b>. Opisy tekstowe mają hojny darmowy limit.
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Wariantów na jedną generację" hint="Ile zdjęć generować naraz (więcej = wyższy koszt).">
