@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { Package, Plus, Search } from 'lucide-react'
+import { Package, Plus, Search, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { db } from '@/db/db'
 import type { Product, ProductStatus } from '@/db/types'
@@ -11,6 +11,7 @@ import { STATUS_LABELS, STATUS_OPTIONS, STATUS_TONE } from '@/lib/constants'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
+import { ImportStockModal } from '@/components/ImportStockModal'
 
 export function Inventory() {
   const nav = useNavigate()
@@ -21,6 +22,7 @@ export function Inventory() {
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<ProductStatus | 'all'>('all')
   const [accountId, setAccountId] = useState<string>('all')
+  const [importOpen, setImportOpen] = useState(false)
 
   const filtered = useMemo(() => {
     let list = products ?? []
@@ -71,9 +73,14 @@ export function Inventory() {
         title="Magazyn"
         subtitle={`${products?.length ?? 0} przedmiotów · ${counts.in_stock ?? 0} w magazynie · ${counts.listed ?? 0} wystawionych`}
         right={
-          <Button onClick={createProduct}>
-            <Plus size={16} /> Dodaj produkt
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setImportOpen(true)}>
+              <Upload size={16} /> Importuj stan
+            </Button>
+            <Button onClick={createProduct}>
+              <Plus size={16} /> Dodaj produkt
+            </Button>
+          </div>
         }
       />
 
@@ -170,6 +177,7 @@ export function Inventory() {
           })}
         </div>
       )}
+      <ImportStockModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
 }
