@@ -3,6 +3,7 @@ import {
   Cloud,
   Database,
   Download,
+  Eraser,
   Eye,
   EyeOff,
   KeyRound,
@@ -27,7 +28,7 @@ import {
   USD_PLN,
 } from '@/lib/constants'
 import { testConnection } from '@/lib/gemini'
-import { clearAllData, exportAll, importAll } from '@/db/db'
+import { clearAllData, clearImportedData, countImportedData, exportAll, importAll } from '@/db/db'
 import { getSyncToken, setSyncToken } from '@/sync/config'
 import { seedOutbox } from '@/sync/syncEngine'
 import { downloadText } from '@/lib/csv'
@@ -129,6 +130,28 @@ export function SettingsPage() {
     await clearAllData()
     setBusy(false)
     toast.success('Wyczyszczono dane.')
+  }
+
+  const clearImported = async () => {
+    const c = await countImportedData()
+    const total = c.sales + c.expenses + c.products
+    if (total === 0) return toast.success('Brak danych z importu do usunięcia.')
+    if (
+      !window.confirm(
+        `Usunąć ${c.sales} sprzedaży, ${c.expenses} kosztów i ${c.products} przedmiotów pochodzących z importu? ` +
+          'Ręczne wpisy oraz produkty ze zdjęciami zostaną zachowane. Tej operacji nie można cofnąć.',
+      )
+    )
+      return
+    setBusy(true)
+    try {
+      const res = await clearImportedData()
+      toast.success(
+        `Usunięto z importu: ${res.sales} sprzedaży, ${res.expenses} kosztów, ${res.products} przedmiotów.`,
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   const perImageCost = estimateImageCostUsd(form.imageModel, form.imageResolution)
@@ -380,6 +403,9 @@ export function SettingsPage() {
               e.target.value = ''
             }}
           />
+          <Button variant="ghost" onClick={clearImported} disabled={busy}>
+            <Eraser size={16} /> Wyczyść zaimportowane
+          </Button>
           <Button variant="danger" onClick={wipe} disabled={busy}>
             <Trash2 size={16} /> Wyczyść dane
           </Button>
