@@ -25,3 +25,111 @@ export function parsePlDate(raw: string | undefined): number | null {
   if (d.getFullYear() !== year || d.getMonth() !== mon - 1 || d.getDate() !== day) return null
   return d.getTime()
 }
+
+export type ImportBucket = 'ready' | 'review' | 'excluded'
+
+export interface ParsedRow {
+  /** 1-based indeks wiersza danych w pliku (nagłówek = 0). */
+  rowIndex: number
+  bucket: ImportBucket
+  /** Powody (PL) — dla kubełków review/excluded. */
+  issues: string[]
+  productName: string
+  dateTs: number | null
+  salePrice?: number
+  purchaseCost?: number
+  status: 'completed' | 'returned'
+  excludedReason?: 'fee'
+}
+
+export interface ParsedSheet {
+  rows: ParsedRow[]
+  /** false → nie rozpoznano nagłówków, użyto kolumn A–D. */
+  headerDetected: boolean
+}
+
+/** Czysty szkic sprzedaży gotowy do zapisu (bez pól nadawanych przez DB). */
+export interface DraftSale {
+  soldAt: number
+  productName: string
+  salePrice: number
+  purchaseCost?: number
+  status: 'completed' | 'returned'
+}
+
+interface ColumnMap {
+  date: number
+  name: number
+  purchase: number
+  sale: number
+}
+
+/** Rozpoznaje kolumny po nagłówkach (z tolerancją na literówkę "zaukupu"). null → brak dopasowania. */
+function detectColumns(header: string[]): ColumnMap | null {
+  const norm = header.map((h) => h.trim().toLowerCase())
+  const find = (pred: (h: string) => boolean) => norm.findIndex(pred)
+  const date = find((h) => h.includes('data'))
+  const name = find((h) => h.includes('nazwa'))
+  const purchase = find((h) => h.includes('zakup') || h.includes('zaukup'))
+  // "Cena Sprzedaży" — odróżniamy od "Data sprzedaży" wymagając też "cena".
+  const sale = find((h) => h.includes('sprzeda') && h.includes('cena'))
+  if (date < 0 || name < 0 || purchase < 0 || sale < 0) return null
+  return { date, name, purchase, sale }
+}
+
+const FEE_RE = /podbic|ekspozycj/i
+const RETURN_RE = /\(zwrot\)/i
+
+function classifyRow(cells: string[], col: ColumnMap, rowIndex: number): ParsedRow | null {
+  const cell = (i: number) => (cells[i] ?? '').trim()
+  const name = cell(col.name)
+  const rawDate = cell(col.date)
+  const rawSale = cell(col.sale)
+  const rawPurchase = cell(col.purchase)
+
+  if (!name && !rawDate && !rawSale && !rawPurchase) return null // pusty wiersz separujący
+
+  const salePrice = parsePlNumber(rawSale)
+  const purchaseCost = parsePlNumber(rawPurchase)
+  const dateTs = parsePlDate(rawDate)
+  const isReturn = RETURN_RE.test(name) || RETURN_RE.test(rawSale) || RETURN_RE.test(rawPurchase)
+  const status: 'completed' | 'returned' = isReturn ? 'returned' : 'completed'
+
+  const issues: string[] = []
+  const isFee = FEE_RE.test(name) && (salePrice === undefined || salePrice <= 0)
+
+  let bucket: ImportBucket
+  let excludedReason: ParsedRow['excludedReason']
+  if (isFee) {
+    bucket = 'excluded'
+    excludedReason = 'fee'
+    issues.push('Opłata (podbicie/ekspozycja) — nie sprzedaż')
+  } else if (!name) {
+    bucket = 'review'
+    issues.push('Brak nazwy')
+  } else if (salePrice === undefined || salePrice <= 0) {
+    bucket = 'review'
+    issues.push('Brak ceny sprzedaży')
+  } else if (dateTs === null) {
+    bucket = 'review'
+    issues.push('Brak lub niepoprawna data')
+  } else {
+    bucket = 'ready'
+  }
+
+  return { rowIndex, bucket, issues, productName: name, dateTs, salePrice, purchaseCost, status, excludedReason }
+}
+
+/** Parsuje cały plik CSV sprzedaży: wykrywa kolumny, klasyfikuje wiersze. */
+export function parseSalesCsv(text: string): ParsedSheet {
+  const table = parseCsv(text)
+  if (table.length === 0) return { rows: [], headerDetected: false }
+  const detected = detectColumns(table[0])
+  const col: ColumnMap = detected ?? { date: 0, name: 1, purchase: 2, sale: 3 }
+  const rows: ParsedRow[] = []
+  for (let i = 1; i < table.length; i++) {
+    const r = classifyRow(table[i], col, i)
+    if (r) rows.push(r)
+  }
+  return { rows, headerDetected: detected !== null }
+}
