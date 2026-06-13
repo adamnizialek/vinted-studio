@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { startOfMonth, startOfYear } from 'date-fns'
-import { Download, Pencil, Plus, Trash2, Wallet } from 'lucide-react'
+import { Download, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Sale, SaleStatus } from '@/db/types'
@@ -12,6 +12,7 @@ import { SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
 import { toCsv, downloadText } from '@/lib/csv'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
+import { ImportSalesModal } from '@/components/ImportSalesModal'
 
 type Period = 'all' | 'month' | 'year'
 
@@ -24,6 +25,7 @@ export function Sales() {
   const [period, setPeriod] = useState<Period>('all')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Sale | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   const filtered = useMemo(() => {
     let list = sales ?? []
@@ -94,6 +96,9 @@ export function Sales() {
         subtitle="Przełączaj między ewidencją wspólną a poszczególnymi kontami."
         right={
           <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setImportOpen(true)}>
+              <Upload size={16} /> Import
+            </Button>
             <Button variant="ghost" onClick={exportCsv} disabled={filtered.length === 0}>
               <Download size={16} /> CSV
             </Button>
@@ -195,6 +200,7 @@ export function Sales() {
       )}
 
       <SaleModal open={open} onClose={() => setOpen(false)} sale={editing} accounts={accounts ?? []} />
+      <ImportSalesModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
 }

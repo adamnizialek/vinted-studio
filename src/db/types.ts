@@ -143,6 +143,8 @@ export interface Product {
   updatedAt: number
   listedAt?: number
   soldAt?: number
+  /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
+  importKey?: string
 }
 
 export type SaleStatus = 'completed' | 'pending' | 'cancelled' | 'returned'
@@ -176,6 +178,8 @@ export interface Sale {
   soldAt: number
   createdAt: number
   updatedAt: number
+  /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
+  importKey?: string
 }
 
 /** Globalne ustawienia aplikacji (pojedynczy wiersz w tabeli `settings`). */

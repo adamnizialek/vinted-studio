@@ -2,26 +2,31 @@ import { useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { UploadCloud } from 'lucide-react'
 
-/** Pole do wgrywania obrazow — klik lub przeciagnij i upusc. */
+/** Pole do wgrywania plików — klik lub przeciągnij i upuść. Domyślnie obrazy. */
 export function FileDrop({
   onFiles,
   multiple = true,
   disabled,
   children,
   className,
+  accept = 'image/*',
+  filter,
 }: {
   onFiles: (files: File[]) => void
   multiple?: boolean
   disabled?: boolean
   children?: ReactNode
   className?: string
+  accept?: string
+  filter?: (f: File) => boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
+  const test = filter ?? ((f: File) => f.type.startsWith('image/'))
 
   const handle = (list: FileList | null) => {
     if (!list) return
-    const files = Array.from(list).filter((f) => f.type.startsWith('image/'))
+    const files = Array.from(list).filter(test)
     if (files.length) onFiles(multiple ? files : files.slice(0, 1))
   }
 
@@ -59,7 +64,7 @@ export function FileDrop({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={accept}
         multiple={multiple}
         hidden
         onChange={(e) => {

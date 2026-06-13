@@ -8,7 +8,20 @@ import type {
   Sale,
 } from './types'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_TEXT_MODEL } from '@/lib/constants'
+import { uid } from '@/lib/id'
 import { type SyncTable } from '@/sync/core'
+import {
+  saleImportKey,
+  dedupKeyed,
+  type DraftSale,
+  type KeyedDraft,
+} from '@/lib/salesImport'
+import {
+  stockImportKey,
+  dedupKeyedStock,
+  type ResolvedStockDraft,
+  type KeyedStockDraft,
+} from '@/lib/stockImport'
 
 /** Wpis kolejki wychodzacej — wiersz zmieniony lokalnie i czekajacy na push. */
 export interface OutboxEntry {
@@ -391,6 +404,104 @@ export async function clearAllData(): Promise<void> {
       await tombstoneAll('images', db.images as Table<{ id: string }, string>)
     },
   )
+}
+
+/**
+ * Importuje wiersze sprzedaży do wybranego konta. Liczy klucze treści, odrzuca duplikaty
+ * względem wcześniej zaimportowanych wierszy (różnica multizbiorów) i wstawia resztę.
+ */
+export async function importSales(
+  drafts: DraftSale[],
+  accountId: string,
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+  return db.transaction('rw', db.sales, db.outbox, async () => {
+    const existing = await db.sales.where('accountId').equals(accountId).toArray()
+    const counts = new Map<string, number>()
+    for (const s of existing) {
+      if (s.importKey) counts.set(s.importKey, (counts.get(s.importKey) ?? 0) + 1)
+    }
+
+    const keyed: KeyedDraft[] = drafts.map((d) => ({
+      key: saleImportKey(accountId, d.soldAt, d.productName, d.salePrice, d.purchaseCost),
+      draft: d,
+    }))
+    const { toInsert, skipped } = dedupKeyed(counts, keyed)
+
+    const now = Date.now()
+    const sales: Sale[] = toInsert.map(({ key, draft }) => ({
+      id: uid(),
+      productName: draft.productName,
+      accountId,
+      salePrice: draft.salePrice,
+      currency: 'PLN',
+      quantity: 1,
+      status: draft.status,
+      purchaseCost: draft.purchaseCost,
+      soldAt: draft.soldAt,
+      createdAt: now,
+      updatedAt: now,
+      importKey: key,
+    }))
+
+    if (sales.length) {
+      await db.sales.bulkAdd(sales)
+      // Zakolejkuj do synchronizacji, by zaimportowane wiersze trafily do chmury.
+      await db.outbox.bulkPut(
+        sales.map((s) => ({ table: 'sales' as const, id: s.id, deleted: 0 as const, updatedAt: now })),
+      )
+    }
+    return { inserted: sales.length, skippedDuplicates: skipped }
+  })
+}
+
+/**
+ * Importuje NIESPRZEDANE przedmioty do magazynu (tabela `products`) jako `in_stock`.
+ * Konto bierze z auto-dopasowania / recenzji (może być puste). Deduplikacja multizbiorów
+ * względem wcześniej zaimportowanych przedmiotów (po `importKey`) czyni ponowny import idempotentnym.
+ */
+export async function importStock(
+  drafts: ResolvedStockDraft[],
+): Promise<{ inserted: number; skippedDuplicates: number }> {
+  return db.transaction('rw', db.products, db.outbox, async () => {
+    const existing = await db.products.toArray()
+    const counts = new Map<string, number>()
+    for (const p of existing) {
+      if (p.importKey) counts.set(p.importKey, (counts.get(p.importKey) ?? 0) + 1)
+    }
+
+    const keyed: KeyedStockDraft[] = drafts.map((d) => ({
+      key: stockImportKey(d.name, d.purchaseCost),
+      draft: d,
+    }))
+    const { toInsert, skipped } = dedupKeyedStock(counts, keyed)
+
+    const now = Date.now()
+    const products: Product[] = toInsert.map(({ key, draft }) => ({
+      id: uid(),
+      name: draft.name,
+      condition: 'dobry',
+      purchasePrice: draft.purchaseCost,
+      currency: 'PLN',
+      quantity: 1,
+      status: 'in_stock',
+      accountId: draft.accountId,
+      photoIds: [],
+      generatedPhotoIds: [],
+      descriptions: [],
+      tags: [],
+      importKey: key,
+      createdAt: now,
+      updatedAt: now,
+    }))
+
+    if (products.length) {
+      await db.products.bulkAdd(products)
+      await db.outbox.bulkPut(
+        products.map((p) => ({ table: 'products' as const, id: p.id, deleted: 0 as const, updatedAt: now })),
+      )
+    }
+    return { inserted: products.length, skippedDuplicates: skipped }
+  })
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
