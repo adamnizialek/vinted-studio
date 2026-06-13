@@ -24,6 +24,7 @@ export function Dashboard() {
   const settings = useSettings((s) => s.settings)
   const products = useLiveQuery(() => db.products.toArray(), [])
   const sales = useLiveQuery(() => db.sales.toArray(), [])
+  const expenses = useLiveQuery(() => db.expenses.toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
   const currency = settings?.currency ?? 'PLN'
 
@@ -33,8 +34,9 @@ export function Dashboard() {
 
   const monthStart = startOfMonth(new Date()).getTime()
   const monthSales = (sales ?? []).filter((s) => s.soldAt >= monthStart)
-  const monthAgg = useMemo(() => aggregateProfit(monthSales), [monthSales])
-  const totalAgg = useMemo(() => aggregateProfit(sales ?? []), [sales])
+  const monthExpenses = (expenses ?? []).filter((e) => e.incurredAt >= monthStart)
+  const monthAgg = useMemo(() => aggregateProfit(monthSales, monthExpenses), [monthSales, monthExpenses])
+  const totalAgg = useMemo(() => aggregateProfit(sales ?? [], expenses ?? []), [sales, expenses])
 
   // Wykres: przychód w ostatnich 6 miesiącach.
   const chart = useMemo(() => {
@@ -56,9 +58,10 @@ export function Dashboard() {
   const perAccount = useMemo(() => {
     return (accounts ?? []).map((a) => {
       const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
-      return { account: a, agg: aggregateProfit(accSales), count: accSales.length }
+      const accExpenses = (expenses ?? []).filter((e) => e.accountId === a.id)
+      return { account: a, agg: aggregateProfit(accSales, accExpenses), count: accSales.length }
     })
-  }, [accounts, sales])
+  }, [accounts, sales, expenses])
 
   const recent = useMemo(
     () => [...(sales ?? [])].sort((a, b) => b.soldAt - a.soldAt).slice(0, 5),
