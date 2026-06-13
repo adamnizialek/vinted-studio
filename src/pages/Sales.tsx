@@ -4,11 +4,11 @@ import { startOfMonth, startOfYear } from 'date-fns'
 import { Download, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
-import type { Sale, SaleStatus } from '@/db/types'
+import type { Expense, Sale, SaleStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
-import { SALE_STATUS_LABELS } from '@/lib/constants'
+import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
 import { toCsv, downloadText } from '@/lib/csv'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
@@ -19,6 +19,7 @@ type Period = 'all' | 'month' | 'year'
 export function Sales() {
   const settings = useSettings((s) => s.settings)
   const sales = useLiveQuery(() => db.sales.orderBy('soldAt').reverse().toArray(), [])
+  const expenses = useLiveQuery(() => db.expenses.orderBy('incurredAt').reverse().toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
 
   const [view, setView] = useState<string>('all') // 'all' = wspólna, lub accountId
@@ -26,6 +27,8 @@ export function Sales() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Sale | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [expOpen, setExpOpen] = useState(false)
+  const [editingExp, setEditingExp] = useState<Expense | null>(null)
 
   const filtered = useMemo(() => {
     let list = sales ?? []
@@ -37,7 +40,21 @@ export function Sales() {
     return list
   }, [sales, view, period])
 
-  const stats = useMemo(() => aggregateProfit(filtered), [filtered])
+  // Koszty promocji w tym samym widoku (konto + okres) — wg daty poniesienia.
+  const filteredExpenses = useMemo(() => {
+    let list = expenses ?? []
+    if (view !== 'all') list = list.filter((e) => e.accountId === view)
+    if (period !== 'all') {
+      const from = period === 'month' ? startOfMonth(new Date()) : startOfYear(new Date())
+      list = list.filter((e) => e.incurredAt >= from.getTime())
+    }
+    return list
+  }, [expenses, view, period])
+
+  const stats = useMemo(
+    () => aggregateProfit(filtered, filteredExpenses),
+    [filtered, filteredExpenses],
+  )
   const accName = (id?: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
   const currency = settings?.currency ?? 'PLN'
 
@@ -61,6 +78,27 @@ export function Sales() {
     if (!window.confirm('Usunąć ten wpis sprzedaży?')) return
     await deleteEntity('sales', id)
     toast.success('Usunięto wpis.')
+  }
+
+  const startNewExpense = () => {
+    setEditingExp({
+      id: uid(),
+      accountId: view !== 'all' ? view : settings?.defaultAccountId,
+      kind: 'boost',
+      description: 'Podbicie',
+      amount: 0,
+      currency,
+      incurredAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    setExpOpen(true)
+  }
+
+  const removeExpense = async (id: string) => {
+    if (!window.confirm('Usunąć ten koszt?')) return
+    await deleteEntity('expenses', id)
+    toast.success('Usunięto koszt.')
   }
 
   const exportCsv = () => {
@@ -199,7 +237,57 @@ export function Sales() {
         </div>
       )}
 
+      <div className="mt-8">
+        <SectionTitle
+          title="Koszty promocji"
+          subtitle="Podbicia i ekspozycje — pomniejszają zysk netto."
+          right={
+            <Button variant="ghost" onClick={startNewExpense}>
+              <Plus size={16} /> Dodaj koszt
+            </Button>
+          }
+        />
+        {filteredExpenses.length === 0 ? (
+          <p className="card px-4 py-6 text-center text-sm text-ink-400">
+            Brak kosztów w tym widoku. Zaimportuj arkusz lub dodaj ręcznie.
+          </p>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <tbody>
+                  {filteredExpenses.map((e) => (
+                    <tr key={e.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50/50">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-ink-500">{dateShort(e.incurredAt)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="font-medium text-ink-900">{e.description}</span>
+                        <span className="ml-2 chip">{EXPENSE_KIND_LABELS[e.kind]}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-ink-500">{accName(e.accountId)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-amber-700">
+                        −{money(e.amount, e.currency)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex justify-end gap-1">
+                          <button onClick={() => { setEditingExp(e); setExpOpen(true) }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => removeExpense(e.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
       <SaleModal open={open} onClose={() => setOpen(false)} sale={editing} accounts={accounts ?? []} />
+      <ExpenseModal open={expOpen} onClose={() => setExpOpen(false)} expense={editingExp} accounts={accounts ?? []} />
       <ImportSalesModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
@@ -318,6 +406,74 @@ function SaleModal({
         </Field>
         <Field label="Kupujący">
           <TextInput value={form.buyer ?? ''} onChange={(e) => set('buyer', e.target.value)} />
+        </Field>
+        <Field label="Notatki" className="sm:col-span-2">
+          <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+        </Field>
+      </div>
+    </Modal>
+  )
+}
+
+function ExpenseModal({
+  open,
+  onClose,
+  expense,
+  accounts,
+}: {
+  open: boolean
+  onClose: () => void
+  expense: Expense | null
+  accounts: { id: string; name: string }[]
+}) {
+  const [form, setForm] = useState<Expense | null>(expense)
+  useEffect(() => setForm(expense), [expense])
+  if (!form) return null
+  const set = <K extends keyof Expense>(k: K, v: Expense[K]) => setForm({ ...form, [k]: v })
+
+  const save = async () => {
+    if (!form.description.trim()) return toast.error('Podaj opis kosztu.')
+    if (!form.amount || form.amount <= 0) return toast.error('Podaj kwotę.')
+    await putEntity('expenses', form)
+    onClose()
+    toast.success('Zapisano koszt.')
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Koszt promocji"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Anuluj</Button>
+          <Button onClick={save}>Zapisz</Button>
+        </div>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Opis" className="sm:col-span-2">
+          <TextInput value={form.description} onChange={(e) => set('description', e.target.value)} autoFocus />
+        </Field>
+        <Field label="Rodzaj">
+          <Select value={form.kind} onChange={(e) => set('kind', e.target.value as Expense['kind'])}>
+            {Object.entries(EXPENSE_KIND_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={`Kwota (${form.currency})`}>
+          <TextInput type="number" inputMode="decimal" value={form.amount || ''} onChange={(e) => set('amount', Number(e.target.value) || 0)} />
+        </Field>
+        <Field label="Konto">
+          <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
+            <option value="">— brak —</option>
+            {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+          </Select>
+        </Field>
+        <Field label="Data">
+          <TextInput type="date" value={dateInputValue(form.incurredAt)} onChange={(e) => set('incurredAt', dateFromInput(e.target.value, form.incurredAt))} />
         </Field>
         <Field label="Notatki" className="sm:col-span-2">
           <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
