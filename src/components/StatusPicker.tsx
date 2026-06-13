@@ -18,7 +18,9 @@ export function StatusPicker({ product, className }: { product: Product; classNa
 
   const pick = async (status: ProductStatus, close: () => void) => {
     close()
-    if (status === product.status && status !== 'sold') return
+    // No-op when re-picking the current status — including 'sold', so an already-sold
+    // item can't record a second Sale (mirrors ProductEditor's `status !== 'sold'` gate).
+    if (status === product.status) return
     if (requiresSaleModal(status)) {
       setSoldOpen(true)
       return
@@ -42,7 +44,14 @@ export function StatusPicker({ product, className }: { product: Product; classNa
               e.stopPropagation()
               toggle()
             }}
-            className={clsx('badge shadow-sm', STATUS_TONE[product.status], className)}
+            className={clsx(
+              'badge shadow-sm',
+              // Mobile-only 44px tap target via a centered pseudo-element (doesn't grow
+              // the visible pill or intercept neighbouring clicks on desktop).
+              "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] sm:before:hidden",
+              STATUS_TONE[product.status],
+              className,
+            )}
             {...aria}
           >
             {STATUS_LABELS[product.status]}
@@ -51,7 +60,7 @@ export function StatusPicker({ product, className }: { product: Product; classNa
         )}
       >
         {(close) => (
-          <div role="listbox" aria-label="Status">
+          <div role="menu" aria-label="Status">
             {STATUS_OPTIONS.map((o) => {
               const selected = o.value === product.status
               return (

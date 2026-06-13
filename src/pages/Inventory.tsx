@@ -145,7 +145,7 @@ export function Inventory() {
                   type="button"
                   aria-label={`Otwórz ${p.name || 'produkt'}`}
                   onClick={() => nav(`/magazyn/${p.id}`)}
-                  className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                  className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
                 />
                 <div className="pointer-events-none relative z-10">
                   <div className="relative aspect-square w-full bg-ink-100">

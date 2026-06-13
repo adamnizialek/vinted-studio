@@ -6,6 +6,7 @@ import {
   type TextareaHTMLAttributes,
   useEffect,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -145,7 +146,9 @@ export function Modal({
 
   if (!open) return null
   const widths = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }
-  return (
+  // Portal to body so the overlay is never affected by an ancestor's overflow,
+  // transform, or pointer-events (e.g. the Magazyn card's pointer-events-none layer).
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/40 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div className="absolute inset-0" onClick={onClose} />
       <div
@@ -165,7 +168,8 @@ export function Modal({
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
         {footer && <div className="border-t border-ink-100 px-5 py-3.5">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
