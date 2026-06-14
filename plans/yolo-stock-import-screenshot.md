@@ -1,8 +1,10 @@
 # YOLO Plan — Import stanu magazynu ze zrzutu ekranu (AliExpress) przez Gemini Vision
 
 **Branch:** `yolo/stock-import-screenshot` · **Worktree:** `.claude/worktrees/yolo-stock-import-screenshot`
-**Status:** Phase 3 done (all 6 tasks; 165 tests green, typecheck clean, build ok, dev server runs). Phase 4 review in progress.
-Commit: `6bcfca1 feat(stock-import): import stock from an order screenshot via Gemini vision`.
+**Status:** DONE. Phases 0–4 complete. 2 adversarially-verified review passes (24 findings, 15 confirmed, all real ones fixed; 1 optional nit intentionally skipped). 171 tests green, typecheck + build clean, dev server runs.
+Commits: `6bcfca1` (feat) · `927cd20` (review 4a) · `aaf625f` (review 4b).
+Only remaining (intentionally skipped, low-value): merge `needsCurrencyFix`/`includedRows` into one rowFlags pass — verifier judged it reduces clarity for marginal CPU.
+Not browser-tested interactively (needs a real Gemini key + browser automation, unavailable here); pure logic exhaustively unit-tested, app builds + serves clean.
 
 ## Goal
 User uploads AliExpress order screenshot(s) → Gemini vision (existing client + user's key) extracts line items → editable review → create `in_stock` products, reusing the existing dedup/import pipeline. Account-less by default (assign on listing).
