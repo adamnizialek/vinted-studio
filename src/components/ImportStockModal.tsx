@@ -78,7 +78,6 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     const byRow = new Map(stock.map((r, i) => [r.rowIndex, matches[i]]))
     const next: EditRow[] = parsed.map((r) => {
       const m = byRow.get(r.rowIndex)
-      const confidence = m?.confidence ?? 'none'
       return {
         key: `${sheet}#${r.rowIndex}`,
         rowIndex: r.rowIndex,
@@ -87,11 +86,13 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
         purchaseCost: r.purchaseCost,
         salePrice: r.salePrice,
         issues: r.issues,
-        accountId: m?.accountId,
+        // Niesprzedane przedmioty importujemy BEZ konta — przypisuje się je ręcznie w Magazynie,
+        // gdy zostaną wystawione. `candidates` zostają tylko jako podpowiedź w opcjonalnym wyborze.
+        accountId: undefined,
         candidates: m?.candidates ?? [],
-        confidence,
-        // Pewne dopasowania zaznaczone domyślnie; reszta czeka na ręczne przypisanie.
-        include: r.bucket === 'stock' && confidence === 'single',
+        confidence: m?.confidence ?? 'none',
+        // Domyślnie zaznaczamy WSZYSTKIE niesprzedane przedmioty (cały stan magazynu).
+        include: r.bucket === 'stock',
       }
     })
     if (!next.some((r) => r.bucket === 'stock')) {
@@ -138,17 +139,13 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
   const toggleInclude = (key: string, include: boolean) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, include } : r)))
 
-  // Wiersze, które trafią do importu. importStock sam zdeduplikuje.
-  const includable = useMemo(
-    () => rows.filter((r) => r.bucket === 'stock' && r.include),
-    [rows],
-  )
-
-  // Które z włączanych wierszy już są w magazynie (multizbiór) — TYLKO do podglądu/licznika.
+  // Przedmioty już w magazynie (multizbiór, w kolejności wierszy) — niezależnie od zaznaczenia,
+  // żeby grupowanie „Już w magazynie" było stabilne. Faktyczną deduplikację robi importStock.
   const dupKeys = useMemo(() => {
     const counts = new Map(existingCounts ?? [])
     const dup = new Set<string>()
-    for (const r of includable) {
+    for (const r of rows) {
+      if (r.bucket !== 'stock') continue
       const k = stockImportKey(r.name, r.purchaseCost)
       const c = counts.get(k) ?? 0
       if (c > 0) {
@@ -157,9 +154,15 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
       }
     }
     return dup
-  }, [includable, existingCounts])
+  }, [rows, existingCounts])
 
-  const newCount = includable.length - dupKeys.size
+  // Wiersze, które trafią do importu: niesprzedane, zaznaczone, jeszcze nie w magazynie.
+  const includable = useMemo(
+    () => rows.filter((r) => r.bucket === 'stock' && r.include && !dupKeys.has(r.key)),
+    [rows, dupKeys],
+  )
+
+  const newCount = includable.length
 
   const drafts = useMemo<ResolvedStockDraft[]>(
     () => includable.map((r) => ({ name: r.name, purchaseCost: r.purchaseCost, accountId: r.accountId })),
@@ -180,13 +183,8 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     }
   }
 
-  const autoMatched = rows.filter(
-    (r) => r.bucket === 'stock' && r.confidence === 'single' && !dupKeys.has(r.key),
-  )
-  const alreadyIn = rows.filter(
-    (r) => r.bucket === 'stock' && r.confidence === 'single' && dupKeys.has(r.key),
-  )
-  const review = rows.filter((r) => r.bucket === 'stock' && r.confidence !== 'single')
+  const toAdd = rows.filter((r) => r.bucket === 'stock' && !dupKeys.has(r.key))
+  const alreadyIn = rows.filter((r) => r.bucket === 'stock' && dupKeys.has(r.key))
   const excluded = rows.filter((r) => r.bucket === 'excluded')
   const soldCount = rows.filter((r) => r.bucket === 'sold').length
 
@@ -222,7 +220,8 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
             Przeciągnij plik „all items" (finessin) — CSV lub XLSX — lub kliknij
           </span>
           <span className="text-xs text-ink-400">
-            Importują się tylko niesprzedane przedmioty — konto dobierane z Twojej sprzedaży.
+            Importują się tylko niesprzedane przedmioty — bez konta. Przypiszesz je w Magazynie,
+            gdy je wystawisz.
           </span>
         </FileDrop>
 
@@ -238,29 +237,16 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
           </Field>
         )}
 
-        {(!sales || sales.length === 0) && (
-          <p className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
-            Brak sprzedaży w aplikacji — nie ma do czego dopasowywać kont. Zaimportuj najpierw
-            sprzedaż (Main, Zoos), a potem stan magazynu, żeby konta dobrały się automatycznie.
-          </p>
-        )}
-
         {rows.length > 0 && (
           <div className="space-y-4">
-            <Bucket title={`Dopasowane automatycznie (${autoMatched.length})`} tone="good">
-              {autoMatched.map((r) => (
-                <StockRowLine
-                  key={r.key}
-                  r={r}
-                  account={accounts?.find((a) => a.id === r.accountId)}
-                  onToggle={(v) => toggleInclude(r.key, v)}
-                />
-              ))}
-            </Bucket>
+            <p className="rounded-xl bg-ink-50 px-4 py-3 text-xs text-ink-500 ring-1 ring-ink-100 dark:bg-ink-900/40 dark:text-ink-300 dark:ring-ink-800">
+              Przedmioty importują się <strong>bez konta</strong>. Konto przypiszesz w Magazynie,
+              gdy wystawisz dany przedmiot. Możesz też wybrać konto już teraz — opcjonalnie.
+            </p>
 
-            {review.length > 0 && (
-              <Bucket title={`Do przypisania konta (${review.length})`} tone="warn">
-                {review.map((r) => (
+            {toAdd.length > 0 && (
+              <Bucket title={`Niesprzedane przedmioty (${toAdd.length})`} tone="good">
+                {toAdd.map((r) => (
                   <ReviewStockLine
                     key={r.key}
                     r={r}
@@ -399,11 +385,6 @@ function ReviewStockLine({
       </Select>
       <span className="w-20 text-right font-medium tabular-nums">
         {r.purchaseCost != null ? money(r.purchaseCost) : '—'}
-      </span>
-      <span className="w-full text-xs text-amber-600">
-        {r.confidence === 'ambiguous'
-          ? 'Sprzedawane na kilku kontach — wybierz właściwe.'
-          : 'Brak dopasowania — wybierz konto lub zostaw bez.'}
       </span>
     </div>
   )
