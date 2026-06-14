@@ -21,6 +21,13 @@ export interface ParsedStockRow {
 export interface StockDraft {
   name: string
   purchaseCost?: number
+  /**
+   * Wzbogacenie pochodzące z importu ze zrzutu ekranu (vision). Opcjonalne i
+   * czysto addytywne — import z CSV ich nie ustawia, więc jego zachowanie się nie zmienia.
+   */
+  brand?: string
+  color?: string
+  sizeLabel?: string
 }
 
 /** Szkic gotowy do zapisu — po auto-dopasowaniu i ręcznej recenzji. */

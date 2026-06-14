@@ -53,4 +53,22 @@ describe('importStock end-to-end (fake-indexeddb)', () => {
     expect(res.skippedDuplicates).toBe(2)
     expect(await db.products.count()).toBe(5)
   })
+
+  it('persists enrichment fields (brand/color/size) from a screenshot import', async () => {
+    await importStock([
+      { name: 'Bluza', purchaseCost: 42, brand: 'Nike', color: 'Czarny', sizeLabel: 'XL' },
+    ])
+    const p = (await db.products.toArray()).find((x) => x.name === 'Bluza')!
+    expect(p.brand).toBe('Nike')
+    expect(p.color).toBe('Czarny')
+    expect(p.sizeLabel).toBe('XL')
+  })
+
+  it('leaves enrichment fields undefined for the CSV path (no regression)', async () => {
+    await importStock([{ name: 'Koszulka Messi', purchaseCost: 35 }])
+    const p = (await db.products.toArray()).find((x) => x.name === 'Koszulka Messi')!
+    expect(p.brand).toBeUndefined()
+    expect(p.color).toBeUndefined()
+    expect(p.sizeLabel).toBeUndefined()
+  })
 })
