@@ -20,6 +20,23 @@ export interface InlineImage {
   base64: string
 }
 
+/**
+ * Mapuje `finishReason` kandydata na błąd (lub null, gdy w porządku). Wydzielone jako
+ * czysta funkcja, by testować bez sieci. Oprócz filtrów bezpieczeństwa łapie też
+ * `MAX_TOKENS` — to typowy, CICHY tryb porażki modeli „myślących”: rozumowanie zjada
+ * budżet `maxOutputTokens`, a właściwa odpowiedź zostaje ucięta (niepełny JSON), więc
+ * lepiej zgłosić zrozumiały błąd niż przepuścić obcięte dane do parsera.
+ */
+export function finishReasonError(finish: string | undefined): GeminiError | null {
+  if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT')
+    return new GeminiError('Odpowiedź zatrzymana przez filtry bezpieczeństwa. Zmień dane wejściowe.')
+  if (finish === 'MAX_TOKENS')
+    return new GeminiError(
+      'Odpowiedź została ucięta przez limit tokenów. Spróbuj ponownie z wyraźniejszym/mniejszym zrzutem lub wybierz inny model w Ustawieniach.',
+    )
+  return null
+}
+
 interface GeminiPart {
   text?: string
   inline_data?: { mime_type: string; data: string }
@@ -78,11 +95,8 @@ async function callGenerate(
   if (!candidate)
     throw new GeminiError('Gemini nie zwróciło żadnej odpowiedzi. Spróbuj ponownie.')
 
-  const finish = candidate.finishReason
-  if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT')
-    throw new GeminiError(
-      'Odpowiedź zatrzymana przez filtry bezpieczeństwa. Zmień dane wejściowe.',
-    )
+  const fe = finishReasonError(candidate.finishReason)
+  if (fe) throw fe
 
   return (candidate.content?.parts ?? []) as GeminiPart[]
 }
@@ -104,6 +118,14 @@ function extractImages(parts: GeminiPart[]): InlineImage[] {
     }
   }
   return out
+}
+
+/** Buduje `parts`: prompt tekstowy + każdy obraz jako `inline_data` (base64). Jedno źródło prawdy. */
+function imageParts(prompt: string, images: InlineImage[]): GeminiPart[] {
+  return [
+    { text: prompt },
+    ...images.map((img) => ({ inline_data: { mime_type: img.mime, data: img.base64 } })),
+  ]
 }
 
 export interface TextOptions {
@@ -174,10 +196,7 @@ export function buildImageRequestBody(
   inputImages: InlineImage[],
   opts: ImageOptions,
 ): ImageRequestBody {
-  const parts: GeminiPart[] = [{ text: prompt }]
-  for (const img of inputImages) {
-    parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
-  }
+  const parts = imageParts(prompt, inputImages)
 
   const body: ImageRequestBody = {
     contents: [{ role: 'user', parts }],
@@ -195,6 +214,107 @@ export function buildImageRequestBody(
   }
 
   return body
+}
+
+// ---------------------------------------------------------------------------
+// Ekstrakcja strukturalna z obrazow (vision -> JSON).
+// Uzywane przy imporcie magazynu ze zrzutu ekranu zamowienia (np. AliExpress):
+// wysylamy zrzut(y) + prompt i wymuszamy odpowiedz w JSON wg schematu.
+// ---------------------------------------------------------------------------
+
+/**
+ * Czy model nalezy do rodziny Gemini 3, ktora steruje myśleniem przez
+ * `thinkingLevel` (a NIE `thinkingBudget`). Wyslanie obu pol naraz to HTTP 400,
+ * wiec budowniczy ciala zapytania wybiera jedno wg tej funkcji.
+ */
+export function supportsThinkingLevel(model: string): boolean {
+  return /^gemini-3/.test(model)
+}
+
+/**
+ * Wybiera bezpieczny `thinkingConfig` dla danego modelu (lub `undefined`):
+ *  - Gemini 3 → `thinkingLevel:'low'` (te modele nie przyjmują `thinkingBudget`),
+ *  - Gemini 2.5 flash / flash-lite → `thinkingBudget:0` (można wyłączyć myślenie),
+ *  - reszta (2.5-pro, 2.0-flash, nieznane) → `undefined` — bo np. 2.5-pro NIE pozwala
+ *    wyłączyć myślenia (min 128) i `thinkingBudget:0` zwróciłby HTTP 400. Tu polegamy
+ *    na hojnym `maxOutputTokens` + osłonie na pustą odpowiedź.
+ */
+function thinkingConfigFor(model: string): { thinkingBudget?: number; thinkingLevel?: string } | undefined {
+  if (supportsThinkingLevel(model)) return { thinkingLevel: 'low' }
+  if (/^gemini-2\.5-flash/.test(model)) return { thinkingBudget: 0 }
+  return undefined
+}
+
+export interface ExtractionOptions {
+  apiKey: string
+  model: string
+  /** Schemat odpowiedzi (podzbior OpenAPI, typy WIELKIMI literami). Opcjonalny. */
+  responseSchema?: unknown
+  maxOutputTokens?: number
+}
+
+interface ExtractionRequestBody {
+  contents: { role: string; parts: GeminiPart[] }[]
+  generationConfig: {
+    temperature: number
+    maxOutputTokens: number
+    responseMimeType: string
+    responseSchema?: unknown
+    thinkingConfig?: { thinkingBudget?: number; thinkingLevel?: string }
+  }
+}
+
+/**
+ * Buduje cialo `:generateContent` dla ekstrakcji vision->JSON. Wydzielone jako czysta
+ * funkcja, by jednoznacznie testowac newralgiczne ustawienia:
+ *  - `responseMimeType:'application/json'` (+ opcjonalny `responseSchema`) wymusza JSON,
+ *  - `temperature:0` dla deterministycznego odczytu,
+ *  - `thinkingConfig` ZALEZNY OD MODELU: `thinkingBudget:0` dla 2.5/2.0 (wylacza myślenie),
+ *    `thinkingLevel:'low'` dla Gemini 3 — NIGDY oba naraz (inaczej HTTP 400). Bez tego
+ *    modele „myślące” potrafią zużyć cały `maxOutputTokens` na rozumowanie i zwrócić
+ *    pustą odpowiedź (MAX_TOKENS), na której JSON.parse by się wywalił.
+ */
+export function buildExtractionRequestBody(
+  prompt: string,
+  images: InlineImage[],
+  opts: { model: string; responseSchema?: unknown; maxOutputTokens?: number },
+): ExtractionRequestBody {
+  const parts = imageParts(prompt, images)
+
+  const generationConfig: ExtractionRequestBody['generationConfig'] = {
+    temperature: 0,
+    maxOutputTokens: opts.maxOutputTokens ?? 8192,
+    responseMimeType: 'application/json',
+  }
+  const thinking = thinkingConfigFor(opts.model)
+  if (thinking) generationConfig.thinkingConfig = thinking
+  if (opts.responseSchema) generationConfig.responseSchema = opts.responseSchema
+
+  return { contents: [{ role: 'user', parts }], generationConfig }
+}
+
+/**
+ * Wyciaga dane (jako tekst JSON) z obrazow + promptu. Zwraca surowy tekst odpowiedzi —
+ * parsowanie/walidacje robi warstwa wyzsza (nigdy nie ufamy, ze model zwroci czysty JSON).
+ * Rzuca `GeminiError`, gdy model nic nie zwroci (np. limit tokenow zjedzony przez myślenie).
+ */
+export async function extractFromImages(
+  prompt: string,
+  images: InlineImage[],
+  opts: ExtractionOptions,
+): Promise<string> {
+  const body = buildExtractionRequestBody(prompt, images, {
+    model: opts.model,
+    responseSchema: opts.responseSchema,
+    maxOutputTokens: opts.maxOutputTokens,
+  })
+  const parts = await callGenerate(opts.model, opts.apiKey, body)
+  const text = extractText(parts)
+  if (!text)
+    throw new GeminiError(
+      'Model nie zwrócił danych (możliwy limit tokenów lub nieczytelny zrzut). Spróbuj ponownie lub użyj wyraźniejszego zrzutu ekranu.',
+    )
+  return text
 }
 
 /**

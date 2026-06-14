@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { Package, Plus, Search, Upload } from 'lucide-react'
+import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
 import { db, putEntity } from '@/db/db'
 import type { Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
@@ -11,6 +11,8 @@ import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { ImportStockModal } from '@/components/ImportStockModal'
+import { ImportStockScreenshotModal } from '@/components/ImportStockScreenshotModal'
+import { ResponsivePicker, OptionRow } from '@/components/Popover'
 import { StatusPicker } from '@/components/StatusPicker'
 import { AccountPicker } from '@/components/AccountPicker'
 
@@ -26,6 +28,7 @@ export function Inventory() {
   const [status, setStatus] = useState<ProductStatus | 'all'>('all')
   const [accountId, setAccountId] = useState<string>('all')
   const [importOpen, setImportOpen] = useState(false)
+  const [screenshotOpen, setScreenshotOpen] = useState(false)
 
   const filtered = useMemo(() => {
     let list = products ?? []
@@ -76,9 +79,35 @@ export function Inventory() {
         subtitle={`${products?.length ?? 0} przedmiotów · ${counts.in_stock ?? 0} w magazynie · ${counts.listed ?? 0} wystawionych`}
         right={
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setImportOpen(true)}>
-              <Upload size={16} /> Importuj stan
-            </Button>
+            <ResponsivePicker
+              title="Importuj stan"
+              trigger={({ ref, toggle, aria }) => (
+                <button ref={ref} type="button" onClick={toggle} className="btn-ghost" {...aria}>
+                  <Upload size={16} /> Importuj stan
+                </button>
+              )}
+            >
+              {(close) => (
+                <div role="menu" aria-label="Importuj stan">
+                  <OptionRow
+                    onClick={() => {
+                      close()
+                      setImportOpen(true)
+                    }}
+                  >
+                    <FileSpreadsheet size={16} className="text-ink-500" /> Z pliku (CSV / XLSX)
+                  </OptionRow>
+                  <OptionRow
+                    onClick={() => {
+                      close()
+                      setScreenshotOpen(true)
+                    }}
+                  >
+                    <Camera size={16} className="text-ink-500" /> Ze zrzutu ekranu (AI)
+                  </OptionRow>
+                </div>
+              )}
+            </ResponsivePicker>
             <Button onClick={createProduct}>
               <Plus size={16} /> Dodaj produkt
             </Button>
@@ -176,6 +205,7 @@ export function Inventory() {
         </div>
       )}
       <ImportStockModal open={importOpen} onClose={() => setImportOpen(false)} />
+      <ImportStockScreenshotModal open={screenshotOpen} onClose={() => setScreenshotOpen(false)} />
     </div>
   )
 }

@@ -630,6 +630,10 @@ export async function importStock(
     const products: Product[] = toInsert.map(({ key, draft }) => ({
       id: uid(),
       name: draft.name,
+      // Wzbogacenie ze zrzutu ekranu (vision) — opcjonalne; import z CSV ich nie ustawia.
+      brand: draft.brand,
+      color: draft.color,
+      sizeLabel: draft.sizeLabel,
       condition: 'dobry',
       purchasePrice: draft.purchaseCost,
       currency: 'PLN',
