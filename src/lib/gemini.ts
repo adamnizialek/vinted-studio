@@ -120,6 +120,14 @@ function extractImages(parts: GeminiPart[]): InlineImage[] {
   return out
 }
 
+/** Buduje `parts`: prompt tekstowy + każdy obraz jako `inline_data` (base64). Jedno źródło prawdy. */
+function imageParts(prompt: string, images: InlineImage[]): GeminiPart[] {
+  return [
+    { text: prompt },
+    ...images.map((img) => ({ inline_data: { mime_type: img.mime, data: img.base64 } })),
+  ]
+}
+
 export interface TextOptions {
   apiKey: string
   model: string
@@ -188,10 +196,7 @@ export function buildImageRequestBody(
   inputImages: InlineImage[],
   opts: ImageOptions,
 ): ImageRequestBody {
-  const parts: GeminiPart[] = [{ text: prompt }]
-  for (const img of inputImages) {
-    parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
-  }
+  const parts = imageParts(prompt, inputImages)
 
   const body: ImageRequestBody = {
     contents: [{ role: 'user', parts }],
@@ -274,10 +279,7 @@ export function buildExtractionRequestBody(
   images: InlineImage[],
   opts: { model: string; responseSchema?: unknown; maxOutputTokens?: number },
 ): ExtractionRequestBody {
-  const parts: GeminiPart[] = [{ text: prompt }]
-  for (const img of images) {
-    parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } })
-  }
+  const parts = imageParts(prompt, images)
 
   const generationConfig: ExtractionRequestBody['generationConfig'] = {
     temperature: 0,

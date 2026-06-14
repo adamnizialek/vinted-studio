@@ -10,7 +10,7 @@ import {
   rowFlags,
   EXTRACTION_PROMPT,
   EXTRACTION_SCHEMA,
-  type ItemConfidence,
+  type ExtractedItem,
 } from '@/lib/screenshotImport'
 import {
   stockImportKey,
@@ -30,18 +30,9 @@ const MAX_BASE64_CHARS = 14_000_000
 /** Odpowiadający limit surowych bajtów (base64 ≈ +33%) — do taniego pre-czeku przed kodowaniem. */
 const MAX_RAW_BYTES = MAX_BASE64_CHARS * 0.75
 
-interface EditRow {
+/** Wiersz recenzji = przedmiot z odczytu + stan UI (klucz Reacta, zaznaczenie). */
+interface EditRow extends ExtractedItem {
   key: string
-  name: string
-  brand?: string
-  color?: string
-  size?: string
-  quantity: number
-  unitPrice?: number
-  priceText?: string
-  currency?: string
-  bundle: boolean
-  confidence: ItemConfidence
   include: boolean
 }
 
@@ -49,8 +40,6 @@ interface Shot {
   url: string
   name: string
 }
-
-const isImage = (f: File) => f.type.startsWith('image/')
 
 export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const settings = useSettings((s) => s.settings)
@@ -138,22 +127,7 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
         toast.error('Nie znaleziono przedmiotów na zrzucie. Spróbuj wyraźniejszego zdjęcia zamówienia.')
         return
       }
-      setRows(
-        items.map((it, i) => ({
-          key: `shot-${i}`,
-          name: it.name,
-          brand: it.brand,
-          color: it.color,
-          size: it.size,
-          quantity: it.quantity,
-          unitPrice: it.unitPrice,
-          priceText: it.priceText,
-          currency: it.currency,
-          bundle: it.bundle,
-          confidence: it.confidence,
-          include: true,
-        })),
-      )
+      setRows(items.map((it, i) => ({ ...it, key: `shot-${i}`, include: true })))
     } catch (e) {
       if (reqId.current === id) toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać zrzutu ekranu.')
     } finally {
@@ -232,7 +206,7 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
       }
     >
       <div className="space-y-5">
-        <FileDrop onFiles={onFiles} accept="image/*" filter={isImage} multiple disabled={reading}>
+        <FileDrop onFiles={onFiles} accept="image/*" multiple disabled={reading}>
           <Camera className="text-brand-500" />
           <span className="text-sm font-semibold text-ink-700">
             Przeciągnij zrzut(y) ekranu zamówienia — np. z AliExpress — lub kliknij
@@ -308,12 +282,27 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
   )
 }
 
-function Flag({ tone, children }: { tone: 'warn' | 'info'; children: ReactNode }) {
+function Flag({
+  tone,
+  onClick,
+  children,
+}: {
+  tone: 'warn' | 'info'
+  onClick?: () => void
+  children: ReactNode
+}) {
   const cls = {
     warn: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
     info: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   }[tone]
-  return <span className={clsx('rounded-full px-2 py-0.5 text-[11px] font-medium', cls)}>{children}</span>
+  const common = clsx('rounded-full px-2 py-0.5 text-[11px] font-medium', cls)
+  return onClick ? (
+    <button type="button" onClick={onClick} className={clsx(common, 'underline-offset-2 hover:underline')}>
+      {children}
+    </button>
+  ) : (
+    <span className={common}>{children}</span>
+  )
 }
 
 function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<EditRow>) => void }) {
@@ -341,6 +330,7 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
         />
         <TextInput
           type="number"
+          inputMode="numeric"
           min={1}
           value={qtyText}
           onChange={(e) => {
@@ -359,14 +349,18 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
         <div className="flex items-center gap-1">
           <TextInput
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.01"
             value={r.unitPrice ?? ''}
             placeholder="cena"
             onChange={(e) => {
               const n = e.target.valueAsNumber
-              // Edycja ceny = wartość w zł — czyścimy wykrytą walutę (znika ostrzeżenie nonPln).
-              onPatch({ unitPrice: Number.isFinite(n) && n > 0 ? n : undefined, currency: undefined })
+              // Wpisanie poprawnej ceny = wartość w zł → czyścimy wykrytą walutę (znika nonPln).
+              // Przy pustym/niepoprawnym polu NIE czyścimy waluty, by wiersz w obcej walucie
+              // dalej był wyłączony z importu (nie zaimportuje się bez ceny jako 0 zł).
+              if (Number.isFinite(n) && n > 0) onPatch({ unitPrice: n, currency: undefined })
+              else onPatch({ unitPrice: undefined })
             }}
             aria-label="Cena za sztukę"
             className="w-24 text-right"
@@ -378,7 +372,14 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7">
           {variant && <span className="text-xs text-ink-400">{variant}</span>}
           {r.priceText && <span className="text-xs text-ink-400">odczyt: {r.priceText}</span>}
-          {f.nonPln && <Flag tone="warn">waluta {r.currency} — wpisz cenę w zł</Flag>}
+          {f.nonPln &&
+            (r.unitPrice !== undefined ? (
+              <Flag tone="warn" onClick={() => onPatch({ currency: undefined })}>
+                waluta {r.currency} — użyj {r.unitPrice} jako zł
+              </Flag>
+            ) : (
+              <Flag tone="warn">waluta {r.currency} — wpisz cenę w zł</Flag>
+            ))}
           {f.bundle && <Flag tone="warn">zestaw — cena może nie być za sztukę</Flag>}
           {f.noPrice && <Flag tone="warn">brak ceny</Flag>}
           {f.lowConfidence && <Flag tone="info">niepewny odczyt</Flag>}
