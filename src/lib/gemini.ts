@@ -20,6 +20,23 @@ export interface InlineImage {
   base64: string
 }
 
+/**
+ * Mapuje `finishReason` kandydata na błąd (lub null, gdy w porządku). Wydzielone jako
+ * czysta funkcja, by testować bez sieci. Oprócz filtrów bezpieczeństwa łapie też
+ * `MAX_TOKENS` — to typowy, CICHY tryb porażki modeli „myślących”: rozumowanie zjada
+ * budżet `maxOutputTokens`, a właściwa odpowiedź zostaje ucięta (niepełny JSON), więc
+ * lepiej zgłosić zrozumiały błąd niż przepuścić obcięte dane do parsera.
+ */
+export function finishReasonError(finish: string | undefined): GeminiError | null {
+  if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT')
+    return new GeminiError('Odpowiedź zatrzymana przez filtry bezpieczeństwa. Zmień dane wejściowe.')
+  if (finish === 'MAX_TOKENS')
+    return new GeminiError(
+      'Odpowiedź została ucięta przez limit tokenów. Spróbuj ponownie z wyraźniejszym/mniejszym zrzutem lub wybierz inny model w Ustawieniach.',
+    )
+  return null
+}
+
 interface GeminiPart {
   text?: string
   inline_data?: { mime_type: string; data: string }
@@ -78,11 +95,8 @@ async function callGenerate(
   if (!candidate)
     throw new GeminiError('Gemini nie zwróciło żadnej odpowiedzi. Spróbuj ponownie.')
 
-  const finish = candidate.finishReason
-  if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT')
-    throw new GeminiError(
-      'Odpowiedź zatrzymana przez filtry bezpieczeństwa. Zmień dane wejściowe.',
-    )
+  const fe = finishReasonError(candidate.finishReason)
+  if (fe) throw fe
 
   return (candidate.content?.parts ?? []) as GeminiPart[]
 }

@@ -3,6 +3,7 @@ import {
   parseExtractionResponse,
   extractedToStockDrafts,
   rowFlags,
+  parsePriceLoose,
   EXTRACTION_SCHEMA,
   type ExtractedItem,
 } from '@/lib/screenshotImport'
@@ -110,6 +111,27 @@ describe('parseExtractionResponse', () => {
     expect(it.brand).toBeUndefined()
     expect(it.color).toBe('Czarny')
     expect(it.currency).toBe('USD')
+  })
+})
+
+describe('parsePriceLoose', () => {
+  it('keeps plain decimals (PL comma, US dot, currency symbols stripped)', () => {
+    expect(parsePriceLoose('20,73')).toBe(20.73)
+    expect(parsePriceLoose('$4.99')).toBe(4.99)
+    expect(parsePriceLoose('20,73 zł')).toBe(20.73)
+    expect(parsePriceLoose('35')).toBe(35)
+  })
+  it('handles thousands separators without truncating (the parsePlNumber bug)', () => {
+    expect(parsePriceLoose('$1,234.56')).toBe(1234.56)
+    expect(parsePriceLoose('$1,000')).toBe(1000)
+    expect(parsePriceLoose('10,000')).toBe(10000)
+    expect(parsePriceLoose('1,299')).toBe(1299) // 3 digits after sep -> thousands, not 1.299
+    expect(parsePriceLoose('1.299,00')).toBe(1299) // EU format
+    expect(parsePriceLoose('1 234,56 zł')).toBe(1234.56)
+  })
+  it('returns undefined when there is no number', () => {
+    expect(parsePriceLoose('abc')).toBeUndefined()
+    expect(parsePriceLoose('')).toBeUndefined()
   })
 })
 

@@ -27,6 +27,8 @@ import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
 
 /** Limit łącznego rozmiaru base64 na żądanie (~14 MB) — pod progiem 20 MB Gemini inline. */
 const MAX_BASE64_CHARS = 14_000_000
+/** Odpowiadający limit surowych bajtów (base64 ≈ +33%) — do taniego pre-czeku przed kodowaniem. */
+const MAX_RAW_BYTES = MAX_BASE64_CHARS * 0.75
 
 interface EditRow {
   key: string
@@ -67,8 +69,11 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
   const [reading, setReading] = useState(false) // ekstrakcja AI w toku
   const [busy, setBusy] = useState(false) // zapis do bazy w toku
   const [accountId, setAccountId] = useState('') // opcjonalne konto dla całego importu
-  const [touched, setTouched] = useState(false) // czy próbowano już odczytać zrzut
+  const [extractedEmpty, setExtractedEmpty] = useState(false) // odczyt zakończony, 0 przedmiotów
   const shotsRef = useRef<Shot[]>([])
+  // Identyfikator bieżącego odczytu — unieważnia wyniki odczytów porzuconych (close)
+  // lub wyprzedzonych (ponowny upload), by nie zapisać rzędów na zamkniętym modalu.
+  const reqId = useRef(0)
 
   const revokeShots = () => {
     for (const s of shotsRef.current) URL.revokeObjectURL(s.url)
@@ -79,11 +84,12 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
   useEffect(() => () => revokeShots(), [])
 
   const close = () => {
+    reqId.current++ // unieważnij ewentualny odczyt w locie
     revokeShots()
     setRows([])
     setShots([])
     setAccountId('')
-    setTouched(false)
+    setExtractedEmpty(false)
     setReading(false)
     onClose()
   }
@@ -94,22 +100,30 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
       toast.error('Dodaj klucz API Gemini w Ustawieniach, aby odczytać zrzut ekranu.')
       return
     }
+    // Tani pre-czek surowego rozmiaru — odrzuć ZANIM zakodujemy cokolwiek do base64.
+    const totalBytes = files.reduce((n, f) => n + f.size, 0)
+    if (totalBytes > MAX_RAW_BYTES) {
+      toast.error('Zrzuty są za duże (limit ~14 MB). Wybierz mniej zdjęć lub je przytnij.')
+      return
+    }
+
     // Podgląd miniatur (zwolnij poprzednie obiekty URL).
     revokeShots()
     const nextShots = files.map((f) => ({ url: URL.createObjectURL(f), name: f.name }))
     shotsRef.current = nextShots
     setShots(nextShots)
     setRows([])
-    setTouched(true)
+    setExtractedEmpty(false)
     setReading(true)
+    const id = ++reqId.current
     try {
       const images: InlineImage[] = await Promise.all(
         files.map(async (f) => ({ mime: f.type || 'image/png', base64: await blobToBase64(f) })),
       )
+      if (reqId.current !== id) return
       const totalChars = images.reduce((n, img) => n + img.base64.length, 0)
       if (totalChars > MAX_BASE64_CHARS) {
         toast.error('Zrzuty są za duże (limit ~14 MB). Wybierz mniej zdjęć lub je przytnij.')
-        setReading(false)
         return
       }
       const text = await extractFromImages(EXTRACTION_PROMPT, images, {
@@ -117,10 +131,11 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
         model: settings.textModel,
         responseSchema: EXTRACTION_SCHEMA,
       })
+      if (reqId.current !== id) return // odczyt porzucony/wyprzedzony — nie zapisuj
       const items = parseExtractionResponse(text)
       if (!items.length) {
+        setExtractedEmpty(true)
         toast.error('Nie znaleziono przedmiotów na zrzucie. Spróbuj wyraźniejszego zdjęcia zamówienia.')
-        setReading(false)
         return
       }
       setRows(
@@ -140,19 +155,24 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
         })),
       )
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać zrzutu ekranu.')
+      if (reqId.current === id) toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać zrzutu ekranu.')
     } finally {
-      setReading(false)
+      if (reqId.current === id) setReading(false)
     }
   }
 
   const patch = (key: string, changes: Partial<EditRow>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...changes } : r)))
 
+  // Wiersze faktycznie importowane: zaznaczone i BEZ nierozwiązanej obcej waluty.
+  // Wiersz w obcej walucie czeka, aż użytkownik wpisze cenę w zł (edycja czyści walutę),
+  // żeby nie zapisać np. 4,99 USD jako 4,99 zł.
+  const includedRows = useMemo(() => rows.filter((r) => r.include && !rowFlags(r).nonPln), [rows])
+  const needsCurrencyFix = useMemo(() => rows.filter((r) => r.include && rowFlags(r).nonPln).length, [rows])
+
   // Podgląd: rozwiń zaznaczone wiersze na szkice (multizbiór), zdedupuj względem magazynu.
   const { newCount, dupCount, totalCost } = useMemo(() => {
-    const included = rows.filter((r) => r.include)
-    const drafts = extractedToStockDrafts(included)
+    const drafts = extractedToStockDrafts(includedRows)
     const keyed: KeyedStockDraft[] = drafts.map((d) => ({
       key: stockImportKey(d.name, d.purchaseCost),
       draft: d,
@@ -160,11 +180,10 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
     const { toInsert, skipped } = dedupKeyedStock(existingCounts ?? new Map(), keyed)
     const cost = toInsert.reduce((n, k) => n + (k.draft.purchaseCost ?? 0), 0)
     return { newCount: toInsert.length, dupCount: skipped, totalCost: cost }
-  }, [rows, existingCounts])
+  }, [includedRows, existingCounts])
 
   const doImport = async () => {
-    const included = rows.filter((r) => r.include)
-    const drafts: ResolvedStockDraft[] = extractedToStockDrafts(included).map((d) => ({
+    const drafts: ResolvedStockDraft[] = extractedToStockDrafts(includedRows).map((d) => ({
       ...d,
       accountId: accountId || undefined,
     }))
@@ -196,6 +215,9 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
             {dupCount > 0 && <span className="text-ink-400"> · {dupCount} już w magazynie</span>}
             {newCount > 0 && totalCost > 0 && (
               <span className="text-ink-400"> · koszt {money(totalCost)}</span>
+            )}
+            {needsCurrencyFix > 0 && (
+              <span className="text-amber-600"> · {needsCurrencyFix} do przeliczenia na zł</span>
             )}
           </span>
           <div className="flex gap-2">
@@ -276,7 +298,7 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
           </div>
         )}
 
-        {!reading && touched && rows.length === 0 && shots.length > 0 && (
+        {!reading && extractedEmpty && (
           <p className="rounded-xl bg-ink-50 px-4 py-4 text-center text-sm text-ink-400 ring-1 ring-ink-100">
             Nic nie odczytano. Spróbuj wyraźniejszego zrzutu strony zamówienia (z nazwami i cenami).
           </p>
@@ -297,6 +319,10 @@ function Flag({ tone, children }: { tone: 'warn' | 'info'; children: ReactNode }
 function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<EditRow>) => void }) {
   const f = rowFlags(r)
   const variant = [r.color, r.size].filter(Boolean).join(' · ')
+  // Bufor edycji ilości — pozwala wyczyścić pole i wpisać od nowa; ≥1 egzekwujemy na blur.
+  const [qtyText, setQtyText] = useState(String(r.quantity))
+  useEffect(() => setQtyText(String(r.quantity)), [r.quantity])
+
   return (
     <div className={clsx('px-4 py-3', !r.include && 'opacity-50')}>
       <div className="flex flex-wrap items-center gap-2">
@@ -316,8 +342,17 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
         <TextInput
           type="number"
           min={1}
-          value={r.quantity}
-          onChange={(e) => onPatch({ quantity: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+          value={qtyText}
+          onChange={(e) => {
+            setQtyText(e.target.value)
+            const n = Math.floor(Number(e.target.value))
+            if (Number.isFinite(n) && n >= 1) onPatch({ quantity: n })
+          }}
+          onBlur={() => {
+            const n = Math.max(1, Math.floor(Number(qtyText) || 1))
+            setQtyText(String(n))
+            if (n !== r.quantity) onPatch({ quantity: n })
+          }}
           aria-label="Ilość"
           className="w-16 text-center"
         />
@@ -330,7 +365,8 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
             placeholder="cena"
             onChange={(e) => {
               const n = e.target.valueAsNumber
-              onPatch({ unitPrice: Number.isFinite(n) && n > 0 ? n : undefined })
+              // Edycja ceny = wartość w zł — czyścimy wykrytą walutę (znika ostrzeżenie nonPln).
+              onPatch({ unitPrice: Number.isFinite(n) && n > 0 ? n : undefined, currency: undefined })
             }}
             aria-label="Cena za sztukę"
             className="w-24 text-right"
@@ -342,7 +378,7 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7">
           {variant && <span className="text-xs text-ink-400">{variant}</span>}
           {r.priceText && <span className="text-xs text-ink-400">odczyt: {r.priceText}</span>}
-          {f.nonPln && <Flag tone="warn">waluta {r.currency} — przelicz na zł</Flag>}
+          {f.nonPln && <Flag tone="warn">waluta {r.currency} — wpisz cenę w zł</Flag>}
           {f.bundle && <Flag tone="warn">zestaw — cena może nie być za sztukę</Flag>}
           {f.noPrice && <Flag tone="warn">brak ceny</Flag>}
           {f.lowConfidence && <Flag tone="info">niepewny odczyt</Flag>}

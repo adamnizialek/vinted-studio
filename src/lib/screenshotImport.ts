@@ -3,7 +3,6 @@
 // parsujemy, walidujemy i mapujemy na szkice magazynu. Nigdy nie ufamy, że model
 // zwróci czysty/poprawny JSON — parser NIGDY nie rzuca i odrzuca śmieciowe wiersze.
 import type { StockDraft } from '@/lib/stockImport'
-import { parsePlNumber } from '@/lib/salesImport'
 
 export type ItemConfidence = 'low' | 'medium' | 'high'
 
@@ -148,11 +147,48 @@ function toQuantity(v: unknown): number {
   return Math.min(MAX_QTY, Math.floor(n))
 }
 
-/** Cena: dodatnia liczba skończona; string parsujemy formatem PL/US ($, zł, przecinek). */
+/**
+ * Parsuje cenę ze stringa odpornie na separatory tysięcy i różne notacje (PL/US/EU):
+ *  - oba separatory (`,` i `.`) → ostatni z nich jest dziesiętny, reszta to grupowanie,
+ *  - jeden separator → dziesiętny tylko gdy po nim są 1–2 cyfry (np. `20,73`, `4.99`),
+ *    w przeciwnym razie to grupowanie tysięcy (`10,000` → 10000, `1,299` → 1299).
+ * Celowo NIE używamy `parsePlNumber` (CSV) — ono ucina `$1,234.56` do `1.234`.
+ * Zwraca undefined dla braku liczby.
+ */
+export function parsePriceLoose(raw: string): number | undefined {
+  const cleaned = raw.replace(/[^\d.,-]/g, '')
+  if (!cleaned) return undefined
+  const neg = cleaned.startsWith('-')
+  const s = cleaned.replace(/-/g, '')
+  const hasComma = s.includes(',')
+  const hasDot = s.includes('.')
+
+  let normalized: string
+  if (hasComma && hasDot) {
+    const dec = s.lastIndexOf(',') > s.lastIndexOf('.') ? ',' : '.'
+    const grp = dec === ',' ? '.' : ','
+    normalized = s.split(grp).join('').replace(dec, '.')
+  } else if (hasComma || hasDot) {
+    const sep = hasComma ? ',' : '.'
+    const parts = s.split(sep)
+    const last = parts[parts.length - 1]
+    normalized = parts.length === 2 && last.length >= 1 && last.length <= 2
+      ? `${parts[0]}.${last}` // separator dziesiętny
+      : parts.join('') // grupowanie tysięcy → usuń separatory
+  } else {
+    normalized = s
+  }
+
+  const n = Number(normalized)
+  if (!Number.isFinite(n)) return undefined
+  return neg ? -n : n
+}
+
+/** Cena: dodatnia liczba skończona; string parsujemy odpornie (separatory tysięcy itd.). */
 function toPrice(v: unknown): number | undefined {
   let n: number | undefined
   if (typeof v === 'number') n = v
-  else if (typeof v === 'string') n = parsePlNumber(v)
+  else if (typeof v === 'string') n = parsePriceLoose(v)
   if (n === undefined || !Number.isFinite(n) || n <= 0) return undefined
   return n
 }
@@ -201,6 +237,11 @@ export function parseExtractionResponse(text: string): ExtractedItem[] {
  * Rozwija przedmioty na szkice magazynu: każda sztuka (quantity) = osobny szkic,
  * bo na Vinted każdy egzemplarz to osobne ogłoszenie (zgodnie z modelem `importStock`,
  * który tworzy produkty z quantity:1 i deduplikuje multizbiorem po nazwie+koszcie).
+ *
+ * UWAGA (świadome ograniczenie): klucz deduplikacji to nazwa+koszt (zob. `stockImportKey`)
+ * i NIE obejmuje wariantu (brand/color/size). Dwa różne warianty o tej samej nazwie i cenie
+ * są więc traktowane jak ten sam przedmiot przy ponownym imporcie — spójnie z importem z CSV.
+ * Pierwszy import wstawia oba poprawnie; rozjazd możliwy tylko przy częściowym re-imporcie.
  */
 export function extractedToStockDrafts(items: ExtractedItem[]): StockDraft[] {
   const drafts: StockDraft[] = []

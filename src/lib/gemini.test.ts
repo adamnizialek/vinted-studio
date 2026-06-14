@@ -4,6 +4,7 @@ import {
   supportsImageConfig,
   buildExtractionRequestBody,
   supportsThinkingLevel,
+  finishReasonError,
 } from '@/lib/gemini'
 
 describe('supportsImageConfig', () => {
@@ -50,6 +51,22 @@ describe('buildImageRequestBody', () => {
     expect(body.contents[0].parts[1]).toEqual({
       inline_data: { mime_type: 'image/jpeg', data: 'AAAA' },
     })
+  })
+})
+
+describe('finishReasonError', () => {
+  it('returns null for a normal completion', () => {
+    expect(finishReasonError('STOP')).toBeNull()
+    expect(finishReasonError(undefined)).toBeNull()
+  })
+  it('flags truncation (MAX_TOKENS) as an actionable error, not silent partial JSON', () => {
+    const e = finishReasonError('MAX_TOKENS')
+    expect(e).toBeInstanceOf(Error)
+    expect(e?.message).toMatch(/ucięta|tokenów/i)
+  })
+  it('flags safety stops', () => {
+    expect(finishReasonError('SAFETY')).toBeInstanceOf(Error)
+    expect(finishReasonError('PROHIBITED_CONTENT')).toBeInstanceOf(Error)
   })
 })
 
