@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
 import { db, putEntity } from '@/db/db'
-import type { Product, ProductStatus } from '@/db/types'
+import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { STATUS_OPTIONS } from '@/lib/constants'
@@ -23,6 +23,46 @@ export function Inventory() {
   // doesn't yank the just-edited card to the top mid-burst.
   const products = useLiveQuery(() => db.products.orderBy('createdAt').reverse().toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const designs = useLiveQuery(() => db.designs.toArray(), [])
+  const designsById = useMemo(
+    () => new Map((designs ?? []).map((d) => [d.id, d])),
+    [designs],
+  )
+
+  type DisplayItem =
+    | { kind: 'single'; product: Product }
+    | { kind: 'design'; design: Design; members: Product[]; cover?: string }
+
+  const items = useMemo<DisplayItem[]>(() => {
+    const list = products ?? []
+    const groups = new Map<string, Product[]>()
+    const singles: Product[] = []
+    for (const p of list) {
+      if (p.designId && designsById.has(p.designId)) {
+        const arr = groups.get(p.designId)
+        if (arr) arr.push(p)
+        else groups.set(p.designId, [p])
+      } else {
+        singles.push(p)
+      }
+    }
+    const out: DisplayItem[] = singles.map((product) => ({ kind: 'single', product }))
+    for (const [designId, members] of groups) {
+      const design = designsById.get(designId)!
+      out.push({
+        kind: 'design',
+        design,
+        members,
+        cover: design.photoIds[0] ?? design.generatedPhotoIds[0],
+      })
+    }
+    // stabilne sortowanie po createdAt malejaco (model: createdAt modelu)
+    return out.sort((a, b) => {
+      const ca = a.kind === 'single' ? a.product.createdAt : a.design.createdAt
+      const cb = b.kind === 'single' ? b.product.createdAt : b.design.createdAt
+      return cb - ca
+    })
+  }, [products, designsById])
 
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<ProductStatus | 'all'>('all')
@@ -31,19 +71,33 @@ export function Inventory() {
   const [screenshotOpen, setScreenshotOpen] = useState(false)
 
   const filtered = useMemo(() => {
-    let list = products ?? []
-    if (status !== 'all') list = list.filter((p) => p.status === status)
-    if (accountId !== 'all') list = list.filter((p) => p.accountId === accountId)
-    if (q.trim()) {
-      const needle = q.toLowerCase()
-      list = list.filter((p) =>
-        [p.name, p.brand, p.category, p.sizeLabel, ...p.tags]
+    const needle = q.trim().toLowerCase()
+    const matchesText = (p: Product) =>
+      [p.name, p.brand, p.category, p.sizeLabel, ...p.tags]
+        .filter(Boolean)
+        .some((s) => s!.toLowerCase().includes(needle))
+
+    return items.filter((it) => {
+      if (it.kind === 'single') {
+        const p = it.product
+        if (status !== 'all' && p.status !== status) return false
+        if (accountId !== 'all' && p.accountId !== accountId) return false
+        if (needle && !matchesText(p)) return false
+        return true
+      }
+      const { design, members } = it
+      if (status !== 'all' && !members.some((m) => m.status === status)) return false
+      if (accountId !== 'all' && !members.some((m) => m.accountId === accountId)) return false
+      if (needle) {
+        const designText = [design.name, design.brand, design.category, ...design.tags]
           .filter(Boolean)
-          .some((s) => s!.toLowerCase().includes(needle)),
-      )
-    }
-    return list
-  }, [products, status, accountId, q])
+          .some((s) => s!.toLowerCase().includes(needle))
+        const sizeText = members.some((m) => (m.sizeLabel ?? '').toLowerCase().includes(needle))
+        if (!designText && !sizeText) return false
+      }
+      return true
+    })
+  }, [items, status, accountId, q])
 
   const createProduct = async () => {
     const now = Date.now()
@@ -163,49 +217,109 @@ export function Inventory() {
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {filtered.map((p) => {
-            const cover = p.photoIds[0] ?? p.generatedPhotoIds[0]
-            return (
-              <div key={p.id} className="card group relative overflow-hidden transition hover:shadow-pop">
-                {/* Stretched navigate hit-area — a real <button> (keyboard + focus-ring
-                    intact). Sits BEHIND content; content is pointer-events-none so clicks
-                    fall through, except the pickers which re-enable pointer-events. */}
-                <button
-                  type="button"
-                  aria-label={`Otwórz ${p.name || 'produkt'}`}
-                  onClick={() => nav(`/magazyn/${p.id}`)}
-                  className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
-                />
-                <div className="pointer-events-none relative z-10">
-                  <div className="relative aspect-square w-full bg-ink-100">
-                    <Thumb imageId={cover} className="h-full w-full object-cover" alt={p.name} />
-                    <StatusPicker product={p} className="pointer-events-auto absolute left-2 top-2" />
-                    {p.generatedPhotoIds.length > 0 && (
-                      <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
-                        AI {p.generatedPhotoIds.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3">
-                    <p className="truncate font-semibold text-ink-900">{p.name || 'Bez nazwy'}</p>
-                    <div className="mt-0.5 flex items-center justify-between">
-                      <p className="truncate text-xs text-ink-400">{p.brand || '—'}</p>
-                      <p className="shrink-0 text-sm font-bold text-brand-600">
-                        {p.listingPrice ? money(p.listingPrice, p.currency) : '—'}
-                      </p>
+          {filtered.map((it) =>
+            it.kind === 'single' ? (
+              (() => {
+                const p = it.product
+                const cover = p.photoIds[0] ?? p.generatedPhotoIds[0]
+                return (
+                  <div key={p.id} className="card group relative overflow-hidden transition hover:shadow-pop">
+                    {/* Stretched navigate hit-area — a real <button> (keyboard + focus-ring
+                        intact). Sits BEHIND content; content is pointer-events-none so clicks
+                        fall through, except the pickers which re-enable pointer-events. */}
+                    <button
+                      type="button"
+                      aria-label={`Otwórz ${p.name || 'produkt'}`}
+                      onClick={() => nav(`/magazyn/${p.id}`)}
+                      className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
+                    />
+                    <div className="pointer-events-none relative z-10">
+                      <div className="relative aspect-square w-full bg-ink-100">
+                        <Thumb imageId={cover} className="h-full w-full object-cover" alt={p.name} />
+                        <StatusPicker product={p} className="pointer-events-auto absolute left-2 top-2" />
+                        {p.generatedPhotoIds.length > 0 && (
+                          <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
+                            AI {p.generatedPhotoIds.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-3">
+                        <p className="truncate font-semibold text-ink-900">{p.name || 'Bez nazwy'}</p>
+                        <div className="mt-0.5 flex items-center justify-between">
+                          <p className="truncate text-xs text-ink-400">{p.brand || '—'}</p>
+                          <p className="shrink-0 text-sm font-bold text-brand-600">
+                            {p.listingPrice ? money(p.listingPrice, p.currency) : '—'}
+                          </p>
+                        </div>
+                        <div className="mt-2">
+                          <AccountPicker product={p} accounts={accounts ?? []} className="pointer-events-auto" />
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-2">
-                      <AccountPicker product={p} accounts={accounts ?? []} className="pointer-events-auto" />
-                    </div>
                   </div>
-                </div>
-              </div>
-            )
-          })}
+                )
+              })()
+            ) : (
+              <DesignCard
+                key={it.design.id}
+                design={it.design}
+                members={it.members}
+                cover={it.cover}
+                onOpen={() => nav(`/magazyn/model/${it.design.id}`)}
+              />
+            ),
+          )}
         </div>
       )}
       <ImportStockModal open={importOpen} onClose={() => setImportOpen(false)} />
       <ImportStockScreenshotModal open={screenshotOpen} onClose={() => setScreenshotOpen(false)} />
+    </div>
+  )
+}
+
+const statusLabel = (s: ProductStatus) =>
+  STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
+
+function DesignCard({ design, members, cover, onOpen }: {
+  design: Design; members: Product[]; cover?: string; onOpen: () => void
+}) {
+  const prices = members.map((m) => m.listingPrice).filter((n): n is number => n != null)
+  const priceText = prices.length
+    ? prices.length > 1 && Math.min(...prices) !== Math.max(...prices)
+      ? `${Math.min(...prices)}–${Math.max(...prices)}`
+      : String(prices[0])
+    : '—'
+  return (
+    <div className="card group relative overflow-hidden transition hover:shadow-pop">
+      <button
+        type="button"
+        aria-label={`Otworz model ${design.name || 'model'}`}
+        onClick={onOpen}
+        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
+      />
+      <div className="pointer-events-none relative z-10">
+        <div className="relative aspect-square w-full bg-ink-100">
+          <Thumb imageId={cover} className="h-full w-full object-cover" alt={design.name} />
+          <span className="badge absolute left-2 top-2 bg-ink-900/80 text-white">
+            {members.length} {members.length === 1 ? 'rozmiar' : 'rozmiary'}
+          </span>
+          {design.generatedPhotoIds.length > 0 && (
+            <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
+              AI {design.generatedPhotoIds.length}
+            </span>
+          )}
+        </div>
+        <div className="p-3">
+          <p className="truncate font-semibold text-ink-900">{design.name || 'Bez nazwy'}</p>
+          <div className="mt-0.5 flex items-center justify-between">
+            <p className="truncate text-xs text-ink-400">{design.brand || '—'}</p>
+            <p className="shrink-0 text-sm font-bold text-brand-600">{priceText}</p>
+          </div>
+          <p className="mt-2 truncate text-xs text-ink-400">
+            {members.map((m) => `${m.sizeLabel || '?'} ${statusLabel(m.status)}`).join(' · ')}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
