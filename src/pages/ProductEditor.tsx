@@ -328,7 +328,7 @@ function DesignEditor({ designId }: { designId: string }) {
             <Unlink size={16} /> Rozłącz model
           </Button>
           <Button variant="danger" onClick={removeModel}>
-            <Trash2 size={16} />
+            <Trash2 size={16} /> Usuń model
           </Button>
         </div>
       </div>
@@ -397,7 +397,7 @@ function DesignEditor({ designId }: { designId: string }) {
         {draft && tab === 'detale' && (
           <DetailsTab draft={draft} update={update} accounts={accounts ?? []} />
         )}
-        {draft && tab === 'zdjecia' && <PhotosTab draft={draft} update={update} />}
+        {draft && tab === 'zdjecia' && <PhotosTab draft={draft} update={update} imageLink={{ designId }} />}
         {draft && tab === 'opisy' && <DescriptionsTab draft={draft} update={update} />}
       </div>
 
@@ -658,7 +658,7 @@ function DetailsTab({
 }
 
 // ── Zdjęcia ──────────────────────────────────────────────────────────────────
-function PhotosTab({ draft, update }: { draft: Product; update: UpdateFn }) {
+function PhotosTab({ draft, update, imageLink }: { draft: Product; update: UpdateFn; imageLink?: { productId?: string; designId?: string } }) {
   const [busy, setBusy] = useState(false)
 
   const addPhotos = async (files: File[]) => {
@@ -666,7 +666,7 @@ function PhotosTab({ draft, update }: { draft: Product; update: UpdateFn }) {
     try {
       const ids: string[] = []
       for (const f of files) {
-        const rec = await addImageFromFile(f, 'product', { productId: draft.id })
+        const rec = await addImageFromFile(f, 'product', imageLink ?? { productId: draft.id })
         ids.push(rec.id)
       }
       // Forma funkcyjna — łączymy z najświeższym stanem (zdjęcia kodują się asynchronicznie).

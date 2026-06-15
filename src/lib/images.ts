@@ -67,7 +67,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality: number):
 export async function addImageFromFile(
   file: Blob,
   kind: ImageKind,
-  links?: { productId?: string; modelId?: string },
+  links?: { productId?: string; modelId?: string; designId?: string },
 ): Promise<ImageRecord> {
   const p = await processImage(file)
   const rec: ImageRecord = {
@@ -80,6 +80,7 @@ export async function addImageFromFile(
     kind,
     productId: links?.productId,
     modelId: links?.modelId,
+    designId: links?.designId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
