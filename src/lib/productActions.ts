@@ -1,4 +1,4 @@
-import { patchEntity } from '@/db/db'
+import { db, patchEntity } from '@/db/db'
 import type { ID, ProductStatus, SaleStatus } from '@/db/types'
 
 /**
@@ -35,4 +35,16 @@ export function shouldRestockOnSave(
   hasProduct: boolean,
 ): boolean {
   return hasProduct && nextStatus === 'returned' && prevStatus !== 'returned'
+}
+
+/**
+ * Cofa przedmiot do magazynu po zwrocie. Przestawia status na 'in_stock'
+ * WYŁĄCZNIE gdy przedmiot istnieje i jest aktualnie 'sold' (nie nadpisuje
+ * przedmiotu, który użytkownik już przeniósł). Zwraca, czy faktycznie cofnięto.
+ */
+export async function restockOnRefund(productId: ID): Promise<boolean> {
+  const product = await db.products.get(productId)
+  if (!product || product.status !== 'sold') return false
+  await patchEntity('products', productId, { status: 'in_stock' })
+  return true
 }
