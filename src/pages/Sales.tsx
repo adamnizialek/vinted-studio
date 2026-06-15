@@ -10,6 +10,7 @@ import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
+import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import { ImportSalesModal } from '@/components/ImportSalesModal'
@@ -340,8 +341,14 @@ function SaleModal({
     if (!form.productName.trim()) return toast.error('Podaj nazwę produktu.')
     if (!form.salePrice || form.salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
     await putEntity('sales', form)
+    let restocked = false
+    if (sale && shouldRestockOnSave(sale.status, form.status, !!form.productId)) {
+      restocked = await restockOnRefund(form.productId!) // helper gwarantuje productId
+    }
     onClose()
-    toast.success('Zapisano sprzedaż.')
+    toast.success(
+      restocked ? 'Zwrot zapisany — przedmiot wrócił do magazynu 📦' : 'Zapisano sprzedaż.',
+    )
   }
 
   return (
@@ -397,7 +404,17 @@ function SaleModal({
             onChange={(e) => set('soldAt', dateFromInput(e.target.value, form.soldAt))}
           />
         </Field>
-        <Field label="Status">
+        {/* Podpowiedź optymistyczna: sam restock i tak strzeże warunku 'sold'
+            w restockOnRefund, więc dla ręcznie przeniesionego przedmiotu efekt
+            może nie nastąpić mimo podpowiedzi (rzadki przypadek). */}
+        <Field
+          label="Status"
+          hint={
+            form.status === 'returned' && form.productId && sale?.status !== 'returned'
+              ? 'Po zapisaniu przedmiot wróci do magazynu.'
+              : undefined
+          }
+        >
           <Select value={form.status} onChange={(e) => set('status', e.target.value as SaleStatus)}>
             {Object.entries(SALE_STATUS_LABELS).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
