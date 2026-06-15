@@ -32,9 +32,10 @@ describe('nextStamp', () => {
 })
 
 describe('SYNC_TABLES', () => {
-  it('lists exactly the seven entity tables', () => {
+  it('lists exactly the eight entity tables', () => {
     expect([...SYNC_TABLES].sort()).toEqual([
       'accounts',
+      'designs',
       'expenses',
       'images',
       'models',
