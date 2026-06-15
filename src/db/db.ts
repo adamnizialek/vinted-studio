@@ -317,8 +317,9 @@ export async function deleteModelCascade(modelId: string): Promise<void> {
 
 /** Pelny eksport bazy do obiektu JSON (obrazy jako data URL). */
 export async function exportAll() {
-  const [products, models, accounts, sales, expenses, settings, images] = await Promise.all([
+  const [products, designs, models, accounts, sales, expenses, settings, images] = await Promise.all([
     db.products.toArray(),
+    db.designs.toArray(),
     db.models.toArray(),
     db.accounts.toArray(),
     db.sales.toArray(),
@@ -341,6 +342,7 @@ export async function exportAll() {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     products,
+    designs,
     models,
     accounts,
     sales,
@@ -370,6 +372,7 @@ export async function importAll(data: any): Promise<void> {
   )
 
   const products = (data.products ?? []).map(withUpdatedAt)
+  const designs = (data.designs ?? []).map(withUpdatedAt)
   const models = (data.models ?? []).map(withUpdatedAt)
   const accounts = (data.accounts ?? []).map(withUpdatedAt)
   const sales = (data.sales ?? []).map(withUpdatedAt)
@@ -377,7 +380,7 @@ export async function importAll(data: any): Promise<void> {
 
   await db.transaction(
     'rw',
-    [db.products, db.models, db.accounts, db.sales, db.expenses, db.images, db.settings, db.outbox],
+    [db.products, db.designs, db.models, db.accounts, db.sales, db.expenses, db.images, db.settings, db.outbox],
     async () => {
       const queue = (table: SyncTable, rows: { id: string; updatedAt: number }[]) =>
         Promise.all(
@@ -389,6 +392,10 @@ export async function importAll(data: any): Promise<void> {
       if (products.length) {
         await db.products.bulkPut(products)
         await queue('products', products)
+      }
+      if (designs.length) {
+        await db.designs.bulkPut(designs)
+        await queue('designs', designs)
       }
       if (models.length) {
         await db.models.bulkPut(models)
@@ -441,7 +448,7 @@ export async function clearAllData(): Promise<void> {
   const now = Date.now()
   await db.transaction(
     'rw',
-    [db.products, db.models, db.accounts, db.sales, db.expenses, db.images, db.outbox],
+    [db.products, db.designs, db.models, db.accounts, db.sales, db.expenses, db.images, db.outbox],
     async () => {
       const tombstoneAll = async (table: SyncTable, tbl: Table<{ id: string }, string>) => {
         const ids = await tbl.toCollection().primaryKeys()
@@ -453,6 +460,7 @@ export async function clearAllData(): Promise<void> {
         )
       }
       await tombstoneAll('products', db.products as Table<{ id: string }, string>)
+      await tombstoneAll('designs', db.designs as Table<{ id: string }, string>)
       await tombstoneAll('models', db.models as Table<{ id: string }, string>)
       await tombstoneAll('accounts', db.accounts as Table<{ id: string }, string>)
       await tombstoneAll('sales', db.sales as Table<{ id: string }, string>)

@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { db, putEntity } from './db'
+import { db, putEntity, exportAll, importAll, clearAllData } from './db'
 import type { Design } from './types'
 
 async function clearAll() {
@@ -35,5 +35,24 @@ describe('designs table', () => {
     ])
     const grouped = await db.products.where('designId').equals('d1').toArray()
     expect(grouped.map((p) => p.id)).toEqual(['p1'])
+  })
+})
+
+describe('designs in export/import/clear', () => {
+  it('round-trips a design through exportAll/importAll', async () => {
+    await putEntity('designs', sampleDesign())
+    const dump = await exportAll()
+    expect(dump.designs.map((d) => d.id)).toEqual(['d1'])
+    await db.designs.clear()
+    await importAll(dump)
+    expect((await db.designs.get('d1'))?.name).toBe('Kurtka NYC')
+  })
+
+  it('clearAllData tombstones designs', async () => {
+    await putEntity('designs', sampleDesign())
+    await db.outbox.clear()
+    await clearAllData()
+    expect(await db.designs.get('d1')).toBeUndefined()
+    expect((await db.outbox.get(['designs', 'd1']))?.deleted).toBe(1)
   })
 })
