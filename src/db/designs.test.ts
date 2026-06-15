@@ -175,6 +175,20 @@ describe('dissolveDesign', () => {
     const pM = await db.products.get('pM')
     expect(pM?.photoIds[0]).not.toBe(pS?.photoIds[0])
     expect(await db.blob_outbox.get(pS!.photoIds[0])).toBeTruthy()
+    expect((await db.outbox.get(['images', 'i1']))?.deleted).toBe(1)
+  })
+})
+
+describe('Dexie v4 schema (additive upgrade)', () => {
+  it('keeps pre-existing products (without designId) fully usable', async () => {
+    // A product created before the feature has no designId — must still read/write/query.
+    await db.products.put(sampleProduct('legacy', { name: 'Stary produkt', sizeLabel: 'M' }))
+    const row = await db.products.get('legacy')
+    expect(row?.name).toBe('Stary produkt')
+    expect(row?.designId).toBeUndefined()
+    // The new designId index must not break a normal status query on legacy rows.
+    const inStock = await db.products.where('status').equals('in_stock').toArray()
+    expect(inStock.map((p) => p.id)).toContain('legacy')
   })
 })
 
