@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
-import { db, putEntity } from '@/db/db'
+import { db, putEntity, groupProducts } from '@/db/db'
 import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { STATUS_OPTIONS } from '@/lib/constants'
 import { money } from '@/lib/format'
-import { Button, EmptyState, Select, TextInput, SectionTitle } from '@/components/ui'
+import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
+import { toast } from '@/state/toast'
 import { Thumb } from '@/components/ImageView'
 import { ImportStockModal } from '@/components/ImportStockModal'
 import { ImportStockScreenshotModal } from '@/components/ImportStockScreenshotModal'
@@ -69,6 +70,21 @@ export function Inventory() {
   const [accountId, setAccountId] = useState<string>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [screenshotOpen, setScreenshotOpen] = useState(false)
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [groupOpen, setGroupOpen] = useState(false)
+
+  const toggleSelect = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const exitSelect = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -133,6 +149,16 @@ export function Inventory() {
         subtitle={`${products?.length ?? 0} przedmiotów · ${counts.in_stock ?? 0} w magazynie · ${counts.listed ?? 0} wystawionych`}
         right={
           <div className="flex gap-2">
+            {selecting ? (
+              <>
+                <Button variant="ghost" onClick={exitSelect}>Anuluj</Button>
+                <Button disabled={selected.size < 2} onClick={() => setGroupOpen(true)}>
+                  Połącz w model ({selected.size})
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" onClick={() => setSelecting(true)}>Połącz</Button>
+            )}
             <ResponsivePicker
               title="Importuj stan"
               trigger={({ ref, toggle, aria }) => (
@@ -230,9 +256,19 @@ export function Inventory() {
                     <button
                       type="button"
                       aria-label={`Otwórz ${p.name || 'produkt'}`}
-                      onClick={() => nav(`/magazyn/${p.id}`)}
+                      onClick={() => (selecting ? toggleSelect(p.id) : nav(`/magazyn/${p.id}`))}
                       className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
                     />
+                    {selecting && (
+                      <label className="pointer-events-auto absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-lg bg-surface/90 ring-1 ring-ink-200">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                          aria-label="Zaznacz do połączenia"
+                        />
+                      </label>
+                    )}
                     <div className="pointer-events-none relative z-10">
                       <div className="relative aspect-square w-full bg-ink-100">
                         <Thumb imageId={cover} className="h-full w-full object-cover" alt={p.name} />
@@ -273,6 +309,23 @@ export function Inventory() {
       )}
       <ImportStockModal open={importOpen} onClose={() => setImportOpen(false)} />
       <ImportStockScreenshotModal open={screenshotOpen} onClose={() => setScreenshotOpen(false)} />
+      {groupOpen && (
+        <GroupModal
+          products={(products ?? []).filter((p) => selected.has(p.id))}
+          onClose={() => setGroupOpen(false)}
+          onConfirm={async (primaryId) => {
+            try {
+              const design = await groupProducts([...selected], primaryId)
+              toast.success('Połączono w model 🧩')
+              setGroupOpen(false)
+              exitSelect()
+              nav(`/magazyn/model/${design.id}`)
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'Nie udało się połączyć.')
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -287,6 +340,53 @@ function rozmiarLabel(n: number): string {
   const mod100 = n % 100
   if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return 'rozmiary'
   return 'rozmiarów'
+}
+
+function GroupModal({ products, onClose, onConfirm }: {
+  products: Product[]
+  onClose: () => void
+  onConfirm: (primaryId: string) => void
+}) {
+  const [primaryId, setPrimaryId] = useState(products[0]?.id ?? '')
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Połącz w jeden model"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Anuluj</Button>
+          <Button disabled={!primaryId} onClick={() => onConfirm(primaryId)}>Połącz</Button>
+        </div>
+      }
+    >
+      <div className="space-y-2">
+        <p className="text-sm text-ink-500">
+          Wybierz produkt główny — jego nazwa, zdjęcia i opisy staną się wspólne dla modelu.
+        </p>
+        {products.map((p) => (
+          <label
+            key={p.id}
+            className="flex cursor-pointer items-center gap-3 rounded-xl p-2 ring-1 ring-ink-100 hover:bg-ink-50"
+          >
+            <input
+              type="radio"
+              name="primary"
+              checked={primaryId === p.id}
+              onChange={() => setPrimaryId(p.id)}
+            />
+            <Thumb imageId={p.photoIds[0] ?? p.generatedPhotoIds[0]} className="h-12 w-12 rounded-lg object-cover" />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-ink-900">{p.name || 'Bez nazwy'}</p>
+              <p className="truncate text-xs text-ink-400">
+                {[p.brand, p.sizeLabel].filter(Boolean).join(' · ') || '—'}
+              </p>
+            </div>
+          </label>
+        ))}
+      </div>
+    </Modal>
+  )
 }
 
 function DesignCard({ design, members, cover, onOpen }: {
