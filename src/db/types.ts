@@ -48,6 +48,8 @@ export interface ImageRecord {
   /** Powiazanie pomocnicze (opcjonalne) dla porzadkow/kaskad. */
   productId?: ID
   modelId?: ID
+  /** Backref dla porzadkow/kaskad, gdy obraz nalezy do modelu (wspoldzielony). */
+  designId?: ID
   /** Metadane generacji (gdy kind === 'generated'). */
   meta?: GeneratedImageMeta
   createdAt: number
@@ -137,6 +139,9 @@ export interface Product {
   status: ProductStatus
   /** Konto, do ktorego przypisany jest przedmiot (opcjonalne). */
   accountId?: ID
+  /** Gdy ustawione: produkt jest rozmiarem nalezacym do modelu; pola wspolne
+   *  (nazwa, marka, zdjecia, opisy) czyta z Design, a wlasne sa wyczyszczone. */
+  designId?: ID
   /** Oryginalne zdjecia produktu. */
   photoIds: ID[]
   /** Zdjecia wygenerowane na modelce AI. */
@@ -152,6 +157,26 @@ export interface Product {
   soldAt?: number
   /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
   importKey?: string
+}
+
+/** Wspolny fason ("Model" w UI) — wspoldzielony przez warianty rozmiarowe.
+ *  Trzyma to, co identyczne miedzy rozmiarami: tozsamosc, zdjecia, opisy. */
+export interface Design {
+  id: ID
+  name: string
+  brand?: string
+  color?: string
+  material?: string
+  category?: string
+  tags: string[]
+  /** Oryginalne zdjecia produktu — wspoldzielone przez wszystkie rozmiary. */
+  photoIds: ID[]
+  /** Zdjecia na modelce AI — wspoldzielone. */
+  generatedPhotoIds: ID[]
+  /** Zapisane opisy (jeden active) — wspoldzielone. */
+  descriptions: SavedDescription[]
+  createdAt: number
+  updatedAt: number
 }
 
 export type SaleStatus = 'completed' | 'pending' | 'cancelled' | 'returned'
