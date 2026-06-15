@@ -100,4 +100,37 @@ describe('groupProducts', () => {
   it('rejects fewer than two products', async () => {
     await expect(groupProducts(['pS'], 'pS')).rejects.toThrow()
   })
+
+  it('activates the first merged description when the primary has none', async () => {
+    await db.products.bulkPut([
+      sampleProduct('pA', { name: 'NYC', descriptions: [
+        { id: 'da', styleId: 's', styleLabel: 'S', text: 'a', active: false, createdAt: 1 }] }),
+      sampleProduct('pB', { name: 'NYC', descriptions: [
+        { id: 'db', styleId: 's', styleLabel: 'S', text: 'b', active: false, createdAt: 1 }] }),
+    ])
+    const design = await groupProducts(['pA', 'pB'], 'pA')
+    const active = design.descriptions.filter((d) => d.active)
+    expect(active).toHaveLength(1)
+    expect(active[0].id).toBe('da') // first merged (primary first)
+  })
+
+  it('throws when fewer than two standalone products survive (others already grouped)', async () => {
+    await db.designs.put(sampleDesign('dX'))
+    await db.products.bulkPut([
+      sampleProduct('pStand', { designId: undefined }),
+      sampleProduct('pGrouped', { designId: 'dX' }),
+    ])
+    await expect(groupProducts(['pStand', 'pGrouped'], 'pStand')).rejects.toThrow()
+  })
+
+  it('deduplicates repeated ids in the input', async () => {
+    await db.products.bulkPut([
+      sampleProduct('p1', { name: 'NYC' }),
+      sampleProduct('p2', { name: 'NYC' }),
+    ])
+    // duplicate 'p1' must not break the merge or double-write
+    const design = await groupProducts(['p1', 'p1', 'p2'], 'p1')
+    const members = await db.products.where('designId').equals(design.id).toArray()
+    expect(members.map((m) => m.id).sort()).toEqual(['p1', 'p2'])
+  })
 })

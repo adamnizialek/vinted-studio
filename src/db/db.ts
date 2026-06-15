@@ -681,20 +681,23 @@ export async function importStock(
 /**
  * Laczy >=2 SAMODZIELNE produkty w nowy model. `primaryId` zasiewa tozsamosc;
  * zdjecia/opisy/tagi WSZYSTKICH czlonkow sa scalane do modelu (dedup po id,
- * kolejnosc: primary pierwszy), dokladnie jeden opis `active`. Kazdy czlonek:
+ * kolejnosc: primary pierwszy), co najwyzej jeden opis `active`. Kazdy czlonek:
  * designId = model.id, pola wspolne wyczyszczone; obrazy dostaja designId.
  */
 export async function groupProducts(
   productIds: string[],
   primaryId: string,
 ): Promise<Design> {
-  if (productIds.length < 2) throw new Error('Zaznacz co najmniej dwa produkty.')
-  if (!productIds.includes(primaryId)) throw new Error('Produkt glowny musi byc zaznaczony.')
+  const uniqueIds = [...new Set(productIds)]
+  if (uniqueIds.length < 2) throw new Error('Zaznacz co najmniej dwa produkty.')
+  if (!uniqueIds.includes(primaryId)) throw new Error('Produkt glowny musi byc zaznaczony.')
   const now = Date.now()
   const designId = uid()
   return db.transaction('rw', db.products, db.designs, db.images, db.outbox, async () => {
-    const loaded = await Promise.all(productIds.map((id) => db.products.get(id)))
+    const loaded = await Promise.all(uniqueIds.map((id) => db.products.get(id)))
     const products = loaded.filter((p): p is Product => !!p && !p.designId)
+    if (products.length < 2)
+      throw new Error('Potrzebne co najmniej dwa samodzielne produkty (pozostale sa juz w modelu).')
     const primary = products.find((p) => p.id === primaryId)
     if (!primary) throw new Error('Nie znaleziono produktu glownego (lub jest juz w modelu).')
     const ordered = [primary, ...products.filter((p) => p.id !== primaryId)]
