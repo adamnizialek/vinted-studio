@@ -1,5 +1,5 @@
 import { patchEntity } from '@/db/db'
-import type { ID, ProductStatus } from '@/db/types'
+import type { ID, ProductStatus, SaleStatus } from '@/db/types'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -22,4 +22,17 @@ export async function applyStatusChange(id: ID, status: ProductStatus): Promise<
 /** Assign or clear (undefined) the account of a product. */
 export async function assignAccount(id: ID, accountId: ID | undefined): Promise<void> {
   await patchEntity('products', id, { accountId })
+}
+
+/**
+ * Czysta reguła decyzyjna: czy zapis wpisu sprzedaży ma cofnąć przedmiot do
+ * magazynu. Prawda wyłącznie przy realnym przejściu w 'returned' z powiązanym
+ * przedmiotem — by edycja innych pól zwróconego wpisu nie ruszała magazynu.
+ */
+export function shouldRestockOnSave(
+  prevStatus: SaleStatus,
+  nextStatus: SaleStatus,
+  hasProduct: boolean,
+): boolean {
+  return hasProduct && nextStatus === 'returned' && prevStatus !== 'returned'
 }
