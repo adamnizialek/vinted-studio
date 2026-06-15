@@ -5,6 +5,7 @@
 /** The synced entity tables (mirror of the Dexie/D1 schema). */
 export const SYNC_TABLES = [
   'products',
+  'designs',
   'models',
   'accounts',
   'sales',

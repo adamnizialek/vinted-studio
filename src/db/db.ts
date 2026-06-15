@@ -3,6 +3,7 @@ import type {
   Account,
   AiModel,
   AppSettings,
+  Design,
   Expense,
   ImageRecord,
   Product,
@@ -53,6 +54,7 @@ export interface BlobUpload {
 
 export class VintedStudioDB extends Dexie {
   products!: Table<Product, string>
+  designs!: Table<Design, string>
   models!: Table<AiModel, string>
   accounts!: Table<Account, string>
   sales!: Table<Sale, string>
@@ -101,12 +103,19 @@ export class VintedStudioDB extends Dexie {
     this.version(3).stores({
       expenses: 'id, accountId, incurredAt, createdAt',
     })
+    // v4: model wspoldzielony (Design) + indeks designId na products. Czysto
+    // addytywne — nowa pusta tabela i nowy indeks, brak migracji danych.
+    this.version(4).stores({
+      designs: 'id, createdAt, updatedAt',
+      products:
+        'id, status, accountId, brand, category, createdAt, updatedAt, soldAt, designId, *tags',
+    })
   }
 }
 
 export const db = new VintedStudioDB()
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export const DEFAULT_SETTINGS: AppSettings = {
   id: 'app',
@@ -128,6 +137,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 // ---------------------------------------------------------------------------
 interface EntityMap {
   products: Product
+  designs: Design
   models: AiModel
   accounts: Account
   sales: Sale
