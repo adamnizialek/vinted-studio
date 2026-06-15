@@ -75,4 +75,13 @@ describe('resolveProduct', () => {
       'photoIds', 'generatedPhotoIds', 'descriptions',
     ])
   })
+
+  it('overlays exactly the SHARED_FIELDS from the design, nothing else', () => {
+    const d = design()
+    const p = product({ designId: 'd1' })
+    const r = resolveProduct(p, new Map([['d1', d]]))
+    for (const key of SHARED_FIELDS) {
+      expect(r[key]).toStrictEqual(d[key])
+    }
+  })
 })

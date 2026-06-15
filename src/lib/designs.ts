@@ -5,7 +5,7 @@ import type { Design, ID, Product } from '@/db/types'
 export const SHARED_FIELDS = [
   'name', 'brand', 'color', 'material', 'category', 'tags',
   'photoIds', 'generatedPhotoIds', 'descriptions',
-] as const
+] as const satisfies ReadonlyArray<keyof Design>
 
 /**
  * Zwraca obiekt w ksztalcie Product: dla zgrupowanego (designId ustawione) naklada
@@ -16,6 +16,8 @@ export function resolveProduct(product: Product, designsById: Map<ID, Design>): 
   if (!product.designId) return product
   const d = designsById.get(product.designId)
   if (!d) return product
+  // UWAGA: pola tablicowe (tags, photoIds, …) zwracamy przez referencje do Design —
+  // konsument NIE moze mutowac wyniku (overlay jest tylko do odczytu).
   return {
     ...product,
     name: d.name,
