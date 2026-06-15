@@ -174,6 +174,7 @@ describe('dissolveDesign', () => {
     expect(pS?.descriptions).toHaveLength(1)
     const pM = await db.products.get('pM')
     expect(pM?.photoIds[0]).not.toBe(pS?.photoIds[0])
+    expect(await db.blob_outbox.get(pS!.photoIds[0])).toBeTruthy()
   })
 })
 
@@ -188,6 +189,7 @@ describe('deleteDesignCascade', () => {
     expect(await db.images.get('i1')).toBeUndefined()
     expect(await db.products.get('pS')).toBeUndefined()
     expect((await db.outbox.get(['designs', 'd1']))?.deleted).toBe(1)
+    expect((await db.outbox.get(['products', 'pS']))?.deleted).toBe(1)
   })
 })
 

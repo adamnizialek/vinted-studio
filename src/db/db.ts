@@ -287,12 +287,19 @@ export async function deleteProductCascade(productId: string): Promise<void> {
   if (!product) return
   // Rozmiar nalezacy do modelu: nie ma wlasnych obrazow (sa wspolne na modelu).
   if (product.designId) {
-    const siblings = await db.products.where('designId').equals(product.designId).count()
-    if (siblings <= 1) {
-      await deleteDesignCascade(product.designId) // ostatni rozmiar -> usun model
-    } else {
-      await deleteEntity('products', productId)
-    }
+    const designId = product.designId
+    await db.transaction(
+      'rw',
+      [db.products, db.designs, db.images, db.outbox, db.blob_outbox],
+      async () => {
+        const siblings = await db.products.where('designId').equals(designId).count()
+        if (siblings <= 1) {
+          await deleteDesignCascade(designId) // ostatni rozmiar -> usun model (nested, reuses tx)
+        } else {
+          await deleteEntity('products', productId) // nested, reuses tx
+        }
+      },
+    )
     return
   }
   // --- istniejaca sciezka samodzielna (BEZ ZMIAN) ---
@@ -871,6 +878,7 @@ export async function addSizeToDesign(
   designId: string,
   seed: Partial<Product> = {},
 ): Promise<Product> {
+  const now = Date.now()
   const product: Product = {
     id: uid(),
     designId,
@@ -888,8 +896,8 @@ export async function addSizeToDesign(
     listingPrice: seed.listingPrice,
     purchasePrice: seed.purchasePrice,
     measurements: seed.measurements,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   }
   return putEntity('products', product)
 }
