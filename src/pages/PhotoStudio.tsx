@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Camera, Download, Loader2, Shirt, Sparkles, Trash2, Wand2 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_RESOLUTION, estimateImageCostUsd } f
 import { SCENE_PRESETS, buildPhotoPrompt, type PhotoMode } from '@/lib/prompts'
 import { generateImage, type InlineImage } from '@/lib/gemini'
 import { addGeneratedImage, blobToBase64, getImageBlob } from '@/lib/images'
+import { resolveProduct } from '@/lib/designs'
 import { downloadBlob } from '@/lib/csv'
 import { Button, EmptyState, Field, Select, TextArea, SectionTitle } from '@/components/ui'
 import { FullImage, Thumb } from '@/components/ImageView'
@@ -43,9 +44,15 @@ export function PhotoStudio() {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
 
-  const product = useLiveQuery(
+  const designs = useLiveQuery(() => db.designs.toArray(), [])
+  const designsById = useMemo(() => new Map((designs ?? []).map((d) => [d.id, d])), [designs])
+  const rawProduct = useLiveQuery(
     async () => (selProductId ? await db.products.get(selProductId) : undefined),
     [selProductId],
+  )
+  const product = useMemo(
+    () => (rawProduct ? resolveProduct(rawProduct, designsById) : undefined),
+    [rawProduct, designsById],
   )
   const model = models?.find((m) => m.id === selModelId)
 
@@ -120,14 +127,20 @@ export function PhotoStudio() {
             img.base64,
             img.mime,
             { modelId: mode === 'tryOn' ? selModelId : undefined, prompt, imageModel: settings.imageModel, sourceImageIds: sourceIds },
-            { productId: product.id },
+            rawProduct?.designId ? {} : { productId: product.id },
           )
-          const fresh = await db.products.get(product.id)
-          if (fresh)
-            await putEntity('products', {
-              ...fresh,
-              generatedPhotoIds: [rec.id, ...fresh.generatedPhotoIds],
-            })
+          if (rawProduct?.designId) {
+            const d = await db.designs.get(rawProduct.designId)
+            if (d)
+              await patchEntity('designs', d.id, {
+                generatedPhotoIds: [rec.id, ...d.generatedPhotoIds],
+              })
+            await patchEntity('images', rec.id, { designId: rawProduct.designId, productId: undefined })
+          } else {
+            const fresh = await db.products.get(product.id)
+            if (fresh)
+              await putEntity('products', { ...fresh, generatedPhotoIds: [rec.id, ...fresh.generatedPhotoIds] })
+          }
           saved++
         }
       }
@@ -141,11 +154,19 @@ export function PhotoStudio() {
   }
 
   const removeGenerated = async (imageId: string) => {
-    if (!product) return
+    if (!rawProduct) return
     await deleteEntity('images', imageId)
-    await patchEntity('products', product.id, {
-      generatedPhotoIds: product.generatedPhotoIds.filter((x) => x !== imageId),
-    })
+    if (rawProduct.designId) {
+      const d = await db.designs.get(rawProduct.designId)
+      if (d)
+        await patchEntity('designs', d.id, {
+          generatedPhotoIds: d.generatedPhotoIds.filter((x) => x !== imageId),
+        })
+    } else {
+      await patchEntity('products', rawProduct.id, {
+        generatedPhotoIds: rawProduct.generatedPhotoIds.filter((x) => x !== imageId),
+      })
+    }
   }
 
   const download = async (imageId: string) => {
@@ -190,11 +211,14 @@ export function PhotoStudio() {
           <Field label="Produkt">
             <Select value={selProductId} onChange={(e) => setSelProductId(e.target.value)}>
               <option value="">— wybierz produkt —</option>
-              {products?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || 'Bez nazwy'} {p.photoIds.length === 0 ? '(brak zdjęcia)' : ''}
-                </option>
-              ))}
+              {products?.map((p) => {
+                const r = resolveProduct(p, designsById)
+                return (
+                  <option key={p.id} value={p.id}>
+                    {r.name || 'Bez nazwy'}{p.sizeLabel ? ` (${p.sizeLabel})` : ''} {r.photoIds.length === 0 ? '· brak zdjęcia' : ''}
+                  </option>
+                )
+              })}
             </Select>
           </Field>
 
