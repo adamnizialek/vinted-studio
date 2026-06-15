@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { db, putEntity, exportAll, importAll, clearAllData, groupProducts, addSizeToDesign } from './db'
+import { db, putEntity, exportAll, importAll, clearAllData, groupProducts, addSizeToDesign, dissolveDesign, deleteDesignCascade, deleteProductCascade } from './db'
 import type { Design, Product } from './types'
 
 const sampleProduct = (id: string, over: Partial<Product> = {}): Product => ({
@@ -147,5 +147,68 @@ describe('addSizeToDesign', () => {
     expect(row?.listingPrice).toBe(95)
     expect(row?.name).toBe('')
     expect((await db.outbox.get(['products', p.id]))?.deleted).toBe(0)
+  })
+})
+
+describe('dissolveDesign', () => {
+  it('clones shared content to each member and deletes the design', async () => {
+    await db.images.put({ id: 'i1', blob: new Blob(['x']), mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', designId: 'd1', createdAt: 1, updatedAt: 1 })
+    await db.designs.put({ ...sampleDesign(), brand: 'NF', photoIds: ['i1'],
+      descriptions: [{ id: 'dx', styleId: 's', styleLabel: 'S', text: 't', active: true, createdAt: 1 }] })
+    await db.products.bulkPut([
+      sampleProduct('pS', { designId: 'd1', name: '', sizeLabel: 'S' }),
+      sampleProduct('pM', { designId: 'd1', name: '', sizeLabel: 'M' }),
+    ])
+    await db.outbox.clear()
+
+    await dissolveDesign('d1')
+
+    expect(await db.designs.get('d1')).toBeUndefined()
+    expect(await db.images.get('i1')).toBeUndefined()
+    const pS = await db.products.get('pS')
+    expect(pS?.designId).toBeUndefined()
+    expect(pS?.name).toBe('Kurtka NYC')
+    expect(pS?.brand).toBe('NF')
+    expect(pS?.photoIds).toHaveLength(1)
+    expect(pS?.photoIds[0]).not.toBe('i1')
+    expect(pS?.descriptions).toHaveLength(1)
+    const pM = await db.products.get('pM')
+    expect(pM?.photoIds[0]).not.toBe(pS?.photoIds[0])
+  })
+})
+
+describe('deleteDesignCascade', () => {
+  it('removes the design, its shared images, and all members', async () => {
+    await db.images.put({ id: 'i1', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', designId: 'd1', createdAt: 1, updatedAt: 1 })
+    await db.designs.put({ ...sampleDesign(), photoIds: ['i1'] })
+    await db.products.put(sampleProduct('pS', { designId: 'd1' }))
+    await db.outbox.clear()
+    await deleteDesignCascade('d1')
+    expect(await db.designs.get('d1')).toBeUndefined()
+    expect(await db.images.get('i1')).toBeUndefined()
+    expect(await db.products.get('pS')).toBeUndefined()
+    expect((await db.outbox.get(['designs', 'd1']))?.deleted).toBe(1)
+  })
+})
+
+describe('deleteProductCascade on grouped members', () => {
+  it('deletes only the member while siblings remain', async () => {
+    await db.designs.put(sampleDesign())
+    await db.products.bulkPut([
+      sampleProduct('pS', { designId: 'd1' }),
+      sampleProduct('pM', { designId: 'd1' }),
+    ])
+    await deleteProductCascade('pS')
+    expect(await db.products.get('pS')).toBeUndefined()
+    expect(await db.products.get('pM')).toBeTruthy()
+    expect(await db.designs.get('d1')).toBeTruthy()
+  })
+
+  it('removes the design too when the last member goes', async () => {
+    await db.designs.put(sampleDesign())
+    await db.products.put(sampleProduct('pS', { designId: 'd1' }))
+    await deleteProductCascade('pS')
+    expect(await db.products.get('pS')).toBeUndefined()
+    expect(await db.designs.get('d1')).toBeUndefined()
   })
 })

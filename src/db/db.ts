@@ -285,6 +285,17 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSett
 export async function deleteProductCascade(productId: string): Promise<void> {
   const product = await db.products.get(productId)
   if (!product) return
+  // Rozmiar nalezacy do modelu: nie ma wlasnych obrazow (sa wspolne na modelu).
+  if (product.designId) {
+    const siblings = await db.products.where('designId').equals(product.designId).count()
+    if (siblings <= 1) {
+      await deleteDesignCascade(product.designId) // ostatni rozmiar -> usun model
+    } else {
+      await deleteEntity('products', productId)
+    }
+    return
+  }
+  // --- istniejaca sciezka samodzielna (BEZ ZMIAN) ---
   const imageIds = [...product.photoIds, ...product.generatedPhotoIds]
   const now = Date.now()
   await db.transaction('rw', db.products, db.images, db.outbox, async () => {
@@ -762,6 +773,97 @@ export async function groupProducts(
     }
     return design
   })
+}
+
+/** Klonuje wiersz obrazu na wlasnosc produktu (nowy id, ten sam blob). */
+async function cloneImageRow(
+  id: string,
+  productId: string | undefined,
+  now: number,
+): Promise<string | null> {
+  const img = await db.images.get(id)
+  if (!img) return null
+  const newId = uid()
+  await db.images.put({ ...img, id: newId, productId, designId: undefined, createdAt: now, updatedAt: now })
+  await db.outbox.put({ table: 'images', id: newId, deleted: 0, updatedAt: now })
+  if (img.blob) await db.blob_outbox.put({ id: newId })
+  return newId
+}
+
+/**
+ * Rozlacza CALY model: kazdy czlonek dostaje KOPIE tozsamosci, KOPIE obrazow
+ * (klon bloba -> nowy ImageRecord) i kopie opisow; nastepnie model i jego
+ * wspoldzielone obrazy sa usuwane. Bezstratne (poza obrazami tylko w R2).
+ */
+export async function dissolveDesign(designId: string): Promise<void> {
+  const now = Date.now()
+  await db.transaction(
+    'rw', [db.products, db.designs, db.images, db.outbox, db.blob_outbox],
+    async () => {
+      const design = await db.designs.get(designId)
+      if (!design) return
+      const members = await db.products.where('designId').equals(designId).toArray()
+      for (const m of members) {
+        const photoIds: string[] = []
+        for (const imgId of design.photoIds) {
+          const nid = await cloneImageRow(imgId, m.id, now)
+          if (nid) photoIds.push(nid)
+        }
+        const generatedPhotoIds: string[] = []
+        for (const imgId of design.generatedPhotoIds) {
+          const nid = await cloneImageRow(imgId, m.id, now)
+          if (nid) generatedPhotoIds.push(nid)
+        }
+        const next: Product = {
+          ...m,
+          designId: undefined,
+          name: design.name,
+          brand: design.brand,
+          color: design.color,
+          material: design.material,
+          category: design.category,
+          tags: [...design.tags],
+          photoIds,
+          generatedPhotoIds,
+          descriptions: design.descriptions.map((d) => ({ ...d })),
+          updatedAt: now,
+        }
+        await db.products.put(next)
+        await db.outbox.put({ table: 'products', id: m.id, deleted: 0, updatedAt: now })
+      }
+      for (const imgId of [...design.photoIds, ...design.generatedPhotoIds]) {
+        await db.images.delete(imgId)
+        await db.outbox.put({ table: 'images', id: imgId, deleted: 1, updatedAt: now })
+        await db.blob_outbox.delete(imgId)
+      }
+      await db.designs.delete(designId)
+      await db.outbox.put({ table: 'designs', id: designId, deleted: 1, updatedAt: now })
+    },
+  )
+}
+
+/** Kaskadowe usuniecie modelu: model + wspoldzielone obrazy + WSZYSCY czlonkowie. */
+export async function deleteDesignCascade(designId: string): Promise<void> {
+  const now = Date.now()
+  await db.transaction(
+    'rw', [db.products, db.designs, db.images, db.outbox, db.blob_outbox],
+    async () => {
+      const design = await db.designs.get(designId)
+      if (!design) return
+      for (const imgId of [...design.photoIds, ...design.generatedPhotoIds]) {
+        await db.images.delete(imgId)
+        await db.outbox.put({ table: 'images', id: imgId, deleted: 1, updatedAt: now })
+        await db.blob_outbox.delete(imgId)
+      }
+      const members = await db.products.where('designId').equals(designId).toArray()
+      for (const m of members) {
+        await db.products.delete(m.id)
+        await db.outbox.put({ table: 'products', id: m.id, deleted: 1, updatedAt: now })
+      }
+      await db.designs.delete(designId)
+      await db.outbox.put({ table: 'designs', id: designId, deleted: 1, updatedAt: now })
+    },
+  )
 }
 
 /** Dodaje nowy, pusty rozmiar do modelu (odgornie). Pola per-size z `seed`. */
