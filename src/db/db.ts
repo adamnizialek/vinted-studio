@@ -764,6 +764,34 @@ export async function groupProducts(
   })
 }
 
+/** Dodaje nowy, pusty rozmiar do modelu (odgornie). Pola per-size z `seed`. */
+export async function addSizeToDesign(
+  designId: string,
+  seed: Partial<Product> = {},
+): Promise<Product> {
+  const product: Product = {
+    id: uid(),
+    designId,
+    name: '',
+    condition: seed.condition ?? 'dobry',
+    currency: seed.currency ?? 'PLN',
+    quantity: seed.quantity ?? 1,
+    status: 'draft',
+    photoIds: [],
+    generatedPhotoIds: [],
+    descriptions: [],
+    tags: [],
+    sizeLabel: seed.sizeLabel,
+    accountId: seed.accountId,
+    listingPrice: seed.listingPrice,
+    purchasePrice: seed.purchasePrice,
+    measurements: seed.measurements,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  return putEntity('products', product)
+}
+
 async function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()

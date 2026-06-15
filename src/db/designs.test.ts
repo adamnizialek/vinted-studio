@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { db, putEntity, exportAll, importAll, clearAllData, groupProducts } from './db'
+import { db, putEntity, exportAll, importAll, clearAllData, groupProducts, addSizeToDesign } from './db'
 import type { Design, Product } from './types'
 
 const sampleProduct = (id: string, over: Partial<Product> = {}): Product => ({
@@ -132,5 +132,20 @@ describe('groupProducts', () => {
     const design = await groupProducts(['p1', 'p1', 'p2'], 'p1')
     const members = await db.products.where('designId').equals(design.id).toArray()
     expect(members.map((m) => m.id).sort()).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('addSizeToDesign', () => {
+  it('creates a draft product linked to the design with per-size seed', async () => {
+    await putEntity('designs', sampleDesign())
+    await db.outbox.clear()
+    const p = await addSizeToDesign('d1', { sizeLabel: 'L', listingPrice: 95 })
+    const row = await db.products.get(p.id)
+    expect(row?.designId).toBe('d1')
+    expect(row?.status).toBe('draft')
+    expect(row?.sizeLabel).toBe('L')
+    expect(row?.listingPrice).toBe(95)
+    expect(row?.name).toBe('')
+    expect((await db.outbox.get(['products', p.id]))?.deleted).toBe(0)
   })
 })
