@@ -7,6 +7,7 @@ import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { STATUS_OPTIONS } from '@/lib/constants'
+import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
 import { toast } from '@/state/toast'
@@ -86,33 +87,39 @@ export function Inventory() {
     setSelected(new Set())
   }
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<DisplayItem[]>(() => {
     const needle = q.trim().toLowerCase()
+    const f = { status, accountId }
     const matchesText = (p: Product) =>
       [p.name, p.brand, p.category, p.sizeLabel, ...p.tags]
         .filter(Boolean)
         .some((s) => s!.toLowerCase().includes(needle))
 
-    return items.filter((it) => {
+    const out: DisplayItem[] = []
+    for (const it of items) {
       if (it.kind === 'single') {
         const p = it.product
-        if (status !== 'all' && p.status !== status) return false
-        if (accountId !== 'all' && p.accountId !== accountId) return false
-        if (needle && !matchesText(p)) return false
-        return true
+        if (!passesInventoryFilter(p, f)) continue
+        if (needle && !matchesText(p)) continue
+        out.push(it)
+        continue
       }
+      // Narrow the model to the sizes that pass the filter — so a sold size drops
+      // out of the default view and the card's count/price/summary reflect only
+      // what's actually in the magazine. Hide the whole model if nothing remains.
       const { design, members } = it
-      if (status !== 'all' && !members.some((m) => m.status === status)) return false
-      if (accountId !== 'all' && !members.some((m) => m.accountId === accountId)) return false
+      const shown = members.filter((m) => passesInventoryFilter(m, f))
+      if (shown.length === 0) continue
       if (needle) {
         const designText = [design.name, design.brand, design.category, ...design.tags]
           .filter(Boolean)
           .some((s) => s!.toLowerCase().includes(needle))
-        const sizeText = members.some((m) => (m.sizeLabel ?? '').toLowerCase().includes(needle))
-        if (!designText && !sizeText) return false
+        const sizeText = shown.some((m) => (m.sizeLabel ?? '').toLowerCase().includes(needle))
+        if (!designText && !sizeText) continue
       }
-      return true
-    })
+      out.push({ ...it, members: shown })
+    }
+    return out
   }, [items, status, accountId, q])
 
   const createProduct = async () => {
@@ -207,7 +214,7 @@ export function Inventory() {
           />
         </div>
         <Select value={status} onChange={(e) => setStatus(e.target.value as ProductStatus | 'all')} className="sm:w-44">
-          <option value="all">Wszystkie statusy</option>
+          <option value="all">Wszystkie aktywne</option>
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
