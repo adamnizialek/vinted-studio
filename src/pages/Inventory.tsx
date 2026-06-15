@@ -345,9 +345,10 @@ function rozmiarLabel(n: number): string {
 function GroupModal({ products, onClose, onConfirm }: {
   products: Product[]
   onClose: () => void
-  onConfirm: (primaryId: string) => void
+  onConfirm: (primaryId: string) => void | Promise<void>
 }) {
   const [primaryId, setPrimaryId] = useState(products[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
   return (
     <Modal
       open
@@ -356,7 +357,20 @@ function GroupModal({ products, onClose, onConfirm }: {
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Anuluj</Button>
-          <Button disabled={!primaryId} onClick={() => onConfirm(primaryId)}>Połącz</Button>
+          <Button
+            disabled={!primaryId || busy}
+            onClick={async () => {
+              if (busy) return
+              setBusy(true)
+              try {
+                await onConfirm(primaryId)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {busy ? 'Łączę…' : 'Połącz'}
+          </Button>
         </div>
       }
     >
