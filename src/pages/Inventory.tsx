@@ -280,15 +280,26 @@ export function Inventory() {
 const statusLabel = (s: ProductStatus) =>
   STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
 
+/** Polska odmiana: 1 rozmiar, 2-4 rozmiary, 5+ rozmiarow (z wyjatkami 12-14). */
+function rozmiarLabel(n: number): string {
+  if (n === 1) return 'rozmiar'
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return 'rozmiary'
+  return 'rozmiarów'
+}
+
 function DesignCard({ design, members, cover, onOpen }: {
   design: Design; members: Product[]; cover?: string; onOpen: () => void
 }) {
   const prices = members.map((m) => m.listingPrice).filter((n): n is number => n != null)
-  const priceText = prices.length
-    ? prices.length > 1 && Math.min(...prices) !== Math.max(...prices)
-      ? `${Math.min(...prices)}–${Math.max(...prices)}`
-      : String(prices[0])
-    : '—'
+  const currency = members[0]?.currency ?? 'PLN'
+  const priceText =
+    prices.length === 0
+      ? '—'
+      : Math.min(...prices) === Math.max(...prices)
+        ? money(Math.min(...prices), currency)
+        : `${money(Math.min(...prices), currency)} – ${money(Math.max(...prices), currency)}`
   return (
     <div className="card group relative overflow-hidden transition hover:shadow-pop">
       <button
@@ -301,7 +312,7 @@ function DesignCard({ design, members, cover, onOpen }: {
         <div className="relative aspect-square w-full bg-ink-100">
           <Thumb imageId={cover} className="h-full w-full object-cover" alt={design.name} />
           <span className="badge absolute left-2 top-2 bg-ink-900/80 text-white">
-            {members.length} {members.length === 1 ? 'rozmiar' : 'rozmiary'}
+            {members.length} {rozmiarLabel(members.length)}
           </span>
           {design.generatedPhotoIds.length > 0 && (
             <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
