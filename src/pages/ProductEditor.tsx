@@ -7,16 +7,28 @@ import {
   Check,
   Copy,
   Loader2,
+  Plus,
   Sparkles,
   Star,
   Tag,
   Trash2,
+  Unlink,
   Wand2,
   X,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { db, deleteEntity, deleteProductCascade, putEntity } from '@/db/db'
-import type { Condition, Measurements, Product, SavedDescription } from '@/db/types'
+import {
+  addSizeToDesign,
+  db,
+  deleteDesignCascade,
+  deleteEntity,
+  deleteProductCascade,
+  dissolveDesign,
+  patchEntity,
+  putEntity,
+} from '@/db/db'
+import type { Condition, Design, Measurements, Product, SavedDescription } from '@/db/types'
+import { resolveProduct, SHARED_FIELDS } from '@/lib/designs'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
@@ -56,7 +68,12 @@ async function copy(text: string) {
 type UpdateFn = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => void
 
 export function ProductEditor() {
-  const { id } = useParams()
+  const { id, designId } = useParams()
+  if (designId) return <DesignEditor designId={designId} />
+  return <StandaloneEditor id={id} />
+}
+
+function StandaloneEditor({ id }: { id: string | undefined }) {
   const nav = useNavigate()
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
   const [draft, setDraft] = useState<Product | null>(null)
@@ -184,6 +201,229 @@ export function ProductEditor() {
           setSoldOpen(false)
         }}
       />
+    </div>
+  )
+}
+
+// ── Tryb modelu (wspolny blok + przelacznik rozmiarow) ───────────────────────
+function DesignEditor({ designId }: { designId: string }) {
+  const nav = useNavigate()
+  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const design = useLiveQuery(() => db.designs.get(designId), [designId])
+  const members = useLiveQuery(
+    () => db.products.where('designId').equals(designId).sortBy('createdAt'),
+    [designId],
+  )
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Product | null>(null)
+  const [tab, setTab] = useState<'detale' | 'zdjecia' | 'opisy'>('detale')
+  const [soldOpen, setSoldOpen] = useState(false)
+
+  const designsById = useMemo(
+    () => (design ? new Map([[design.id, design]]) : new Map<string, Design>()),
+    [design],
+  )
+
+  // Wybierz aktywny rozmiar, gdy lista czlonkow sie zmieni a biezacy zniknal.
+  useEffect(() => {
+    if (members && members.length && !members.some((m) => m.id === activeId)) {
+      setActiveId(members[0].id)
+    }
+  }, [members, activeId])
+
+  // Zasiej optymistyczny draft przy zmianie rozmiaru i pierwszym zaladowaniu modelu —
+  // NIE przy kazdej edycji pola modelu (design.id jest stabilne), by nie zadeptywac
+  // optymistycznego pisania.
+  useEffect(() => {
+    if (!activeId || !design || !members) return
+    const m = members.find((x) => x.id === activeId)
+    if (m) setDraft(resolveProduct(m, designsById))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, design?.id, members?.length])
+
+  if (design === undefined && members === undefined) {
+    return <div className="py-20 text-center text-ink-400">Wczytywanie…</div>
+  }
+  if (!design) {
+    return (
+      <div className="py-20 text-center">
+        <p className="text-ink-500">Nie znaleziono modelu.</p>
+        <Link to="/magazyn" className="btn-ghost mt-4 inline-flex">
+          <ArrowLeft size={16} /> Wróć do magazynu
+        </Link>
+      </div>
+    )
+  }
+
+  // Routing update: pola wspolne -> design, pola per-size -> aktywny produkt.
+  const update: UpdateFn = (patch) => {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const p = typeof patch === 'function' ? patch(prev) : patch
+      const shared: Record<string, unknown> = {}
+      const perSize: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(p)) {
+        if ((SHARED_FIELDS as readonly string[]).includes(k)) shared[k] = v
+        else perSize[k] = v
+      }
+      if (Object.keys(shared).length)
+        void patchEntity('designs', designId, shared as Partial<Design>)
+      if (activeId && Object.keys(perSize).length)
+        void patchEntity('products', activeId, perSize as Partial<Product>)
+      return { ...prev, ...p }
+    })
+  }
+
+  const addSize = async () => {
+    const p = await addSizeToDesign(designId)
+    setActiveId(p.id)
+    setTab('detale')
+  }
+  const removeSize = async () => {
+    if (!activeId) return
+    if (!window.confirm('Usunąć ten rozmiar?')) return
+    await deleteProductCascade(activeId)
+    const remaining = await db.products.where('designId').equals(designId).count()
+    if (remaining === 0) nav('/magazyn')
+    else setActiveId(null) // efekt wybierze pierwszy pozostaly rozmiar
+  }
+  const dissolve = async () => {
+    if (!window.confirm('Rozłączyć model? Każdy rozmiar dostanie własną kopię zdjęć i opisów.'))
+      return
+    await dissolveDesign(designId)
+    nav('/magazyn')
+  }
+  const removeModel = async () => {
+    if (!window.confirm('Usunąć cały model wraz ze wszystkimi rozmiarami i zdjęciami?')) return
+    await deleteDesignCascade(designId)
+    nav('/magazyn')
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <button onClick={() => nav('/magazyn')} className="btn-ghost btn-sm">
+          <ArrowLeft size={15} /> Magazyn
+        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {draft && (
+            <Select
+              value={draft.status}
+              onChange={(e) => update({ status: e.target.value as Product['status'] })}
+              className="w-40"
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          )}
+          {draft && !requiresSaleModal(draft.status) && (
+            <Button variant="soft" onClick={() => setSoldOpen(true)}>
+              <Check size={16} /> Sprzedane
+            </Button>
+          )}
+          <Button variant="ghost" onClick={dissolve}>
+            <Unlink size={16} /> Rozłącz model
+          </Button>
+          <Button variant="danger" onClick={removeModel}>
+            <Trash2 size={16} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Pasek rozmiarów */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {members?.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setActiveId(m.id)}
+            className={clsx(
+              'rounded-full px-3 py-1.5 text-sm font-medium transition',
+              m.id === activeId
+                ? 'bg-brand-500 text-white'
+                : 'bg-ink-100 text-ink-600 hover:bg-ink-200',
+            )}
+          >
+            {m.sizeLabel || 'rozmiar'}
+          </button>
+        ))}
+        <button
+          onClick={addSize}
+          className="rounded-full bg-ink-100 px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-ink-200"
+        >
+          <Plus size={14} className="-mt-0.5 mr-1 inline" /> Dodaj rozmiar
+        </button>
+      </div>
+
+      <input
+        value={draft?.name ?? ''}
+        onChange={(e) => update({ name: e.target.value })}
+        placeholder="Nazwa modelu…"
+        className="w-full bg-transparent text-2xl font-extrabold text-ink-900 placeholder:text-ink-300 focus:outline-none"
+      />
+      <p className="mt-1 text-xs text-ink-400">
+        Nazwa, marka, kolor, materiał, zdjęcia i opisy są wspólne dla wszystkich rozmiarów.
+        Rozmiar, stan, cena, ilość i konto ustawiasz osobno dla każdego rozmiaru.
+      </p>
+
+      {/* Taby */}
+      <div className="mt-4 flex gap-1 border-b border-ink-100">
+        {draft &&
+          (
+            [
+              ['detale', 'Szczegóły'],
+              ['zdjecia', `Zdjęcia (${draft.photoIds.length + draft.generatedPhotoIds.length})`],
+              ['opisy', `Opisy (${draft.descriptions.length})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={clsx(
+                'border-b-2 px-4 py-2.5 text-sm font-semibold transition',
+                tab === key
+                  ? 'border-brand-500 text-brand-600'
+                  : 'border-transparent text-ink-500 hover:text-ink-800',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+      </div>
+
+      <div className="py-5">
+        {draft && tab === 'detale' && (
+          <DetailsTab draft={draft} update={update} accounts={accounts ?? []} />
+        )}
+        {draft && tab === 'zdjecia' && <PhotosTab draft={draft} update={update} />}
+        {draft && tab === 'opisy' && <DescriptionsTab draft={draft} update={update} />}
+      </div>
+
+      {draft && (
+        <SoldModal
+          open={soldOpen}
+          onClose={() => setSoldOpen(false)}
+          product={{
+            ...draft,
+            name: `${design.name}${draft.sizeLabel ? ` — ${draft.sizeLabel}` : ''}`.trim(),
+          }}
+          onSold={() => {
+            update({ status: 'sold', soldAt: Date.now() })
+            setSoldOpen(false)
+          }}
+        />
+      )}
+
+      {/* Usuń bieżący rozmiar */}
+      {members && members.length > 0 && (
+        <div className="mt-6 border-t border-ink-100 pt-4">
+          <Button variant="ghost" className="text-red-500" onClick={removeSize}>
+            <Trash2 size={16} /> Usuń ten rozmiar
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

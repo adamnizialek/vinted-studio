@@ -25,6 +25,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="magazyn" element={<Inventory />} />
           <Route path="magazyn/:id" element={<ProductEditor />} />
+          <Route path="magazyn/model/:designId" element={<ProductEditor />} />
           <Route path="studio" element={<PhotoStudio />} />
           <Route path="studio/:productId" element={<PhotoStudio />} />
           <Route path="modelki" element={<Models />} />
