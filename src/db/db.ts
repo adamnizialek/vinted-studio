@@ -8,6 +8,7 @@ import type {
   ImageRecord,
   Product,
   Sale,
+  SavedDescription,
 } from './types'
 import {
   DEFAULT_IMAGE_MODEL,
@@ -674,6 +675,89 @@ export async function importStock(
       )
     }
     return { inserted: products.length, skippedDuplicates: skipped }
+  })
+}
+
+/**
+ * Laczy >=2 SAMODZIELNE produkty w nowy model. `primaryId` zasiewa tozsamosc;
+ * zdjecia/opisy/tagi WSZYSTKICH czlonkow sa scalane do modelu (dedup po id,
+ * kolejnosc: primary pierwszy), dokladnie jeden opis `active`. Kazdy czlonek:
+ * designId = model.id, pola wspolne wyczyszczone; obrazy dostaja designId.
+ */
+export async function groupProducts(
+  productIds: string[],
+  primaryId: string,
+): Promise<Design> {
+  if (productIds.length < 2) throw new Error('Zaznacz co najmniej dwa produkty.')
+  if (!productIds.includes(primaryId)) throw new Error('Produkt glowny musi byc zaznaczony.')
+  const now = Date.now()
+  const designId = uid()
+  return db.transaction('rw', db.products, db.designs, db.images, db.outbox, async () => {
+    const loaded = await Promise.all(productIds.map((id) => db.products.get(id)))
+    const products = loaded.filter((p): p is Product => !!p && !p.designId)
+    const primary = products.find((p) => p.id === primaryId)
+    if (!primary) throw new Error('Nie znaleziono produktu glownego (lub jest juz w modelu).')
+    const ordered = [primary, ...products.filter((p) => p.id !== primaryId)]
+
+    const dedup = (xs: string[]) => [...new Set(xs)]
+    const photoIds = dedup(ordered.flatMap((p) => p.photoIds))
+    const generatedPhotoIds = dedup(ordered.flatMap((p) => p.generatedPhotoIds))
+    const tags = dedup(ordered.flatMap((p) => p.tags))
+
+    const seen = new Set<string>()
+    const merged: SavedDescription[] = []
+    for (const p of ordered)
+      for (const d of p.descriptions)
+        if (!seen.has(d.id)) { seen.add(d.id); merged.push({ ...d }) }
+    const primaryActiveId = primary.descriptions.find((d) => d.active)?.id
+    const descriptions = merged.map((d, i) => ({
+      ...d,
+      active: primaryActiveId ? d.id === primaryActiveId : i === 0,
+    }))
+
+    const design: Design = {
+      id: designId,
+      name: primary.name,
+      brand: primary.brand,
+      color: primary.color,
+      material: primary.material,
+      category: primary.category,
+      tags,
+      photoIds,
+      generatedPhotoIds,
+      descriptions,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await db.designs.put(design)
+    await db.outbox.put({ table: 'designs', id: designId, deleted: 0, updatedAt: now })
+
+    for (const imgId of [...photoIds, ...generatedPhotoIds]) {
+      const img = await db.images.get(imgId)
+      if (!img) continue
+      await db.images.put({ ...img, designId, productId: undefined, updatedAt: now })
+      await db.outbox.put({ table: 'images', id: imgId, deleted: 0, updatedAt: now })
+    }
+
+    for (const p of ordered) {
+      const next: Product = {
+        ...p,
+        designId,
+        name: '',
+        brand: undefined,
+        color: undefined,
+        material: undefined,
+        category: undefined,
+        tags: [],
+        photoIds: [],
+        generatedPhotoIds: [],
+        descriptions: [],
+        updatedAt: now,
+      }
+      await db.products.put(next)
+      await db.outbox.put({ table: 'products', id: p.id, deleted: 0, updatedAt: now })
+    }
+    return design
   })
 }
 
