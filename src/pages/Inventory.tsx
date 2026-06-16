@@ -8,6 +8,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
+import { coverImageIdOf } from '@/lib/listing'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
 import { toast } from '@/state/toast'
@@ -254,7 +255,7 @@ export function Inventory() {
             it.kind === 'single' ? (
               (() => {
                 const p = it.product
-                const cover = p.photoIds[0] ?? p.generatedPhotoIds[0]
+                const cover = coverImageIdOf(p)
                 return (
                   <div key={p.id} className="card group relative overflow-hidden transition hover:shadow-pop">
                     {/* Stretched navigate hit-area — a real <button> (keyboard + focus-ring
@@ -396,7 +397,7 @@ function GroupModal({ products, onClose, onConfirm }: {
               checked={primaryId === p.id}
               onChange={() => setPrimaryId(p.id)}
             />
-            <Thumb imageId={p.photoIds[0] ?? p.generatedPhotoIds[0]} className="h-12 w-12 rounded-lg object-cover" />
+            <Thumb imageId={coverImageIdOf(p)} className="h-12 w-12 rounded-lg object-cover" />
             <div className="min-w-0">
               <p className="truncate font-medium text-ink-900">{p.name || 'Bez nazwy'}</p>
               <p className="truncate text-xs text-ink-400">

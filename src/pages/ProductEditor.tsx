@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   Copy,
+  ExternalLink,
   Loader2,
   Plus,
   Sparkles,
@@ -27,7 +28,7 @@ import {
   patchEntity,
   putEntity,
 } from '@/db/db'
-import type { Condition, Design, Measurements, Product, SavedDescription } from '@/db/types'
+import type { Condition, Design, Measurements, Product, ProductStatus, SavedDescription } from '@/db/types'
 import { resolveProduct, SHARED_FIELDS } from '@/lib/designs'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -39,8 +40,9 @@ import {
   SIZE_SUGGESTIONS,
   STATUS_OPTIONS,
 } from '@/lib/constants'
-import { money } from '@/lib/format'
-import { requiresSaleModal } from '@/lib/productActions'
+import { money, relative } from '@/lib/format'
+import { coverImageIdOf, listingHref } from '@/lib/listing'
+import { requiresSaleModal, statusChangePatch } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
 import {
   DESCRIPTION_STYLES,
@@ -66,6 +68,11 @@ async function copy(text: string) {
 }
 
 type UpdateFn = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => void
+
+/** Zmiana statusu, która przy wejściu w 'listed' stempluje listedAt (cykl życia oferty). */
+function changeStatus(prev: Product, next: ProductStatus, update: UpdateFn) {
+  update(statusChangePatch(prev.status, next, Date.now()))
+}
 
 export function ProductEditor() {
   const { id, designId } = useParams()
@@ -135,7 +142,7 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
         <div className="flex items-center gap-2">
           <Select
             value={draft.status}
-            onChange={(e) => update({ status: e.target.value as Product['status'] })}
+            onChange={(e) => changeStatus(draft, e.target.value as ProductStatus, update)}
             className="w-40"
           >
             {STATUS_OPTIONS.map((o) => (
@@ -309,7 +316,7 @@ function DesignEditor({ designId }: { designId: string }) {
           {draft && (
             <Select
               value={draft.status}
-              onChange={(e) => update({ status: e.target.value as Product['status'] })}
+              onChange={(e) => changeStatus(draft, e.target.value as ProductStatus, update)}
               className="w-40"
             >
               {STATUS_OPTIONS.map((o) => (
@@ -649,10 +656,71 @@ function DetailsTab({
           </Button>
         </div>
 
+        {/* Ogłoszenie: capture „Wystawiono” + link */}
+        <ListingCard draft={draft} update={update} />
+
         <Link to={`/studio/${draft.id}`} className="btn-primary w-full">
           <Camera size={16} /> Zdjęcia na modelce (Studio)
         </Link>
       </div>
+    </div>
+  )
+}
+
+// ── Ogłoszenie (capture „Wystawiono” + link) ─────────────────────────────────
+function ListingCard({ draft, update }: { draft: Product; update: UpdateFn }) {
+  const href = listingHref(draft.listingUrl)
+  const canMarkListed =
+    draft.status !== 'listed' && draft.status !== 'sold' && draft.status !== 'archived'
+
+  return (
+    <div className="card space-y-3 p-5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="label !mb-0">Ogłoszenie na Vinted</p>
+        {draft.status === 'listed' && draft.listedAt != null && (
+          <span
+            className="text-xs text-ink-400"
+            title={draft.listedAtApprox ? 'Data przybliżona (z historii edycji)' : undefined}
+          >
+            Wystawiono {draft.listedAtApprox ? '≈ ' : ''}
+            {relative(draft.listedAt)}
+          </span>
+        )}
+      </div>
+
+      <Field label="Link do ogłoszenia">
+        <div className="flex gap-2">
+          <TextInput
+            type="url"
+            inputMode="url"
+            value={draft.listingUrl ?? ''}
+            onChange={(e) => update({ listingUrl: e.target.value || undefined })}
+            placeholder="https://vinted.pl/items/…"
+          />
+          {href && (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost btn-sm shrink-0"
+              title="Otwórz ogłoszenie"
+              aria-label="Otwórz ogłoszenie na Vinted"
+            >
+              <ExternalLink size={15} />
+            </a>
+          )}
+        </div>
+      </Field>
+
+      {canMarkListed && (
+        <Button
+          variant="primary"
+          className="w-full"
+          onClick={() => changeStatus(draft, 'listed', update)}
+        >
+          <Check size={16} /> Oznacz jako wystawione
+        </Button>
+      )}
     </div>
   )
 }
@@ -678,9 +746,19 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
 
   const removePhoto = async (id: string, kind: 'orig' | 'gen') => {
     await deleteEntity('images', id)
-    if (kind === 'orig') update((prev) => ({ photoIds: prev.photoIds.filter((x) => x !== id) }))
-    else update((prev) => ({ generatedPhotoIds: prev.generatedPhotoIds.filter((x) => x !== id) }))
+    update((prev) => ({
+      ...(kind === 'orig'
+        ? { photoIds: prev.photoIds.filter((x) => x !== id) }
+        : { generatedPhotoIds: prev.generatedPhotoIds.filter((x) => x !== id) }),
+      // Usuwając okładkę, czyść wskaźnik (fallback i tak złapie pierwsze zdjęcie).
+      ...(prev.coverImageId === id ? { coverImageId: undefined } : {}),
+    }))
   }
+
+  // Okładka tylko dla produktów samodzielnych — w modelu karta zbiorcza i tak
+  // pokazuje pierwsze wspólne zdjęcie, więc per-rozmiarowa okładka byłaby martwa.
+  const showCover = !imageLink?.designId
+  const cover = coverImageIdOf(draft)
 
   return (
     <div className="space-y-6">
@@ -692,7 +770,13 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
         {draft.photoIds.length > 0 && (
           <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
             {draft.photoIds.map((id) => (
-              <PhotoCell key={id} id={id} onRemove={() => removePhoto(id, 'orig')} />
+              <PhotoCell
+                key={id}
+                id={id}
+                onRemove={() => removePhoto(id, 'orig')}
+                isCover={showCover && cover === id}
+                onSetCover={showCover ? () => update({ coverImageId: id }) : undefined}
+              />
             ))}
           </div>
         )}
@@ -712,7 +796,14 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             {draft.generatedPhotoIds.map((id) => (
-              <PhotoCell key={id} id={id} ai onRemove={() => removePhoto(id, 'gen')} />
+              <PhotoCell
+                key={id}
+                id={id}
+                ai
+                onRemove={() => removePhoto(id, 'gen')}
+                isCover={showCover && cover === id}
+                onSetCover={showCover ? () => update({ coverImageId: id }) : undefined}
+              />
             ))}
           </div>
         )}
@@ -721,7 +812,19 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
   )
 }
 
-function PhotoCell({ id, onRemove, ai }: { id: string; onRemove: () => void; ai?: boolean }) {
+function PhotoCell({
+  id,
+  onRemove,
+  ai,
+  isCover,
+  onSetCover,
+}: {
+  id: string
+  onRemove: () => void
+  ai?: boolean
+  isCover?: boolean
+  onSetCover?: () => void
+}) {
   return (
     <div className="group relative overflow-hidden rounded-xl bg-ink-100">
       <Thumb imageId={id} className="aspect-square w-full object-cover" />
@@ -729,6 +832,18 @@ function PhotoCell({ id, onRemove, ai }: { id: string; onRemove: () => void; ai?
         <span className="badge absolute left-1.5 top-1.5 bg-brand-500 text-white">
           <Sparkles size={11} /> AI
         </span>
+      )}
+      {onSetCover && (
+        <button
+          onClick={onSetCover}
+          title={isCover ? 'Okładka' : 'Ustaw jako okładkę'}
+          className={clsx(
+            'absolute bottom-1.5 left-1.5 rounded-lg p-1 text-white transition',
+            isCover ? 'bg-amber-500' : 'bg-black/50 opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <Star size={13} fill={isCover ? 'currentColor' : 'none'} />
+        </button>
       )}
       <button
         onClick={onRemove}

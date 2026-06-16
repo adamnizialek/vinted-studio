@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { db, putEntity } from '@/db/db'
-import { requiresSaleModal, applyStatusChange, assignAccount, shouldRestockOnSave, restockOnRefund } from './productActions'
+import { requiresSaleModal, applyStatusChange, assignAccount, shouldRestockOnSave, restockOnRefund, listedAtOnTransition, statusChangePatch } from './productActions'
 import type { Product } from '@/db/types'
 
 const sampleProduct = (id = 'p1'): Product => ({
@@ -31,17 +31,75 @@ describe('requiresSaleModal', () => {
   })
 })
 
+describe('listedAtOnTransition', () => {
+  it('stamps now when entering listed from a non-listed status', () => {
+    expect(listedAtOnTransition('in_stock', 'listed', 1234)).toBe(1234)
+    expect(listedAtOnTransition('draft', 'listed', 1234)).toBe(1234)
+    expect(listedAtOnTransition('reserved', 'listed', 1234)).toBe(1234)
+  })
+  it('returns null when already listed (no re-stamp on a non-transition)', () => {
+    expect(listedAtOnTransition('listed', 'listed', 1234)).toBe(null)
+  })
+  it('returns null for transitions that do not enter listed', () => {
+    expect(listedAtOnTransition('listed', 'sold', 1234)).toBe(null)
+    expect(listedAtOnTransition('in_stock', 'sold', 1234)).toBe(null)
+    expect(listedAtOnTransition('in_stock', 'reserved', 1234)).toBe(null)
+  })
+})
+
+describe('statusChangePatch', () => {
+  it('stamps an exact listedAt and clears the approximate flag when entering listed', () => {
+    expect(statusChangePatch('in_stock', 'listed', 1234)).toEqual({
+      status: 'listed',
+      listedAt: 1234,
+      listedAtApprox: undefined,
+    })
+  })
+  it('only sets status for transitions that do not enter listed', () => {
+    expect(statusChangePatch('in_stock', 'reserved', 1234)).toEqual({ status: 'reserved' })
+    expect(statusChangePatch('listed', 'listed', 1234)).toEqual({ status: 'listed' })
+  })
+})
+
 describe('applyStatusChange', () => {
-  it('patches status, bumps updatedAt, queues outbox, and never writes soldAt/listedAt', async () => {
+  it('stamps listedAt when transitioning into listed, bumps updatedAt, queues outbox', async () => {
     await putEntity('products', sampleProduct())
     await db.outbox.clear()
     await applyStatusChange('p1', 'listed')
     const row = await db.products.get('p1')
     expect(row?.status).toBe('listed')
+    expect(row?.listedAt).toBeGreaterThan(1)
     expect(row?.soldAt).toBeUndefined()
-    expect(row?.listedAt).toBeUndefined()
     expect(row!.updatedAt).toBeGreaterThan(1)
     expect((await db.outbox.get(['products', 'p1']))?.deleted).toBe(0)
+  })
+
+  it('does not write listedAt for a non-listed transition', async () => {
+    await putEntity('products', sampleProduct())
+    await applyStatusChange('p1', 'reserved')
+    const row = await db.products.get('p1')
+    expect(row?.status).toBe('reserved')
+    expect(row?.listedAt).toBeUndefined()
+    expect(row?.soldAt).toBeUndefined()
+  })
+
+  it('preserves an existing listedAt when re-applying listed (no re-stamp)', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed', listedAt: 42 })
+    await applyStatusChange('p1', 'listed')
+    expect((await db.products.get('p1'))?.listedAt).toBe(42)
+  })
+
+  it('clears the approximate flag when stamping a fresh (exact) listedAt', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'in_stock', listedAtApprox: true })
+    await applyStatusChange('p1', 'listed')
+    const row = await db.products.get('p1')
+    expect(row?.listedAt).toBeGreaterThan(1)
+    expect(row?.listedAtApprox).toBeUndefined()
+  })
+
+  it('is a no-op when the product does not exist', async () => {
+    await applyStatusChange('missing', 'listed')
+    expect(await db.products.get('missing')).toBeUndefined()
   })
 })
 

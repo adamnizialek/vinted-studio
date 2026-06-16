@@ -1,5 +1,5 @@
 import { db, patchEntity } from '@/db/db'
-import type { ID, ProductStatus, SaleStatus } from '@/db/types'
+import type { ID, Product, ProductStatus, SaleStatus } from '@/db/types'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -10,13 +10,40 @@ export function requiresSaleModal(status: ProductStatus): boolean {
 }
 
 /**
- * Quick status change from the grid. Deliberately does NOT touch soldAt/listedAt:
- * nothing reads product.soldAt/listedAt (the Sale entity is the source of truth),
- * so writing them here would be dead writes. `sold` must go through SoldModal and
- * never reaches this function in normal flow.
+ * Czysta reguła: znacznik wystawienia (listedAt) do zapisania przy zmianie statusu.
+ * Stempluje `now` przy KAŻDYM wejściu w 'listed' z innego stanu (ponowne wystawienie
+ * resetuje wiek — zgodnie z radarem zaległych ofert); w pozostałych przypadkach null,
+ * więc istniejący listedAt (np. z backfillu) zostaje nietknięty.
  */
+export function listedAtOnTransition(
+  prevStatus: ProductStatus,
+  nextStatus: ProductStatus,
+  now: number,
+): number | null {
+  return nextStatus === 'listed' && prevStatus !== 'listed' ? now : null
+}
+
+/**
+ * Patch zmiany statusu — jedno źródło prawdy dla obu ścieżek edycji (siatka i edytor).
+ * Przy wejściu w 'listed' stempluje listedAt i czyści flagę przybliżenia z backfillu
+ * (świeży stempel jest dokładny). `soldAt` NIE jest tu ruszane — 'sold' idzie przez SoldModal.
+ */
+export function statusChangePatch(
+  prevStatus: ProductStatus,
+  nextStatus: ProductStatus,
+  now: number,
+): Partial<Product> {
+  const listedAt = listedAtOnTransition(prevStatus, nextStatus, now)
+  return listedAt != null
+    ? { status: nextStatus, listedAt, listedAtApprox: undefined }
+    : { status: nextStatus }
+}
+
+/** Szybka zmiana statusu z siatki (np. StatusPicker) — patrz statusChangePatch. */
 export async function applyStatusChange(id: ID, status: ProductStatus): Promise<void> {
-  await patchEntity('products', id, { status })
+  const product = await db.products.get(id)
+  if (!product) return
+  await patchEntity('products', id, statusChangePatch(product.status, status, Date.now()))
 }
 
 /** Assign or clear (undefined) the account of a product. */
