@@ -8,6 +8,7 @@ import {
   Copy,
   Loader2,
   Plus,
+  RefreshCw,
   Sparkles,
   Star,
   Tag,
@@ -27,7 +28,16 @@ import {
   patchEntity,
   putEntity,
 } from '@/db/db'
-import type { Condition, Design, Measurements, Product, SavedDescription } from '@/db/types'
+import type {
+  AppSettings,
+  Condition,
+  DescriptionCandidate,
+  Design,
+  Measurements,
+  Product,
+  SavedDescription,
+} from '@/db/types'
+import { removeCandidate, upsertCandidate } from '@/lib/descriptions'
 import { resolveProduct, SHARED_FIELDS } from '@/lib/designs'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -438,10 +448,9 @@ function DetailsTab({
   update: UpdateFn
   accounts: { id: string; name: string }[]
 }) {
-  const [retail, setRetail] = useState('')
   const suggestion = useMemo(
-    () => suggestPrice(Number(retail), draft.condition),
-    [retail, draft.condition],
+    () => suggestPrice(draft.retailPrice ?? 0, draft.condition),
+    [draft.retailPrice, draft.condition],
   )
   const seoTitle = useMemo(() => buildSeoTitle(draft), [draft])
 
@@ -613,8 +622,8 @@ function DetailsTab({
             <TextInput
               type="number"
               inputMode="decimal"
-              value={retail}
-              onChange={(e) => setRetail(e.target.value)}
+              value={draft.retailPrice ?? ''}
+              onChange={(e) => update({ retailPrice: num(e.target.value) })}
               placeholder="np. 199"
             />
           </Field>
@@ -741,18 +750,30 @@ function PhotoCell({ id, onRemove, ai }: { id: string; onRemove: () => void; ai?
 }
 
 // ── Opisy ──────────────────────────────────────────────────────────────────
-interface Candidate {
-  styleId: string
-  styleLabel: string
-  text: string
+/** Wykonuje jedno generowanie opisu dla danego stylu (wspolny kod dla „Generuj”
+ *  i „Generuj ponownie”). */
+async function generateForStyle(
+  style: NonNullable<ReturnType<typeof styleById>>,
+  draft: Product,
+  settings: AppSettings,
+): Promise<DescriptionCandidate> {
+  const text = await generateText(buildDescriptionPrompt(draft, style, settings), {
+    apiKey: settings.geminiApiKey,
+    model: settings.textModel,
+    system: DESCRIPTION_SYSTEM,
+    temperature: 1.0,
+  })
+  return { styleId: style.id, styleLabel: style.label, text }
 }
 
 function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }) {
   const settings = useSettings((s) => s.settings)
   const [selected, setSelected] = useState<string[]>(['zwiezly', 'casual', 'szczegolowy'])
-  const [candidates, setCandidates] = useState<Candidate[]>([])
+  // Propozycje sa teraz TRWALE na produkcie — nie gina przy zmianie zakladki/nawigacji.
+  const candidates = draft.descriptionCandidates ?? []
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
+  const [regenId, setRegenId] = useState<string | null>(null)
 
   const toggle = (idStyle: string) =>
     setSelected((s) => (s.includes(idStyle) ? s.filter((x) => x !== idStyle) : [...s, idStyle]))
@@ -762,20 +783,15 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
     if (!draft.name.trim()) return toast.error('Najpierw podaj nazwę produktu.')
     if (selected.length === 0) return toast.error('Zaznacz co najmniej jeden styl.')
     setBusy(true)
-    setCandidates([])
+    update({ descriptionCandidates: [] })
     try {
-      const results: Candidate[] = []
       for (let i = 0; i < selected.length; i++) {
         const style = styleById(selected[i])!
         setProgress(`Generuję: ${style.label} (${i + 1}/${selected.length})…`)
-        const text = await generateText(buildDescriptionPrompt(draft, style, settings), {
-          apiKey: settings.geminiApiKey,
-          model: settings.textModel,
-          system: DESCRIPTION_SYSTEM,
-          temperature: 1.0,
-        })
-        results.push({ styleId: style.id, styleLabel: style.label, text })
-        setCandidates([...results])
+        const c = await generateForStyle(style, draft, settings)
+        update((prev) => ({
+          descriptionCandidates: upsertCandidate(prev.descriptionCandidates ?? [], c),
+        }))
       }
       toast.success('Gotowe! Wybierz i zapisz najlepsze opisy.')
     } catch (e) {
@@ -786,7 +802,34 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
     }
   }
 
-  const saveCandidate = (c: Candidate) => {
+  const regenerate = async (styleId: string) => {
+    if (!settings?.geminiApiKey) return toast.error('Dodaj klucz API w Ustawieniach.')
+    const style = styleById(styleId)
+    if (!style) return
+    setRegenId(styleId)
+    try {
+      const c = await generateForStyle(style, draft, settings)
+      update((prev) => ({
+        descriptionCandidates: upsertCandidate(prev.descriptionCandidates ?? [], c),
+      }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Błąd generowania.')
+    } finally {
+      setRegenId(null)
+    }
+  }
+
+  const editCandidate = (c: DescriptionCandidate, text: string) =>
+    update((prev) => ({
+      descriptionCandidates: upsertCandidate(prev.descriptionCandidates ?? [], { ...c, text }),
+    }))
+
+  const discardCandidate = (styleId: string) =>
+    update((prev) => ({
+      descriptionCandidates: removeCandidate(prev.descriptionCandidates ?? [], styleId),
+    }))
+
+  const saveCandidate = (c: DescriptionCandidate) => {
     update((prev) => {
       const desc: SavedDescription = {
         id: uid(),
@@ -796,9 +839,11 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
         active: prev.descriptions.length === 0,
         createdAt: Date.now(),
       }
-      return { descriptions: [...prev.descriptions, desc] }
+      return {
+        descriptions: [...prev.descriptions, desc],
+        descriptionCandidates: removeCandidate(prev.descriptionCandidates ?? [], c.styleId),
+      }
     })
-    setCandidates((cs) => cs.filter((x) => x !== c))
     toast.success('Zapisano opis do produktu.')
   }
 
@@ -845,26 +890,40 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
       {candidates.length > 0 && (
         <div className="space-y-3">
           <p className="label">Propozycje (edytuj i zapisz)</p>
-          {candidates.map((c, i) => (
-            <div key={i} className="card p-4">
+          {candidates.map((c) => (
+            <div key={c.styleId} className="card p-4">
               <div className="mb-2 flex items-center justify-between">
                 <span className="chip">{styleById(c.styleId)?.emoji} {c.styleLabel}</span>
                 <div className="flex gap-1">
+                  <button
+                    className="btn-ghost btn-sm"
+                    onClick={() => regenerate(c.styleId)}
+                    disabled={regenId === c.styleId}
+                    title="Generuj ten styl ponownie"
+                  >
+                    {regenId === c.styleId ? (
+                      <Loader2 size={14} className="animate-spin-slow" />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    Ponów
+                  </button>
                   <button className="btn-ghost btn-sm" onClick={() => copy(c.text)}>
                     <Copy size={14} /> Kopiuj
                   </button>
                   <button className="btn-primary btn-sm" onClick={() => saveCandidate(c)}>
                     <Check size={14} /> Zapisz
                   </button>
+                  <button
+                    className="btn-ghost btn-sm text-red-500"
+                    onClick={() => discardCandidate(c.styleId)}
+                    title="Odrzuć propozycję"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               </div>
-              <TextArea
-                rows={5}
-                value={c.text}
-                onChange={(e) =>
-                  setCandidates((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))
-                }
-              />
+              <TextArea rows={5} value={c.text} onChange={(e) => editCandidate(c, e.target.value)} />
             </div>
           ))}
         </div>

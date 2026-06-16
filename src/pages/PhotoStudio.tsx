@@ -171,7 +171,10 @@ export function PhotoStudio() {
 
   const download = async (imageId: string) => {
     const blob = await getImageBlob(imageId)
-    if (blob) downloadBlob(`vinted-${product?.name || 'zdjecie'}-${imageId.slice(0, 6)}.jpg`, blob)
+    if (!blob) return
+    // Zachowane wyjscie modelu bywa PNG — pobieraj z poprawnym rozszerzeniem.
+    const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+    downloadBlob(`vinted-${product?.name || 'zdjecie'}-${imageId.slice(0, 6)}.${ext}`, blob)
   }
 
   return (

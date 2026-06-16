@@ -275,20 +275,55 @@ function describeGarment(p: Product): string {
  * Przycina do ~70 znakow (limit tytulu Vinted).
  */
 export function buildSeoTitle(p: Product): string {
-  const parts = [p.brand, p.name, p.color, p.material, p.sizeLabel ? `rozm. ${p.sizeLabel}` : '']
-    .map((s) => (s ?? '').trim())
-    .filter(Boolean)
-  // Usun duplikat marki, jesli juz jest w nazwie.
-  const seen = new Set<string>()
-  const dedup = parts.filter((s) => {
-    const k = s.toLowerCase()
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-  let title = dedup.join(' ')
-  if (title.length > 70) title = title.slice(0, 69).trimEnd() + '…'
-  return title
+  const brand = (p.brand ?? '').trim()
+  const name = (p.name ?? '').trim()
+  // Nie powtarzaj marki, jesli juz wystepuje jako OSOBNE slowo w nazwie
+  // (np. marka "Zara" + nazwa "Zara sukienka" => "Zara sukienka", nie "Zara Zara …").
+  const skipBrand = brand !== '' && containsWord(name, brand)
+  const rawParts = [
+    skipBrand ? '' : brand,
+    name,
+    (p.color ?? '').trim(),
+    (p.material ?? '').trim(),
+    p.sizeLabel ? `rozm. ${p.sizeLabel.trim()}` : '',
+  ]
+  // Pomijaj czesci, ktore (jako fraza, po granicy slow) sa juz w tytule.
+  const parts: string[] = []
+  for (const part of rawParts) {
+    if (!part) continue
+    if (containsWord(parts.join(' '), part)) continue
+    parts.push(part)
+  }
+  return truncateAtWord(parts.join(' '), 70)
+}
+
+function tokenize(s: string): string[] {
+  return s.toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+/** Czy `needle` wystepuje w `haystack` jako ciagla sekwencja CALYCH slow
+ *  (granica slowa, bezpieczne dla polskich znakow — bez regexowego \b). */
+function containsWord(haystack: string, needle: string): boolean {
+  const h = tokenize(haystack)
+  const n = tokenize(needle)
+  if (n.length === 0) return false
+  for (let i = 0; i + n.length <= h.length; i++) {
+    if (n.every((w, j) => w === h[i + j])) return true
+  }
+  return false
+}
+
+/** Przycina do `max` znakow, cofajac sie do granicy slowa zamiast ciac w srodku. */
+function truncateAtWord(s: string, max: number): string {
+  if (s.length <= max) return s
+  const budget = max - 1 // miejsce na wielokropek (1 znak: "…")
+  let cut = s.slice(0, budget)
+  const midWord = s.charAt(budget - 1) !== ' ' && s.charAt(budget) !== ' '
+  if (midWord) {
+    const lastSpace = cut.lastIndexOf(' ')
+    if (lastSpace > 0) cut = cut.slice(0, lastSpace)
+  }
+  return cut.trimEnd() + '…'
 }
 
 export function buildModelGenerationPrompt(appearance: string, notes?: string): string {

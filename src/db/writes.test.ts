@@ -126,3 +126,19 @@ describe('deleteProductCascade (soft)', () => {
     expect((await db.outbox.get(['images', 'i1']))?.deleted).toBe(1)
   })
 })
+
+describe('product persistence of editor-only fields', () => {
+  it('round-trips retailPrice and descriptionCandidates (survives reload/navigation)', async () => {
+    const p = sampleProduct('pr1')
+    p.retailPrice = 199
+    p.descriptionCandidates = [{ styleId: 'zwiezly', styleLabel: 'Zwięzły', text: 'krótki opis' }]
+    await putEntity('products', p)
+
+    // Edytor po nawigacji wczytuje produkt ponownie przez db.products.get — to ta ścieżka.
+    const back = await db.products.get('pr1')
+    expect(back?.retailPrice).toBe(199)
+    expect(back?.descriptionCandidates).toEqual([
+      { styleId: 'zwiezly', styleLabel: 'Zwięzły', text: 'krótki opis' },
+    ])
+  })
+})

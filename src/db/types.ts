@@ -94,6 +94,13 @@ export interface AiModel {
   updatedAt: number
 }
 
+/** Wygenerowana, jeszcze niezapisana propozycja opisu (jedna na styl). */
+export interface DescriptionCandidate {
+  styleId: string
+  styleLabel: string
+  text: string
+}
+
 /** Zapisany opis produktu w danym stylu. */
 export interface SavedDescription {
   id: ID
@@ -132,6 +139,9 @@ export interface Product {
   measurements?: Measurements
   /** Cena zakupu (koszt) — do liczenia marzy. */
   purchasePrice?: number
+  /** Cena detaliczna (nowa, sklepowa) — baza kalkulatora wyceny; trwala, by przetrwac
+   *  nawigacje i zasilic w przyszlosci podpowiedzi cenowe / SEO / opisy. */
+  retailPrice?: number
   /** Cena wystawienia / oczekiwana. */
   listingPrice?: number
   currency: string
@@ -147,6 +157,9 @@ export interface Product {
   /** Zdjecia wygenerowane na modelce AI. */
   generatedPhotoIds: ID[]
   descriptions: SavedDescription[]
+  /** Niezapisane propozycje opisow (per styl) — trwale, by nie ginely przy zmianie
+   *  zakladki / nawigacji. Zapisanie przenosi je do `descriptions`. */
+  descriptionCandidates?: DescriptionCandidate[]
   tags: string[]
   notes?: string
   /** Adres URL ogloszenia na Vinted (po wystawieniu). */

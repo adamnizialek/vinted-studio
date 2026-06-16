@@ -4,10 +4,36 @@ import { uid } from './id'
 import { enqueueBlobUpload, getBlob } from '@/sync/blobSync'
 import { currentRemote } from '@/sync/config'
 
-const MAX_DIM = 1600 // maks. dluzszy bok zapisywanego zdjecia (px)
+const MAX_DIM = 1600 // maks. dluzszy bok PRZESKALOWANEGO zdjecia zrodlowego (px)
 const THUMB_DIM = 320 // dluzszy bok miniatury (px)
 const JPEG_QUALITY = 0.92
 const THUMB_QUALITY = 0.72
+
+/**
+ * Rodzaje obrazow bedacych PLATNYM wyjsciem modelu (Gemini): zapisujemy je w
+ * pelnej rozdzielczosci, bez przeskalowania i bez ponownej kompresji — inaczej
+ * zniszczylibysmy 2K/4K, za ktore uzytkownik zaplacil (i zlamali regule >=2K
+ * wymuszona przez ban Vinted na zdjeciach niskiej rozdzielczosci). Zdjecia
+ * zrodlowe (upload uzytkownika) wciaz skalujemy, by ograniczyc rozmiar bazy.
+ */
+const RESOLUTION_PRESERVING_KINDS: ReadonlySet<ImageKind> = new Set<ImageKind>([
+  'generated',
+  'model',
+])
+
+export function preservesResolution(kind: ImageKind): boolean {
+  return RESOLUTION_PRESERVING_KINDS.has(kind)
+}
+
+/** Skaluje (wylacznie w dol) dluzszy bok do `maxDim`, zachowujac proporcje. */
+export function fitWithin(
+  width: number,
+  height: number,
+  maxDim: number,
+): { width: number; height: number } {
+  const scale = Math.min(1, maxDim / Math.max(width, height))
+  return { width: Math.round(width * scale), height: Math.round(height * scale) }
+}
 
 interface ProcessedImage {
   blob: Blob
@@ -17,30 +43,52 @@ interface ProcessedImage {
   thumb: string
 }
 
-/** Wczytuje plik/blob, obraca wg EXIF, skaluje i tworzy miniature. */
-export async function processImage(source: Blob): Promise<ProcessedImage> {
+/**
+ * Wczytuje plik/blob, obraca wg EXIF i tworzy miniature.
+ *
+ * Domyslnie skaluje glowny obraz do `MAX_DIM` i koduje go ponownie (oszczedza
+ * miejsce dla zdjec zrodlowych). Gdy `preserveResolution` = true, zapisuje
+ * ORYGINALNE bajty bez zmian — pelna rozdzielczosc i zero strat jakosci dla
+ * platnego wyjscia modelu; tworzy wtedy wylacznie osobna miniature.
+ */
+export async function processImage(
+  source: Blob,
+  opts: { preserveResolution?: boolean } = {},
+): Promise<ProcessedImage> {
   const bitmap = await createImageBitmap(source, {
     imageOrientation: 'from-image',
   }).catch(() => createImageBitmap(source))
 
-  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height))
-  const w = Math.round(bitmap.width * scale)
-  const h = Math.round(bitmap.height * scale)
+  try {
+    const thumb = makeThumb(bitmap)
 
-  const main = drawToCanvas(bitmap, w, h)
-  const hasAlpha = source.type === 'image/png'
-  const mime = hasAlpha ? 'image/png' : 'image/jpeg'
-  const blob = await canvasToBlob(main, mime, JPEG_QUALITY)
+    if (opts.preserveResolution) {
+      // Nie dotykamy bajtow — przechowujemy dokladnie to, co zwrocil model.
+      return {
+        blob: source,
+        mime: source.type || 'image/png',
+        width: bitmap.width,
+        height: bitmap.height,
+        thumb,
+      }
+    }
 
-  // Miniatura zawsze JPEG (mniejsza).
-  const tScale = Math.min(1, THUMB_DIM / Math.max(w, h))
-  const tw = Math.max(1, Math.round(w * tScale))
-  const th = Math.max(1, Math.round(h * tScale))
-  const thumbCanvas = drawToCanvas(bitmap, tw, th)
-  const thumb = thumbCanvas.toDataURL('image/jpeg', THUMB_QUALITY)
+    const { width, height } = fitWithin(bitmap.width, bitmap.height, MAX_DIM)
+    const main = drawToCanvas(bitmap, width, height)
+    const hasAlpha = source.type === 'image/png'
+    const mime = hasAlpha ? 'image/png' : 'image/jpeg'
+    const blob = await canvasToBlob(main, mime, JPEG_QUALITY)
+    return { blob, mime, width, height, thumb }
+  } finally {
+    bitmap.close()
+  }
+}
 
-  bitmap.close()
-  return { blob, mime, width: w, height: h, thumb }
+/** Buduje mala miniature (zawsze JPEG) z pelnej bitmapy. */
+function makeThumb(bitmap: ImageBitmap): string {
+  const { width, height } = fitWithin(bitmap.width, bitmap.height, THUMB_DIM)
+  const canvas = drawToCanvas(bitmap, Math.max(1, width), Math.max(1, height))
+  return canvas.toDataURL('image/jpeg', THUMB_QUALITY)
 }
 
 function drawToCanvas(bitmap: ImageBitmap, w: number, h: number): HTMLCanvasElement {
@@ -69,7 +117,7 @@ export async function addImageFromFile(
   kind: ImageKind,
   links?: { productId?: string; modelId?: string; designId?: string },
 ): Promise<ImageRecord> {
-  const p = await processImage(file)
+  const p = await processImage(file, { preserveResolution: preservesResolution(kind) })
   const rec: ImageRecord = {
     id: uid(),
     blob: p.blob,
@@ -97,7 +145,8 @@ export async function addGeneratedImage(
   links?: { productId?: string },
 ): Promise<ImageRecord> {
   const raw = base64ToBlob(base64, mime)
-  const p = await processImage(raw)
+  // Wyjscie modelu jest platne — zapisujemy je w pelnej rozdzielczosci, bez strat.
+  const p = await processImage(raw, { preserveResolution: true })
   const rec: ImageRecord = {
     id: uid(),
     blob: p.blob,
