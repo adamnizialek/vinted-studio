@@ -94,7 +94,7 @@ describe('buildSeoTitle — assembly & truncation', () => {
   })
 
   it('truncates to <=70 chars at a word boundary (never mid-word)', () => {
-    const words = Array.from({ length: 15 }, (_, i) => `w${i}aaaaaa`) // każde 8 znaków
+    const words = Array.from({ length: 15 }, (_, i) => `w${i}aaaaaa`) // wiele słów, łączna długość > 70
     const name = words.join(' ')
     const title = buildSeoTitle(product({ name }))
 

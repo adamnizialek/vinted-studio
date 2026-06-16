@@ -64,6 +64,10 @@ export async function processImage(
 
     if (opts.preserveResolution) {
       // Nie dotykamy bajtow — przechowujemy dokladnie to, co zwrocil model.
+      // INWARIANT: tej sciezki uzywamy tylko dla wyjscia modelu (generated/model),
+      // ktore nie ma orientacji EXIF. width/height bierzemy z bitmapy (z orientacja),
+      // wiec dla zdjecia z EXIF orientation byloby zamienione osiami — nie dotyczy
+      // wyjscia Gemini. Uploady uzytkownika ida zawsze sciezka downscale ponizej.
       return {
         blob: source,
         mime: source.type || 'image/png',

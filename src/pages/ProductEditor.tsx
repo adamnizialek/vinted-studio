@@ -804,6 +804,7 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
 
   const regenerate = async (styleId: string) => {
     if (!settings?.geminiApiKey) return toast.error('Dodaj klucz API w Ustawieniach.')
+    if (!draft.name.trim()) return toast.error('Najpierw podaj nazwę produktu.')
     const style = styleById(styleId)
     if (!style) return
     setRegenId(styleId)
@@ -878,7 +879,7 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
           ))}
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={generate} disabled={busy}>
+          <Button onClick={generate} disabled={busy || regenId !== null}>
             {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <Wand2 size={16} />}
             Generuj opisy
           </Button>
@@ -898,7 +899,7 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
                   <button
                     className="btn-ghost btn-sm"
                     onClick={() => regenerate(c.styleId)}
-                    disabled={regenId === c.styleId}
+                    disabled={busy || regenId !== null}
                     title="Generuj ten styl ponownie"
                   >
                     {regenId === c.styleId ? (
