@@ -110,9 +110,10 @@ the description generator. Offline-first, on-device, Polish UI preserved.
 - [x] Slice 2 — retailPrice persisted (+ writes.test.ts round-trip)
 - [x] Slice 3 — candidates persisted + per-style regenerate (descriptions.ts + .test.ts, 5 tests)
 - [x] Slice 4 — SEO dedup + prompts.test.ts (17 tests)
-- [ ] Slice 5 — measurement report (in end report)
-- [ ] Phase 4a review (bugs/spec) + 4b review (quality/2nd opinion)
-- [ ] Final verification evidence
+- [x] Slice 5 — measurement report (research/measurement-option-a.md)
+- [x] Phase 4a review (2× opus: bugs/spec + quality/standards) → SHIP / MINOR-POLISH; MINOR fixes applied
+- [x] Phase 4b — simplify (4 agents; right-altitude confirmed, no changes) + fresh opus 2nd-opinion → SHIP
+- [x] Final verification: typecheck exit 0 · 239 tests pass (30 files) · build exit 0 · dev boot 200
 
 ### Verification snapshot (post-implementation)
 - `npm run typecheck` → exit 0
