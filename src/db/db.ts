@@ -111,12 +111,37 @@ export class VintedStudioDB extends Dexie {
       products:
         'id, status, accountId, brand, category, createdAt, updatedAt, soldAt, designId, *tags',
     })
+    // v5: cykl życia oferty. listedAt/listedAtApprox/coverImageId to pola
+    // NIEINDEKSOWANE (jadą za darmo w blobie sync — brak zmiany stores, brak
+    // migracji D1). Backfill: istniejące przedmioty 'listed' bez listedAt
+    // dostają przybliżoną datę z updatedAt i flagę listedAtApprox (UI sygnalizuje
+    // przybliżenie). Nie rusza updatedAt ani outboxu — wartość jest deterministyczna
+    // (z synchronizowanego updatedAt), więc każde urządzenie policzy ją tak samo.
+    this.version(5).upgrade(async (tx) => {
+      await tx
+        .table('products')
+        .toCollection()
+        .modify(
+          (p: {
+            status?: string
+            listedAt?: number
+            listedAtApprox?: boolean
+            updatedAt?: number
+            createdAt?: number
+          }) => {
+            if (p.status === 'listed' && p.listedAt == null) {
+              p.listedAt = p.updatedAt ?? p.createdAt ?? Date.now()
+              p.listedAtApprox = true
+            }
+          },
+        )
+    })
   }
 }
 
 export const db = new VintedStudioDB()
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export const DEFAULT_SETTINGS: AppSettings = {
   id: 'app',
@@ -772,6 +797,9 @@ export async function groupProducts(
         tags: [],
         photoIds: [],
         generatedPhotoIds: [],
+        // Okładka jest per-produkt i wskazuje własne zdjęcie — w modelu zdjęcia
+        // są wspólne, więc czyścimy (inaczej zostałby wiszący wskaźnik po rozłączeniu).
+        coverImageId: undefined,
         descriptions: [],
         updatedAt: now,
       }
@@ -832,6 +860,8 @@ export async function dissolveDesign(designId: string): Promise<void> {
           tags: [...design.tags],
           photoIds,
           generatedPhotoIds,
+          // Zdjęcia są klonowane z nowymi id — ewentualna stara okładka byłaby wisząca.
+          coverImageId: undefined,
           descriptions: design.descriptions.map((d) => ({ ...d })),
           updatedAt: now,
         }

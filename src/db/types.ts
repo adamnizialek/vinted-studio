@@ -149,11 +149,17 @@ export interface Product {
   descriptions: SavedDescription[]
   tags: string[]
   notes?: string
+  /** Zdjecie-okladka (id z photoIds/generatedPhotoIds). Brak => pierwsze zdjecie. */
+  coverImageId?: ID
   /** Adres URL ogloszenia na Vinted (po wystawieniu). */
   listingUrl?: string
   createdAt: number
   updatedAt: number
+  /** Znacznik wystawienia (ms). Pisany przy przejsciu w 'listed'; dla starych
+   *  ofert backfillowany z updatedAt (przyblizony). Zrodlo metryk cyklu zycia. */
   listedAt?: number
+  /** True gdy listedAt pochodzi z backfillu (przyblizony) — UI to sygnalizuje. */
+  listedAtApprox?: boolean
   soldAt?: number
   /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
   importKey?: string

@@ -12,12 +12,22 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Camera, Clock, Package, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
+import { AlertTriangle, Camera, Clock, ExternalLink, Package, Percent, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
-import { aggregateProfit, countsAsRevenue, dateShort, money } from '@/lib/format'
+import { aggregateProfit, countsAsRevenue, dateShort, money, percent, pluralPl } from '@/lib/format'
+import { resolveProduct } from '@/lib/designs'
+import {
+  STALE_LISTING_DAYS,
+  daysToSellStats,
+  listingHref,
+  sellThrough,
+  staleListings,
+} from '@/lib/listing'
 import { StatCard } from '@/components/ui'
 import { useChartColors } from '@/lib/hooks'
+
+const STALE_VISIBLE = 8
 
 const ACTIVE_STATUSES = new Set(['draft', 'in_stock', 'listed', 'reserved'])
 
@@ -27,6 +37,8 @@ export function Dashboard() {
   const sales = useLiveQuery(() => db.sales.toArray(), [])
   const expenses = useLiveQuery(() => db.expenses.toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const designs = useLiveQuery(() => db.designs.toArray(), [])
+  const designsById = useMemo(() => new Map((designs ?? []).map((d) => [d.id, d])), [designs])
   const currency = settings?.currency ?? 'PLN'
   const chartColors = useChartColors()
 
@@ -69,6 +81,20 @@ export function Dashboard() {
     () => [...(sales ?? [])].sort((a, b) => b.soldAt - a.soldAt).slice(0, 5),
     [sales],
   )
+
+  // Cykl życia ofert: sprzedawalność, mediana czasu sprzedaży (częściowe pokrycie),
+  // i kolejka zaległych ofert (wystawione > STALE_LISTING_DAYS, niesprzedane).
+  const lifecycle = useMemo(() => {
+    const all = products ?? []
+    const dts = daysToSellStats(all)
+    return {
+      sell: sellThrough(all),
+      dts,
+      stale: staleListings(all, Date.now()),
+      // Mediana jako liczba całkowita w UI (median może być X.5 dla parzystej próbki).
+      medianDays: dts.medianDays == null ? null : Math.round(dts.medianDays),
+    }
+  }, [products])
 
   return (
     <div className="space-y-6">
@@ -150,6 +176,116 @@ export function Dashboard() {
               </div>
             </Link>
           )}
+        </div>
+      </div>
+
+      {/* Cykl życia ofert */}
+      <div className="space-y-3">
+        <h2 className="font-bold text-ink-900">Cykl życia ofert</h2>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+            <StatCard
+              label="Sprzedawalność"
+              icon={<Percent size={16} />}
+              value={lifecycle.sell.rate == null ? '—' : percent(lifecycle.sell.rate)}
+              sub={
+                lifecycle.sell.rate == null
+                  ? 'brak ofert na rynku'
+                  : `${lifecycle.sell.sold} / ${lifecycle.sell.sold + lifecycle.sell.listed} sprzedane + wystawione`
+              }
+            />
+            <StatCard
+              label="Mediana czasu sprzedaży"
+              icon={<Clock size={16} />}
+              value={
+                lifecycle.medianDays == null
+                  ? '—'
+                  : `${lifecycle.medianDays} ${pluralPl(lifecycle.medianDays, 'dzień', 'dni', 'dni')}`
+              }
+              sub={
+                lifecycle.dts.totalSold === 0
+                  ? 'brak sprzedaży'
+                  : `z ${lifecycle.dts.covered}/${lifecycle.dts.totalSold} sprzedanych (częściowe pokrycie)`
+              }
+            />
+          </div>
+
+          {/* Wymaga uwagi — zaległe oferty */}
+          <div className="card p-5 lg:col-span-2">
+            <div className="flex items-center gap-2 text-ink-900">
+              <AlertTriangle size={18} className="text-amber-500" />
+              <h3 className="font-bold">Wymaga uwagi</h3>
+              {lifecycle.stale.length > 0 && (
+                <span className="badge bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                  {lifecycle.stale.length}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-ink-400">
+              Wystawione co najmniej {STALE_LISTING_DAYS} dni temu i wciąż niesprzedane.
+            </p>
+            {lifecycle.stale.length === 0 ? (
+              <p className="py-6 text-center text-sm text-ink-400">Nic nie zalega — świetnie! 🎉</p>
+            ) : (
+              <div className="mt-3 space-y-1">
+                {lifecycle.stale.slice(0, STALE_VISIBLE).map(({ product, days }) => {
+                  const href = listingHref(product.listingUrl)
+                  // Rozmiary modelu trzymają nazwę na Design — rozwiąż przez resolveProduct
+                  // (spójnie z edytorem) i dopnij rozmiar, by nie pokazać „Bez nazwy”.
+                  const resolved = resolveProduct(product, designsById)
+                  const name = product.designId
+                    ? [resolved.name, product.sizeLabel].filter(Boolean).join(' — ') || 'Model'
+                    : resolved.name || 'Bez nazwy'
+                  const to = product.designId
+                    ? `/magazyn/model/${product.designId}`
+                    : `/magazyn/${product.id}`
+                  return (
+                    <div
+                      key={product.id}
+                      className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-ink-50"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                        <Clock size={15} />
+                      </span>
+                      <Link to={to} className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink-900">{name}</p>
+                        <p
+                          className="text-xs text-amber-600"
+                          title={product.listedAtApprox ? 'Data wystawienia przybliżona' : undefined}
+                        >
+                          wystawione od {product.listedAtApprox ? '≈' : ''}
+                          {days} {pluralPl(days, 'dnia', 'dni', 'dni')}
+                        </p>
+                      </Link>
+                      <p className="shrink-0 text-sm font-bold text-ink-900">
+                        {product.listingPrice ? money(product.listingPrice, product.currency) : '—'}
+                      </p>
+                      {href && (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 text-ink-400 transition hover:text-brand-600"
+                          title="Otwórz ogłoszenie"
+                          aria-label="Otwórz ogłoszenie na Vinted"
+                        >
+                          <ExternalLink size={15} />
+                        </a>
+                      )}
+                    </div>
+                  )
+                })}
+                {lifecycle.stale.length > STALE_VISIBLE && (
+                  <Link
+                    to="/magazyn"
+                    className="block px-2 py-2 text-sm font-semibold text-brand-600"
+                  >
+                    i {lifecycle.stale.length - STALE_VISIBLE} więcej w magazynie →
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

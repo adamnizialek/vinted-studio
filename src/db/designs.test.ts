@@ -179,6 +179,52 @@ describe('dissolveDesign', () => {
   })
 })
 
+describe('coverImageId lifecycle through group/dissolve', () => {
+  it('clears a per-product cover on grouping (cover is standalone-only)', async () => {
+    await db.images.bulkPut([
+      { id: 'i1', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', createdAt: 1, updatedAt: 1 },
+      { id: 'i2', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', createdAt: 1, updatedAt: 1 },
+    ])
+    await db.products.bulkPut([
+      sampleProduct('pS', { name: 'Kurtka', sizeLabel: 'S', photoIds: ['i1'], coverImageId: 'i1' }),
+      sampleProduct('pM', { name: 'Kurtka', sizeLabel: 'M', photoIds: ['i2'] }),
+    ])
+    await groupProducts(['pS', 'pM'], 'pS')
+    expect((await db.products.get('pS'))?.coverImageId).toBeUndefined()
+  })
+
+  it('does not leave a dangling cover after group then dissolve', async () => {
+    await db.images.bulkPut([
+      { id: 'i1', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', createdAt: 1, updatedAt: 1 },
+      { id: 'i2', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', createdAt: 1, updatedAt: 1 },
+    ])
+    await db.products.bulkPut([
+      sampleProduct('pS', { name: 'Kurtka', sizeLabel: 'S', photoIds: ['i1'], coverImageId: 'i1' }),
+      sampleProduct('pM', { name: 'Kurtka', sizeLabel: 'M', photoIds: ['i2'] }),
+    ])
+    const design = await groupProducts(['pS', 'pM'], 'pS')
+    await dissolveDesign(design.id)
+    const pS = await db.products.get('pS')
+    // cover must be empty (so coverImageIdOf falls back to a real, freshly-cloned photo)
+    expect(pS?.coverImageId).toBeUndefined()
+    expect(await db.images.get('i1')).toBeUndefined() // original shared image gone
+  })
+
+  it('clears a stale cover on dissolve even for legacy grouped rows (independent of group)', async () => {
+    // Simulate a grouped member written by pre-fix code: carries a coverImageId
+    // that points at the now-shared image. dissolveDesign must still clear it.
+    await db.images.put({ id: 'shared', blob: new Blob(['x']), mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', designId: 'd1', createdAt: 1, updatedAt: 1 })
+    await db.designs.put({ ...sampleDesign(), photoIds: ['shared'] })
+    await db.products.put(sampleProduct('pS', { designId: 'd1', name: '', sizeLabel: 'S', coverImageId: 'shared' }))
+
+    await dissolveDesign('d1')
+
+    const pS = await db.products.get('pS')
+    expect(pS?.coverImageId).toBeUndefined()
+    expect(pS?.photoIds[0]).not.toBe('shared') // points at a freshly cloned photo
+  })
+})
+
 describe('Dexie v4 schema (additive upgrade)', () => {
   it('keeps pre-existing products (without designId) fully usable', async () => {
     // A product created before the feature has no designId — must still read/write/query.
