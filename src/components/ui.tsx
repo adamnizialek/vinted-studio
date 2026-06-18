@@ -24,8 +24,8 @@ export function SectionTitle({
   right?: ReactNode
 }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
-      <div>
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+      <div className="min-w-0">
         <h2 className="text-lg font-bold text-ink-900">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-ink-500">{subtitle}</p>}
       </div>

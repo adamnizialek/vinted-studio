@@ -156,7 +156,7 @@ export function Inventory() {
         title="Magazyn"
         subtitle={`${products?.length ?? 0} przedmiotów · ${counts.in_stock ?? 0} w magazynie · ${counts.listed ?? 0} wystawionych`}
         right={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {selecting ? (
               <>
                 <Button variant="ghost" onClick={exitSelect}>Anuluj</Button>

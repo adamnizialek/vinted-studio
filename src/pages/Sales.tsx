@@ -134,7 +134,7 @@ export function Sales() {
         title="Ewidencja sprzedaży"
         subtitle="Przełączaj między ewidencją wspólną a poszczególnymi kontami."
         right={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
               <Upload size={16} /> Import
             </Button>
