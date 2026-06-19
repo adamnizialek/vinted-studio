@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Camera, Download, Loader2, Shirt, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Camera, Download, Loader2, Shirt, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, patchEntity, putEntity } from '@/db/db'
 import { useSettings } from '@/state/settings'
@@ -43,6 +43,7 @@ export function PhotoStudio() {
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
+  const [controller, setController] = useState<AbortController | null>(null)
 
   const designs = useLiveQuery(() => db.designs.toArray(), [])
   const designsById = useMemo(() => new Map((designs ?? []).map((d) => [d.id, d])), [designs])
@@ -85,7 +86,10 @@ export function PhotoStudio() {
     if (mode === 'tryOn' && (!model || model.referenceImageIds.length === 0))
       return toast.error('Wybierz modelkę z co najmniej jednym zdjęciem.')
 
+    const ac = new AbortController()
+    setController(ac)
     setBusy(true)
+    let saved = 0
     try {
       // Wyznacz dokładnie te id, które wyślemy (okładka modelki na początku),
       // i użyj ich zarówno do wejścia API, jak i do zapisu provenance.
@@ -112,7 +116,6 @@ export function PhotoStudio() {
         aspectHint: ASPECTS.find((a) => a.value === aspect)?.hint,
         customNotes: notes,
       })
-      let saved = 0
       for (let i = 0; i < variants; i++) {
         setProgress(`Generuję wariant ${i + 1}/${variants}…`)
         const { images } = await generateImage(prompt, inputs, {
@@ -120,6 +123,7 @@ export function PhotoStudio() {
           model: settings.imageModel,
           resolution: settings.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
           aspectRatio: aspect,
+          signal: ac.signal,
         })
         await bumpImageCount(images.length)
         for (const img of images) {
@@ -146,10 +150,14 @@ export function PhotoStudio() {
       }
       toast.success(`Wygenerowano ${saved} zdjęć ✨ Zapisano do produktu.`)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Błąd generowania.')
+      // Anulowanie przez użytkownika to nie błąd. Zapisane warianty zostają.
+      if (ac.signal.aborted)
+        toast.info(saved > 0 ? `Anulowano — zapisano ${saved} zdjęć.` : 'Anulowano generowanie.')
+      else toast.error(e instanceof Error ? e.message : 'Błąd generowania.')
     } finally {
       setBusy(false)
       setProgress('')
+      setController(null)
     }
   }
 
@@ -282,6 +290,11 @@ export function PhotoStudio() {
               {busy ? <Loader2 size={16} className="animate-spin-slow" /> : <Wand2 size={16} />}
               Generuj {variants > 1 ? `${variants} warianty` : ''}
             </Button>
+            {busy && (
+              <Button variant="ghost" onClick={() => controller?.abort()} className="mt-2 w-full">
+                <X size={16} /> Anuluj
+              </Button>
+            )}
             <p className="mt-2 text-center text-xs text-ink-400">
               {progress || `Szacowany koszt ≈ $${estCost} • płatne API`}
             </p>

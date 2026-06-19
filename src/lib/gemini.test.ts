@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   buildImageRequestBody,
   supportsImageConfig,
   buildExtractionRequestBody,
   supportsThinkingLevel,
   finishReasonError,
+  generateText,
+  generateImage,
+  GeminiError,
 } from '@/lib/gemini'
 
 describe('supportsImageConfig', () => {
@@ -129,5 +132,193 @@ describe('buildExtractionRequestBody', () => {
     const body = buildExtractionRequestBody('x', [img], { model: 'gemini-2.5-flash' })
     expect('responseSchema' in body.generationConfig).toBe(false)
     expect(body.generationConfig.responseMimeType).toBe('application/json')
+  })
+})
+
+// ── Timeout / anulowanie / ponowienie ────────────────────────────────────────
+// Dlaczego: surowy `fetch` bez limitu czasu potrafi wisieć w nieskończoność
+// (zaobserwowane: spinner kręcił się >5 min bez błędu). `callGenerate` ma teraz
+// przerywać zacięte żądanie po `timeoutMs`, raz je ponawiać przy błędach
+// PRZEMIJAJĄCYCH (timeout / sieć / 5xx) i NIGDY przy anulowaniu lub błędach
+// deterministycznych (4xx). Testujemy realne zachowanie przez `generateText`
+// z podmienionym `fetch` (środowisko 'node' ma globalne fetch/AbortController).
+
+function abortError(): Error {
+  const e = new Error('The operation was aborted')
+  e.name = 'AbortError'
+  return e
+}
+
+/** Żądanie, które „wisi", dopóki jego `signal` nie zostanie przerwany. */
+function hangingFetch() {
+  return vi.fn((_url: string, init?: RequestInit) => {
+    const signal = init?.signal as AbortSignal | undefined
+    return new Promise<Response>((_resolve, reject) => {
+      if (signal?.aborted) return reject(abortError())
+      signal?.addEventListener('abort', () => reject(abortError()), { once: true })
+    })
+  })
+}
+
+function jsonResponse(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as unknown as Response
+}
+
+const OK_TEXT = {
+  candidates: [{ content: { parts: [{ text: 'OK' }] }, finishReason: 'STOP' }],
+}
+
+describe('callGenerate — timeout / cancel / retry (przez generateText)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('przerywa zacięte żądanie po timeoutMs i ponawia raz, zanim zgłosi błąd', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 30 }),
+    ).rejects.toThrow(/limit czasu|zbyt długo|nie odpowiedział/i)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2) // oryginał + jedno ponowienie
+  })
+
+  it('NIE ponawia, gdy użytkownik anuluje (zewnętrzny AbortSignal)', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const ac = new AbortController()
+
+    const p = generateText('hi', {
+      apiKey: 'k',
+      model: 'gemini-2.5-flash',
+      timeoutMs: 5000,
+      signal: ac.signal,
+    })
+    ac.abort()
+
+    await expect(p).rejects.toThrow(/anulowano/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ponawia przemijający błąd 503 i zwraca wynik', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(503, { error: { message: 'overloaded' } }))
+      .mockResolvedValueOnce(jsonResponse(200, OK_TEXT))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const out = await generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash' })
+
+    expect(out).toBe('OK')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('NIE ponawia deterministycznego 400 (zły klucz API)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(400, { error: { message: 'API key not valid' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash' }),
+    ).rejects.toThrow(/klucz API/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('zgłasza GeminiError przy przekroczeniu limitu czasu (typ błędu, nie generyczny)', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 20 }),
+    ).rejects.toBeInstanceOf(GeminiError)
+  })
+
+  it('przerywa zacięcie podczas ODCZYTU treści (nagłówki wracają, body wisi)', async () => {
+    // Realny scenariusz: nagłówki 200 przychodzą szybko, ale strumień treści
+    // (duży obraz base64 4K) zacina się. Limit czasu musi obejmować odczyt body.
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal | undefined
+      const res = {
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(abortError()), { once: true })
+          }),
+      } as unknown as Response
+      return Promise.resolve(res)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 30 }),
+    ).rejects.toThrow(/limit czasu|nie odpowiedział/i)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // body-stall jest przemijający → ponowiony
+  })
+
+  it('mapuje surowy błąd sieci (TypeError „Failed to fetch") jako przemijający i ponawia', async () => {
+    // Najczęstszy realny błąd klienta: brak sieci / CORS — `fetch` rzuca TypeError.
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash' }),
+    ).rejects.toThrow(/sieć|CORS|połączenia/i)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // sieć → przemijające → jedno ponowienie
+  })
+
+  it('anulowanie WYGRYWA z ponowieniem błędu przemijającego (503 przy już anulowanym sygnale)', async () => {
+    // Strażnik `if (opts.signal?.aborted) throw e` jest jedynym, który tu działa:
+    // błąd 503 JEST przemijający, więc bez tego strażnika pętla by ponowiła.
+    const ac = new AbortController()
+    const fetchMock = vi.fn(() => {
+      ac.abort() // użytkownik anuluje, zanim padnie decyzja o ponowieniu
+      return Promise.resolve(jsonResponse(503, { error: { message: 'overloaded' } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash', signal: ac.signal }),
+    ).rejects.toBeInstanceOf(GeminiError)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // brak ponowienia mimo retryable 503
+  })
+
+  it('ścieżka OBRAZU także respektuje timeout + ponowienie (mechanizm jest podłączony)', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateImage('hi', [], { apiKey: 'k', model: 'gemini-3.1-flash-image', timeoutMs: 30 }),
+    ).rejects.toThrow(/limit czasu|nie odpowiedział/i)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('domyślny budżet zależy od typu: obraz=120 s, tekst=60 s', async () => {
+    // Stałe są prywatne; obserwujemy je przez argument setTimeout w withTimeout.
+    // `fetch` zwraca od razu, więc timer jest natychmiast czyszczony (zero realnego czekania).
+    const delays: number[] = []
+    const realSetTimeout = setTimeout
+    const spy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: TimerHandler, ms?: number, ...rest: unknown[]) => {
+        if (typeof ms === 'number') delays.push(ms)
+        return (realSetTimeout as any)(fn, ms, ...rest)
+      }) as unknown as typeof setTimeout)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, OK_TEXT)))
+    try {
+      await generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash' })
+      // OK_TEXT nie ma obrazu → generateImage rzuci „brak obrazu", ale timer (120 s)
+      // został uzbrojony PRZED fetch, więc i tak go zmierzymy.
+      await generateImage('hi', [], { apiKey: 'k', model: 'gemini-3.1-flash-image' }).catch(() => {})
+
+      expect(delays).toContain(60_000) // tekst → DEFAULT_TIMEOUT_MS
+      expect(delays).toContain(120_000) // obraz → IMAGE_TIMEOUT_MS
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

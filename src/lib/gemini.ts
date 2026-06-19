@@ -5,13 +5,35 @@ import type { ImageResolution } from '@/db/types'
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
+/**
+ * Limity czasu POJEDYNCZEJ próby (ms). Surowy `fetch` nie ma własnego timeoutu i
+ * potrafił wisieć w nieskończoność — spinner kręcił się >5 min bez błędu. Generacja
+ * obrazu bywa wolna pod obciążeniem (realne pomiary gemini-3.1-flash-image to
+ * ~23–56 s przy 2K, a 4K dokłada kilkanaście sekund; dostawcy zalecają ≥120 s),
+ * dlatego dostaje hojny budżet. Tekst/wizja zwracają szybciej → krótszy limit.
+ */
+const IMAGE_TIMEOUT_MS = 120_000
+const DEFAULT_TIMEOUT_MS = 60_000
+/** Liczba prób: pierwsza + jedno ponowienie błędu PRZEMIJAJĄCEGO. */
+const MAX_ATTEMPTS = 2
+
 export class GeminiError extends Error {
   status?: number
-  constructor(message: string, status?: number) {
+  /** Czy błąd jest PRZEMIJAJĄCY i wart jednego ponowienia (timeout, sieć, 5xx). */
+  retryable: boolean
+  constructor(message: string, status?: number, retryable = false) {
     super(message)
     this.name = 'GeminiError'
     this.status = status
+    this.retryable = retryable
   }
+}
+
+export interface CallOptions {
+  /** Limit czasu pojedynczej próby (ms). */
+  timeoutMs?: number
+  /** Zewnętrzny sygnał anulowania (np. przycisk „Anuluj" w UI). */
+  signal?: AbortSignal
 }
 
 export interface InlineImage {
@@ -43,62 +65,152 @@ interface GeminiPart {
   inlineData?: { mimeType: string; data: string }
 }
 
-async function callGenerate(
+function isAbortError(e: unknown): boolean {
+  return e instanceof Error && e.name === 'AbortError'
+}
+
+/**
+ * Łączy limit czasu z opcjonalnym zewnętrznym sygnałem anulowania w jeden
+ * `AbortSignal` dla `fetch`. `timedOut()` mówi, czy to MY przerwaliśmy żądanie
+ * (limit czasu), czy użytkownik — bo to rozróżnienie decyduje, czy ponawiać
+ * (timeout: tak) czy nie (anulowanie: nie). `done()` sprząta timer i listener.
+ */
+function withTimeout(timeoutMs: number, external?: AbortSignal) {
+  const controller = new AbortController()
+  let didTimeout = false
+  const timer = setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, timeoutMs)
+  const onExternalAbort = () => controller.abort()
+  if (external) {
+    if (external.aborted) controller.abort()
+    else external.addEventListener('abort', onExternalAbort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeout,
+    done: () => {
+      clearTimeout(timer)
+      external?.removeEventListener('abort', onExternalAbort)
+    },
+  }
+}
+
+/** Pojedyncza próba żądania `:generateContent` z limitem czasu + anulowaniem. */
+async function callGenerateOnce(
   model: string,
   apiKey: string,
   body: unknown,
+  opts: CallOptions,
 ): Promise<GeminiPart[]> {
   if (!apiKey) throw new GeminiError('Brak klucza API Gemini. Dodaj go w Ustawieniach.')
 
-  let res: Response
+  const t = withTimeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, opts.signal)
   try {
-    res = await fetch(`${BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+    const res = await fetch(`${BASE}/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify(body),
+      signal: t.signal,
     })
+
+    // Limit czasu obejmuje też ODCZYT treści — duży obraz (4K base64) bywa
+    // wysyłany długo po nagłówkach. Nie połykamy abortu jako `null`: musi dojść
+    // do mapowania na czytelny błąd w `catch` poniżej.
+    const json = await res.json().catch((err) => {
+      if (isAbortError(err)) throw err
+      return null
+    })
+
+    if (!res.ok) {
+      const msg =
+        (json as any)?.error?.message ?? `Błąd Gemini API (HTTP ${res.status}).`
+      if (res.status === 429)
+        throw new GeminiError(
+          'Przekroczono limit zapytań (429). Odczekaj chwilę lub sprawdź limity klucza.',
+          429,
+        )
+      if (res.status === 400 && /API key not valid/i.test(msg))
+        throw new GeminiError('Nieprawidłowy klucz API. Sprawdź go w Ustawieniach.', 400)
+      if (res.status === 404)
+        throw new GeminiError(
+          `Model "${model}" nie istnieje lub jest niedostępny dla tego klucza. Wybierz inny model w Ustawieniach.`,
+          404,
+        )
+      // 5xx (np. przeciążenie serwera) jest przemijający — pozwól na jedno ponowienie.
+      throw new GeminiError(msg, res.status, res.status >= 500)
+    }
+
+    const candidate = (json as any)?.candidates?.[0]
+    const blockReason = (json as any)?.promptFeedback?.blockReason
+    if (blockReason)
+      throw new GeminiError(
+        `Treść zablokowana przez filtry bezpieczeństwa (${blockReason}). Zmień zdjęcie/opis i spróbuj ponownie.`,
+      )
+    if (!candidate)
+      throw new GeminiError('Gemini nie zwróciło żadnej odpowiedzi. Spróbuj ponownie.')
+
+    const fe = finishReasonError(candidate.finishReason)
+    if (fe) throw fe
+
+    return (candidate.content?.parts ?? []) as GeminiPart[]
   } catch (e) {
+    // Błędy już zmapowane (status, filtry, finishReason) przepuszczamy bez zmian.
+    if (e instanceof GeminiError) throw e
+    if (isAbortError(e)) {
+      if (t.timedOut())
+        throw new GeminiError(
+          'Przekroczono limit czasu — model nie odpowiedział na czas. Spróbuj ponownie lub zmniejsz rozdzielczość w Ustawieniach.',
+          undefined,
+          true, // przemijające — pozwól na jedno ponowienie
+        )
+      // Przerwane świadomie przez użytkownika (przycisk „Anuluj").
+      throw new GeminiError('Anulowano generowanie.')
+    }
+    // Pozostałe (np. TypeError z sieci, błąd odczytu strumienia).
     throw new GeminiError(
       'Brak połączenia z Gemini API (sieć lub CORS). Sprawdź internet i spróbuj ponownie.',
+      undefined,
+      true, // błąd sieciowy bywa przemijający — wart jednego ponowienia
     )
+  } finally {
+    t.done()
   }
+}
 
-  const json = await res.json().catch(() => null)
-
-  if (!res.ok) {
-    const msg =
-      (json as any)?.error?.message ?? `Błąd Gemini API (HTTP ${res.status}).`
-    if (res.status === 429)
-      throw new GeminiError(
-        'Przekroczono limit zapytań (429). Odczekaj chwilę lub sprawdź limity klucza.',
-        429,
-      )
-    if (res.status === 400 && /API key not valid/i.test(msg))
-      throw new GeminiError('Nieprawidłowy klucz API. Sprawdź go w Ustawieniach.', 400)
-    if (res.status === 404)
-      throw new GeminiError(
-        `Model "${model}" nie istnieje lub jest niedostępny dla tego klucza. Wybierz inny model w Ustawieniach.`,
-        404,
-      )
-    throw new GeminiError(msg, res.status)
+/**
+ * Wykonuje żądanie z limitem czasu i JEDNYM ponowieniem przy błędach
+ * PRZEMIJAJĄCYCH (timeout, sieć, 5xx). Anulowanie przez użytkownika oraz błędy
+ * DETERMINISTYCZNE (4xx, filtry bezpieczeństwa, pusta odpowiedź) NIE są ponawiane.
+ *
+ * UWAGA KOSZTOWA: ponowienie po TIMEOUCIE generacji obrazu może obciążyć konto
+ * DWUKROTNIE — limit przerywamy po stronie klienta (AbortController), ale model
+ * mógł już wygenerować i naliczyć obraz serwerowo; my tylko przestaliśmy czekać.
+ * Błędy 5xx/sieci tej wady nie mają (nie doszło do udanej generacji). To świadomy
+ * kompromis: jedno ponowienie ratuje zerwane połączenia, a „Anuluj" jest
+ * bezpiecznikiem. Gdyby koszt miał priorytet — uczynić timeout obrazu nieponawialnym.
+ */
+async function callGenerate(
+  model: string,
+  apiKey: string,
+  body: unknown,
+  opts: CallOptions = {},
+): Promise<GeminiPart[]> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callGenerateOnce(model, apiKey, body, opts)
+    } catch (e) {
+      // Nie ponawiaj, gdy użytkownik anulował, błąd nie jest przemijający,
+      // albo wyczerpaliśmy próby.
+      if (opts.signal?.aborted) throw e
+      if (!(e instanceof GeminiError && e.retryable)) throw e
+      if (attempt >= MAX_ATTEMPTS - 1) throw e
+    }
   }
-
-  const candidate = (json as any)?.candidates?.[0]
-  const blockReason = (json as any)?.promptFeedback?.blockReason
-  if (blockReason)
-    throw new GeminiError(
-      `Treść zablokowana przez filtry bezpieczeństwa (${blockReason}). Zmień zdjęcie/opis i spróbuj ponownie.`,
-    )
-  if (!candidate)
-    throw new GeminiError('Gemini nie zwróciło żadnej odpowiedzi. Spróbuj ponownie.')
-
-  const fe = finishReasonError(candidate.finishReason)
-  if (fe) throw fe
-
-  return (candidate.content?.parts ?? []) as GeminiPart[]
 }
 
 function extractText(parts: GeminiPart[]): string {
@@ -128,7 +240,7 @@ function imageParts(prompt: string, images: InlineImage[]): GeminiPart[] {
   ]
 }
 
-export interface TextOptions {
+export interface TextOptions extends CallOptions {
   apiKey: string
   model: string
   temperature?: number
@@ -151,14 +263,17 @@ export async function generateText(prompt: string, opts: TextOptions): Promise<s
       maxOutputTokens: opts.maxOutputTokens ?? 8192,
     },
   }
-  const parts = await callGenerate(opts.model, opts.apiKey, body)
+  const parts = await callGenerate(opts.model, opts.apiKey, body, {
+    timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    signal: opts.signal,
+  })
   const text = extractText(parts)
   if (!text)
     throw new GeminiError('Model nie zwrócił tekstu (możliwy limit tokenów). Spróbuj ponownie.')
   return text
 }
 
-export interface ImageOptions {
+export interface ImageOptions extends CallOptions {
   apiKey: string
   model: string
   temperature?: number
@@ -245,7 +360,7 @@ function thinkingConfigFor(model: string): { thinkingBudget?: number; thinkingLe
   return undefined
 }
 
-export interface ExtractionOptions {
+export interface ExtractionOptions extends CallOptions {
   apiKey: string
   model: string
   /** Schemat odpowiedzi (podzbior OpenAPI, typy WIELKIMI literami). Opcjonalny. */
@@ -308,7 +423,10 @@ export async function extractFromImages(
     responseSchema: opts.responseSchema,
     maxOutputTokens: opts.maxOutputTokens,
   })
-  const parts = await callGenerate(opts.model, opts.apiKey, body)
+  const parts = await callGenerate(opts.model, opts.apiKey, body, {
+    timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    signal: opts.signal,
+  })
   const text = extractText(parts)
   if (!text)
     throw new GeminiError(
@@ -327,7 +445,10 @@ export async function generateImage(
   opts: ImageOptions,
 ): Promise<{ images: InlineImage[]; text: string }> {
   const body = buildImageRequestBody(prompt, inputImages, opts)
-  const resParts = await callGenerate(opts.model, opts.apiKey, body)
+  const resParts = await callGenerate(opts.model, opts.apiKey, body, {
+    timeoutMs: opts.timeoutMs ?? IMAGE_TIMEOUT_MS,
+    signal: opts.signal,
+  })
   const images = extractImages(resParts)
   const text = extractText(resParts)
   if (images.length === 0) {

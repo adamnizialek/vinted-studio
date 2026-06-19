@@ -18,7 +18,15 @@ export function Models() {
   const models = useLiveQuery(() => db.models.orderBy('createdAt').reverse().toArray(), [])
   const [editing, setEditing] = useState<AiModel | null>(null)
   const [open, setOpen] = useState(false)
-  const [working, setWorking] = useState(false)
+  // Dwie NIEZALEŻNE operacje async (wgrywanie plików vs generowanie z API) muszą
+  // mieć osobne flagi — wspólny boolean pozwalał szybkiemu uploadowi zgasić flagę
+  // trwającej generacji (znikał „Anuluj", odblokowywał się przycisk → podwójne
+  // zlecenie i osierocony AbortController). `busy` blokuje uruchomienie jednej,
+  // gdy druga trwa, więc nie mogą się przeplatać.
+  const [uploading, setUploading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [controller, setController] = useState<AbortController | null>(null)
+  const busy = uploading || generating
   const { settings, bumpImageCount } = useSettings()
 
   const startNew = async () => {
@@ -45,8 +53,8 @@ export function Models() {
   }
 
   const addImages = async (files: File[]) => {
-    if (!editing) return
-    setWorking(true)
+    if (!editing || busy) return
+    setUploading(true)
     try {
       const ids: string[] = []
       for (const f of files) {
@@ -56,16 +64,18 @@ export function Models() {
       const refs = [...editing.referenceImageIds, ...ids]
       await patch({ referenceImageIds: refs, coverImageId: editing.coverImageId ?? ids[0] })
     } finally {
-      setWorking(false)
+      setUploading(false)
     }
   }
 
   const generate = async () => {
-    if (!editing) return
+    if (!editing || busy) return
     if (!settings?.geminiApiKey) return toast.error('Dodaj klucz API w Ustawieniach.')
     if (!editing.appearance?.trim())
       return toast.error('Opisz wygląd modelki (np. „kobieta, 25 lat, blond włosy…”).')
-    setWorking(true)
+    const ac = new AbortController()
+    setController(ac)
+    setGenerating(true)
     try {
       const prompt = buildModelGenerationPrompt(editing.appearance, editing.promptNotes)
       const { images } = await generateImage(prompt, [], {
@@ -73,6 +83,7 @@ export function Models() {
         model: settings.imageModel,
         resolution: settings.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
         aspectRatio: '3:4', // pelnopostaciowy portret referencyjny
+        signal: ac.signal,
       })
       await bumpImageCount(images.length)
       const ids: string[] = []
@@ -85,9 +96,12 @@ export function Models() {
       await patch({ referenceImageIds: refs, coverImageId: editing.coverImageId ?? ids[0] })
       toast.success('Wygenerowano modelkę ✨')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Błąd generowania.')
+      // Anulowanie przez użytkownika to nie błąd — neutralny komunikat.
+      if (ac.signal.aborted) toast.info('Anulowano generowanie.')
+      else toast.error(e instanceof Error ? e.message : 'Błąd generowania.')
     } finally {
-      setWorking(false)
+      setGenerating(false)
+      setController(null)
     }
   }
 
@@ -194,17 +208,27 @@ export function Models() {
             </Field>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="soft" onClick={generate} disabled={working}>
-                {working ? <Loader2 size={16} className="animate-spin-slow" /> : <Sparkles size={16} />}
+              <Button variant="soft" onClick={generate} disabled={busy}>
+                {generating ? <Loader2 size={16} className="animate-spin-slow" /> : <Sparkles size={16} />}
                 Wygeneruj modelkę z opisu
               </Button>
-              <label className="btn-ghost cursor-pointer">
+              {/* „Anuluj" tylko gdy trwa generacja (jest co przerwać — controller≠null). */}
+              {generating && (
+                <Button variant="ghost" onClick={() => controller?.abort()}>
+                  <X size={16} /> Anuluj
+                </Button>
+              )}
+              <label
+                className={clsx('btn-ghost', busy ? 'pointer-events-none opacity-50' : 'cursor-pointer')}
+                aria-disabled={busy}
+              >
                 <Plus size={16} /> Wgraj zdjęcia
                 <input
                   type="file"
                   accept="image/*"
                   multiple
                   hidden
+                  disabled={busy}
                   onChange={(e) => {
                     const files = Array.from(e.target.files ?? [])
                     if (files.length) addImages(files)
