@@ -35,9 +35,17 @@ export async function getBlob(
   remote: RemoteClient | null,
 ): Promise<Blob | undefined> {
   const rec = await db.images.get(id)
-  if (rec?.blob) return rec.blob
+  // Tylko NIEPUSTY lokalny blob jest uzyteczny. Pusty (0 B) bufor — np. zatruty
+  // wczesniej degeneracyjna odpowiedzia 200 — traktujemy jak brak, by sprobowac
+  // ponownie z R2 zamiast na stale zwracac nierenderowalny obraz.
+  if (rec?.blob && rec.blob.size > 0) return rec.blob
   if (!rec || !remote) return undefined
   const blob = await remote.getBlob(id)
-  if (blob) await db.images.update(id, { blob }) // cache; bypasses outbox/blob_outbox
-  return blob
+  // Nie buforuj i nie zwracaj pustej odpowiedzi — inaczej 0 B utrwaliloby sie
+  // lokalnie i blokowalo kazda kolejna probe pobrania (early-return powyzej).
+  if (blob && blob.size > 0) {
+    await db.images.update(id, { blob }) // cache; bypasses outbox/blob_outbox
+    return blob
+  }
+  return undefined
 }

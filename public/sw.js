@@ -1,7 +1,7 @@
 // Prosty Service Worker dla powloki aplikacji (offline shell).
 // Strategia: zasoby z tego samego origin — cache + odswiezanie w tle;
-// zapytania do zewnetrznych API (np. Gemini) zawsze ida przez siec.
-const CACHE = 'vinted-studio-v2'
+// zapytania do API (zewnetrzne jak Gemini ORAZ wlasne /api/*) zawsze ida przez siec.
+const CACHE = 'vinted-studio-v3'
 const CORE = [
   './',
   './index.html',
@@ -37,6 +37,11 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return // API zewnetrzne — tylko siec
+  // Wlasne API (synchronizacja + pelne obrazy z R2 pod /api/blob/{id}) to dane
+  // DYNAMICZNE i uwierzytelnione — NIGDY nie przez cache powloki. Strategia
+  // "cache-first" serwowala tu nieaktualna/pusta odpowiedz, przez co pelne zdjecia
+  // nie doczytywaly sie z R2 (widoczne jako rozmyty kwadrat). Zawsze prosto do sieci.
+  if (url.pathname.startsWith('/api/')) return
 
   event.respondWith(
     caches.match(request).then((cached) => {

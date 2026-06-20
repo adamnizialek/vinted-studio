@@ -85,4 +85,33 @@ describe('getBlob', () => {
     await db.images.put({ ...imageWithBlob('i3'), blob: undefined })
     expect(await getBlob('i3', null)).toBeUndefined()
   })
+
+  it('ignores a poisoned 0-byte local blob and refetches from R2', async () => {
+    // A degenerate empty blob (e.g. cached from a bad 200) must NOT short-circuit:
+    // it is unrenderable, so we re-fetch the real bytes instead of returning it.
+    await db.images.put({ ...imageWithBlob('i4'), blob: new Blob([], { type: 'image/jpeg' }) })
+    const remote = fakeRemote({
+      getBlob: vi.fn(async () => new Blob(['real'], { type: 'image/jpeg' })),
+    })
+
+    const blob = await getBlob('i4', remote)
+
+    expect(await blob!.text()).toBe('real')
+    expect(remote.getBlob).toHaveBeenCalledOnce()
+    const cached = await db.images.get('i4')
+    expect(await cached!.blob!.text()).toBe('real') // poisoned entry replaced
+  })
+
+  it('does not cache or return a 0-byte remote response', async () => {
+    // R2 / SW returning an empty 200 must not poison Dexie with a 0-byte blob,
+    // otherwise the early-return would block every future fetch forever.
+    await db.images.put({ ...imageWithBlob('i5'), blob: undefined })
+    const remote = fakeRemote({
+      getBlob: vi.fn(async () => new Blob([], { type: 'image/jpeg' })),
+    })
+
+    expect(await getBlob('i5', remote)).toBeUndefined()
+    const cached = await db.images.get('i5')
+    expect(cached!.blob).toBeUndefined() // not poisoned — stays empty, retryable
+  })
 })
