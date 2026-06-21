@@ -109,7 +109,7 @@ function tryParse(s: string): unknown {
  * zawiedzie, próbuje wyciąć najbardziej zewnętrzny obiekt/tablicę z otaczającego tekstu.
  * Zwraca null, gdy nic sensownego nie da się odczytać.
  */
-function parseJsonLoose(text: string): unknown {
+export function parseJsonLoose(text: string): unknown {
   if (!text) return null
   let s = text.trim()
   const fence = s.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i)
@@ -133,7 +133,7 @@ function parseJsonLoose(text: string): unknown {
 }
 
 /** Trim + zamiana pustego na undefined. Liczby skończone zamienia na string. */
-function toStr(v: unknown): string | undefined {
+export function toStr(v: unknown): string | undefined {
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : undefined
   if (typeof v !== 'string') return undefined
   const t = v.trim()

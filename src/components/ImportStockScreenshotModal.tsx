@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { db, importStock } from '@/db/db'
-import { extractFromImages, type InlineImage } from '@/lib/gemini'
+import { extractFromImages, MAX_BASE64_CHARS, MAX_RAW_BYTES, type InlineImage } from '@/lib/gemini'
 import {
   parseExtractionResponse,
   extractedToStockDrafts,
@@ -24,11 +24,6 @@ import { toast } from '@/state/toast'
 import { useSettings } from '@/state/settings'
 import { FileDrop } from '@/components/FileDrop'
 import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
-
-/** Limit łącznego rozmiaru base64 na żądanie (~14 MB) — pod progiem 20 MB Gemini inline. */
-const MAX_BASE64_CHARS = 14_000_000
-/** Odpowiadający limit surowych bajtów (base64 ≈ +33%) — do taniego pre-czeku przed kodowaniem. */
-const MAX_RAW_BYTES = MAX_BASE64_CHARS * 0.75
 
 /** Wiersz recenzji = przedmiot z odczytu + stan UI (klucz Reacta, zaznaczenie). */
 interface EditRow extends ExtractedItem {

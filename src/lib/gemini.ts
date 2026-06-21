@@ -17,6 +17,11 @@ const DEFAULT_TIMEOUT_MS = 60_000
 /** Liczba prób: pierwsza + jedno ponowienie błędu PRZEMIJAJĄCEGO. */
 const MAX_ATTEMPTS = 2
 
+/** Limit łącznego rozmiaru base64 na żądanie (~14 MB) — pod progiem 20 MB dla inline_data Gemini. */
+export const MAX_BASE64_CHARS = 14_000_000
+/** Odpowiadający limit surowych bajtów (base64 ≈ +33%) — tani pre-czek przed kodowaniem do base64. */
+export const MAX_RAW_BYTES = MAX_BASE64_CHARS * 0.75
+
 export class GeminiError extends Error {
   status?: number
   /** Czy błąd jest PRZEMIJAJĄCY i wart jednego ponowienia (timeout, sieć, 5xx). */

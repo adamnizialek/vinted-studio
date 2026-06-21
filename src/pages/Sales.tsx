@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { startOfMonth, startOfYear } from 'date-fns'
-import { Download, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
+import { Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Expense, Sale, SaleStatus } from '@/db/types'
@@ -12,6 +12,9 @@ import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
 import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
+import { addImageFromFile, getImageBlob } from '@/lib/images'
+import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
+import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/promotionScreenshot'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import { ImportSalesModal } from '@/components/ImportSalesModal'
 
@@ -30,6 +33,7 @@ export function Sales() {
   const [importOpen, setImportOpen] = useState(false)
   const [expOpen, setExpOpen] = useState(false)
   const [editingExp, setEditingExp] = useState<Expense | null>(null)
+  const [expIsNew, setExpIsNew] = useState(false) // nowy wpis → pokaż wczytywanie ze zrzutu
 
   const filtered = useMemo(() => {
     let list = sales ?? []
@@ -90,9 +94,11 @@ export function Sales() {
       amount: 0,
       currency,
       incurredAt: Date.now(),
+      source: 'manual',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
+    setExpIsNew(true)
     setExpOpen(true)
   }
 
@@ -270,7 +276,7 @@ export function Sales() {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1">
-                          <button onClick={() => { setEditingExp(e); setExpOpen(true) }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
+                          <button onClick={() => { setEditingExp(e); setExpIsNew(false); setExpOpen(true) }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
                             <Pencil size={14} />
                           </button>
                           <button onClick={() => removeExpense(e.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400">
@@ -288,7 +294,7 @@ export function Sales() {
       </div>
 
       <SaleModal open={open} onClose={() => setOpen(false)} sale={editing} accounts={accounts ?? []} />
-      <ExpenseModal open={expOpen} onClose={() => setExpOpen(false)} expense={editingExp} accounts={accounts ?? []} />
+      <ExpenseModal open={expOpen} onClose={() => setExpOpen(false)} expense={editingExp} accounts={accounts ?? []} allowScreenshot={expIsNew} />
       <ImportSalesModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
@@ -432,69 +438,222 @@ function SaleModal({
   )
 }
 
+/** Etykiety flag „sprawdź odczyt" (kolejność = priorytet wyświetlania). */
+const PROMO_FLAG_LABELS: Record<keyof PromotionFlags, string> = {
+  unknownType: 'nie rozpoznano rodzaju — wybierz ręcznie',
+  noAmount: 'nie odczytano kwoty — wpisz ręcznie',
+  labelAmountMismatch: 'sprawdź rodzaj i kwotę',
+  amountOutOfRange: 'kwota nietypowa',
+  nonPln: 'waluta inna niż zł — sprawdź kwotę',
+  durationOdd: 'nietypowy czas trwania — pominięto',
+  lowConfidence: 'niepewny odczyt',
+}
+
 function ExpenseModal({
   open,
   onClose,
   expense,
   accounts,
+  allowScreenshot,
 }: {
   open: boolean
   onClose: () => void
   expense: Expense | null
   accounts: { id: string; name: string }[]
+  allowScreenshot: boolean
 }) {
   const [form, setForm] = useState<Expense | null>(expense)
-  useEffect(() => setForm(expense), [expense])
+  const [shotFile, setShotFile] = useState<File | null>(null) // zrzut do zapisania przy zapisie kosztu
+  const [shotUrl, setShotUrl] = useState<string | null>(null) // podgląd (obiekt URL)
+  const [flags, setFlags] = useState<PromotionFlags | null>(null)
+  const [busy, setBusy] = useState(false)
+  const urlRef = useRef<string | null>(null)
+
+  // Ustawia podgląd zwalniając poprzedni obiekt URL (zapobiega wyciekom pamięci).
+  const setPreview = (url: string | null) => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+    urlRef.current = url
+    setShotUrl(url)
+  }
+
+  // Reset stanu pomocniczego, gdy zmienia się edytowany koszt.
+  useEffect(() => {
+    setForm(expense)
+    setShotFile(null)
+    setFlags(null)
+    setPreview(null)
+  }, [expense])
+
+  // Podgląd wcześniej zapisanego zrzutu (tryb edycji) — leniwie z IndexedDB/R2.
+  // Zależność od `open` sprawia, że zamknięcie przed rozwiązaniem (wolne R2) unieważnia
+  // odczyt (cleanup → alive=false), więc nie tworzymy obiektu URL do zamkniętego modala.
+  useEffect(() => {
+    let alive = true
+    if (open && expense?.screenshotImageId) {
+      getImageBlob(expense.screenshotImageId).then((b) => {
+        if (alive && b && !urlRef.current) setPreview(URL.createObjectURL(b))
+      })
+    }
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, expense?.screenshotImageId])
+
+  // Zwolnij obiekt URL podglądu przy odmontowaniu.
+  useEffect(
+    () => () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+    },
+    [],
+  )
+
+  // Zwolnij podgląd po zamknięciu modala — Modal odmontowuje dzieci, ale ten komponent trwa
+  // (renderowany bezwarunkowo na stronie), więc sprzątanie na unmount tu nie wystarcza.
+  useEffect(() => {
+    if (!open) setPreview(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
   if (!form) return null
   const set = <K extends keyof Expense>(k: K, v: Expense[K]) => setForm({ ...form, [k]: v })
+
+  // Wynik odczytu ze zrzutu → wstrzyknij do formularza (człowiek sprawdza i zapisuje).
+  const onRead = ({ draft, flags: f, file }: PromotionReadResult) => {
+    setForm((prev) => {
+      if (!prev) return prev
+      // Nie nadpisuj opisu wpisanego ręcznie — etykietą rodzaju zastępujemy tylko pusty/domyślny.
+      const keepDescription = prev.description.trim() && !Object.values(EXPENSE_KIND_LABELS).includes(prev.description)
+      return {
+        ...prev,
+        kind: draft.kind,
+        amount: draft.amount ?? prev.amount,
+        // Pokaż dokładnie to, co zostanie zapisane (flaga durationOdd osobno ostrzega o nietypowym odczycie).
+        durationDays: normalizeDuration(draft.kind, draft.durationDays),
+        currency: 'PLN', // Vinted PL rozlicza w zł; obca waluta → flaga nonPln do sprawdzenia
+        description: keepDescription ? prev.description : EXPENSE_KIND_LABELS[draft.kind],
+        source: 'screenshot',
+        ocrConfidence: draft.confidence,
+        screenshotImageId: undefined, // obraz zapiszemy dopiero przy zapisie kosztu
+      }
+    })
+    setShotFile(file)
+    setPreview(URL.createObjectURL(file))
+    setFlags(f)
+    toast.success(f.unknownType || f.noAmount ? 'Nie rozpoznano w pełni — uzupełnij ręcznie.' : 'Odczytano. Sprawdź dane przed zapisem.')
+  }
 
   const save = async () => {
     if (!form.description.trim()) return toast.error('Podaj opis kosztu.')
     if (!form.amount || form.amount <= 0) return toast.error('Podaj kwotę.')
-    await putEntity('expenses', form)
-    onClose()
-    toast.success('Zapisano koszt.')
+    setBusy(true)
+    try {
+      // Egzekwuj regułę czasu trwania w jednym miejscu (np. po ręcznej zmianie rodzaju na „Inne").
+      let toSave: Expense = { ...form, durationDays: normalizeDuration(form.kind, form.durationDays) }
+      // Zrzut zapisujemy jako obraz-dowód dopiero teraz — przy anulowaniu nie zostaje sierota.
+      if (shotFile && !toSave.screenshotImageId) {
+        try {
+          const img = await addImageFromFile(shotFile, 'reference')
+          toSave = { ...toSave, screenshotImageId: img.id }
+        } catch {
+          // Obraz to tylko dowód — gdy zapis się nie uda, i tak zapisujemy sam koszt.
+        }
+      }
+      await putEntity('expenses', toSave)
+      onClose()
+      toast.success('Zapisano koszt.')
+    } finally {
+      setBusy(false)
+    }
   }
+
+  // Podczas zapisu (addImageFromFile/putEntity nie są przerywalne) blokujemy zamknięcie,
+  // żeby „Anuluj"/Esc/tło nie sugerowały anulowania, które i tak dokończy zapis w tle.
+  const requestClose = () => {
+    if (!busy) onClose()
+  }
+
+  const activeFlags = flags ? (Object.keys(PROMO_FLAG_LABELS) as (keyof PromotionFlags)[]).filter((k) => flags[k]) : []
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       size="lg"
       title="Koszt promocji"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>Anuluj</Button>
-          <Button onClick={save}>Zapisz</Button>
+          <Button variant="ghost" onClick={requestClose} disabled={busy}>Anuluj</Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? <Loader2 size={16} className="animate-spin-slow" /> : 'Zapisz'}
+          </Button>
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Opis" className="sm:col-span-2">
-          <TextInput value={form.description} onChange={(e) => set('description', e.target.value)} autoFocus />
-        </Field>
-        <Field label="Rodzaj">
-          <Select value={form.kind} onChange={(e) => set('kind', e.target.value as Expense['kind'])}>
-            {Object.entries(EXPENSE_KIND_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={`Kwota (${form.currency})`}>
-          <TextInput type="number" inputMode="decimal" value={form.amount || ''} onChange={(e) => set('amount', Number(e.target.value) || 0)} />
-        </Field>
-        <Field label="Konto">
-          <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
-            <option value="">— brak —</option>
-            {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
-          </Select>
-        </Field>
-        <Field label="Data">
-          <TextInput type="date" value={dateInputValue(form.incurredAt)} onChange={(e) => set('incurredAt', dateFromInput(e.target.value, form.incurredAt))} />
-        </Field>
-        <Field label="Notatki" className="sm:col-span-2">
-          <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
-        </Field>
+      <div className="space-y-4">
+        {allowScreenshot && <PromotionScreenshotField onResult={onRead} disabled={busy} />}
+
+        {shotUrl && (
+          <div className="flex gap-3 rounded-xl bg-ink-50 p-3 ring-1 ring-ink-100 dark:bg-ink-900/40 dark:ring-ink-800">
+            <img src={shotUrl} alt="Zrzut ekranu" className="h-20 w-20 shrink-0 rounded-lg object-cover ring-1 ring-ink-100" />
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-xs text-ink-500">{flags ? 'Sprawdź odczyt przed zapisem.' : 'Zrzut ekranu (dowód).'}</p>
+              {activeFlags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeFlags.map((k) => (
+                    <span
+                      key={k}
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                    >
+                      {PROMO_FLAG_LABELS[k]}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Opis" className="sm:col-span-2">
+            <TextInput value={form.description} onChange={(e) => set('description', e.target.value)} autoFocus />
+          </Field>
+          <Field label="Rodzaj">
+            <Select value={form.kind} onChange={(e) => set('kind', e.target.value as Expense['kind'])}>
+              {Object.entries(EXPENSE_KIND_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={`Kwota (${form.currency})`}>
+            <TextInput type="number" inputMode="decimal" value={form.amount || ''} onChange={(e) => set('amount', Number(e.target.value) || 0)} />
+          </Field>
+          {form.kind !== 'other' && (
+            <Field label="Czas trwania">
+              <Select
+                value={form.durationDays ?? ''}
+                onChange={(e) => set('durationDays', e.target.value ? Number(e.target.value) : undefined)}
+              >
+                <option value="">— nie podano —</option>
+                {PROMO_DURATIONS.map((d) => (
+                  <option key={d} value={d}>{d} dni</option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <Field label="Konto">
+            <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
+              <option value="">— brak —</option>
+              {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+            </Select>
+          </Field>
+          <Field label="Data">
+            <TextInput type="date" value={dateInputValue(form.incurredAt)} onChange={(e) => set('incurredAt', dateFromInput(e.target.value, form.incurredAt))} />
+          </Field>
+          <Field label="Notatki" className="sm:col-span-2">
+            <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+          </Field>
+        </div>
       </div>
     </Modal>
   )

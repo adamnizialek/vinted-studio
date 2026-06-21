@@ -235,6 +235,9 @@ export interface Sale {
 
 export type ExpenseKind = 'boost' | 'exposure' | 'other' // podbicie / ekspozycja / inne
 
+/** Skąd pochodzi wpis kosztu: ręczny / import arkusza / odczyt ze zrzutu ekranu. */
+export type ExpenseSource = 'manual' | 'import' | 'screenshot'
+
 /** Koszt promocji (podbicie/ekspozycja) lub inny koszt nie-towarowy. */
 export interface Expense {
   id: ID
@@ -253,6 +256,14 @@ export interface Expense {
   updatedAt: number
   /** Klucz treści wiersza — do idempotentnego re-importu. */
   importKey?: string
+  /** Czas trwania promocji w dniach (Vinted: 3 lub 7). Tylko podbicie/ekspozycja. */
+  durationDays?: number
+  /** Pochodzenie wpisu — odróżnia odczyt AI od ręcznego (pola opcjonalne, bez migracji). */
+  source?: ExpenseSource
+  /** ID obrazu (tabela images, kind:'reference') ze zrzutem ekranu — dowód/audyt. */
+  screenshotImageId?: ID
+  /** Pewność odczytu AI 0–1 (gdy source==='screenshot') — tylko do audytu, nie do logiki. */
+  ocrConfidence?: number
 }
 
 /** Globalne ustawienia aplikacji (pojedynczy wiersz w tabeli `settings`). */
