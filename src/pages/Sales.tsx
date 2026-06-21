@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { startOfMonth, startOfYear } from 'date-fns'
-import { Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
+import { ChevronDown, Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Expense, Sale, SaleStatus } from '@/db/types'
@@ -13,6 +13,7 @@ import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, perce
 import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
+import { useLocalStorageState } from '@/lib/hooks'
 import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
 import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/promotionScreenshot'
 import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
@@ -34,6 +35,8 @@ export function Sales() {
   const [expOpen, setExpOpen] = useState(false)
   const [editingExp, setEditingExp] = useState<Expense | null>(null)
   const [expIsNew, setExpIsNew] = useState(false) // nowy wpis → pokaż wczytywanie ze zrzutu
+  // Zwinięcie tabeli sprzedaży — by szybko zejść do kosztów bez przewijania całej listy.
+  const [salesCollapsed, setSalesCollapsed] = useLocalStorageState('vinted-studio-sales-collapsed', false)
 
   const filtered = useMemo(() => {
     let list = sales ?? []
@@ -194,7 +197,30 @@ export function Sales() {
         />
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setSalesCollapsed((v) => !v)}
+            aria-expanded={!salesCollapsed}
+            aria-controls="sales-table-panel"
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-ink-50/50"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+              <ChevronDown
+                size={16}
+                className={clsx('text-ink-400 transition-transform', salesCollapsed && '-rotate-90')}
+              />
+              Sprzedaże
+              <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs font-medium tabular-nums text-ink-500">
+                {filtered.length}
+              </span>
+            </span>
+            <span className="text-xs font-medium text-ink-400">{salesCollapsed ? 'Pokaż' : 'Ukryj'}</span>
+          </button>
+          <div
+            id="sales-table-panel"
+            hidden={salesCollapsed}
+            className="overflow-x-auto border-t border-ink-100"
+          >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-ink-100 text-left text-xs uppercase tracking-wide text-ink-400">

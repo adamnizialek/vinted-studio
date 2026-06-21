@@ -91,3 +91,32 @@ export function useDebounced<T>(value: T, delay = 300): T {
   }, [value, delay])
   return v
 }
+
+/**
+ * Stan trzymany w localStorage — preferencja per-urzadzenie (nie synchronizowana,
+ * jak token sync). Odczyt/zapis w try/catch, bo storage bywa niedostepny (tryb
+ * prywatny, brak zgody); wtedy stan zyje tylko w pamieci. `initial` jest fallbackiem.
+ */
+export function useLocalStorageState<T>(
+  key: string,
+  initial: T,
+): [T, (v: T | ((prev: T) => T)) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key)
+      return raw === null ? initial : (JSON.parse(raw) as T)
+    } catch {
+      return initial
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      /* storage niedostepny — zostaje w pamieci */
+    }
+  }, [key, value])
+
+  return [value, setValue]
+}
