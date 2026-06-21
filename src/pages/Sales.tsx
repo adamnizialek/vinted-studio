@@ -35,8 +35,9 @@ export function Sales() {
   const [expOpen, setExpOpen] = useState(false)
   const [editingExp, setEditingExp] = useState<Expense | null>(null)
   const [expIsNew, setExpIsNew] = useState(false) // nowy wpis → pokaż wczytywanie ze zrzutu
-  // Zwinięcie tabeli sprzedaży — by szybko zejść do kosztów bez przewijania całej listy.
-  const [salesCollapsed, setSalesCollapsed] = useLocalStorageState('vinted-studio-sales-collapsed', false)
+  // Zwinięcie tabeli sprzedaży — domyślnie zwinięta, by od razu mieć dostęp do kosztów
+  // bez przewijania całej listy. Wybór użytkownika jest pamiętany per urządzenie.
+  const [salesCollapsed, setSalesCollapsed] = useLocalStorageState('vinted-studio-sales-collapsed', true)
 
   const filtered = useMemo(() => {
     let list = sales ?? []
