@@ -109,4 +109,13 @@ describe('visibleSizes', () => {
     const b = product({ id: 'b', status: 'sold' })
     expect(visibleSizes([a, b])).toEqual([a, b])
   })
+
+  it('keeps the single survivor when all but one are sold (no fallback)', () => {
+    const aSold = product({ id: 'a', status: 'sold' })
+    const survivor = product({ id: 'b', status: 'in_stock' })
+    const cSold = product({ id: 'c', status: 'sold' })
+    // Boundary between "filter" and "fall back": one non-sold size must NOT
+    // trigger the all-sold fallback.
+    expect(visibleSizes([aSold, survivor, cSold])).toEqual([survivor])
+  })
 })
