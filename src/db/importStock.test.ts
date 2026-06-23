@@ -71,4 +71,23 @@ describe('importStock end-to-end (fake-indexeddb)', () => {
     expect(p.color).toBeUndefined()
     expect(p.sizeLabel).toBeUndefined()
   })
+
+  it('dedups a screenshot re-import on the RAW read price even when the landed cost changed', async () => {
+    // Pierwszy import: koszt landed 95.42 (suma 190.84), klucz po cenie odczytanej 63.99.
+    await importStock([{ name: 'Buty', purchaseCost: 95.42, keyCost: 63.99 }])
+    expect(await db.products.count()).toBe(1)
+
+    // Ponowny import tego samego zrzutu z INNĄ sumą (inny koszt landed) — wciąż duplikat,
+    // bo klucz trzyma stabilną cenę odczytaną. Bez tego wstawiłby się drugi egzemplarz.
+    const res = await importStock([{ name: 'Buty', purchaseCost: 80, keyCost: 63.99 }])
+    expect(res.inserted).toBe(0)
+    expect(res.skippedDuplicates).toBe(1)
+    expect(await db.products.count()).toBe(1)
+  })
+
+  it('persists the landed purchaseCost, not the raw key cost', async () => {
+    await importStock([{ name: 'Buty', purchaseCost: 95.42, keyCost: 63.99 }])
+    const p = (await db.products.toArray()).find((x) => x.name === 'Buty')!
+    expect(p.purchasePrice).toBe(95.42)
+  })
 })

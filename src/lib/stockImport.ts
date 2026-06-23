@@ -22,6 +22,13 @@ export interface StockDraft {
   name: string
   purchaseCost?: number
   /**
+   * STABILNY koszt do klucza deduplikacji, niezależny od edytowalnej sumy zamówienia. Gdy
+   * zrzut ekranu rozkłada dostawę, `purchaseCost` to koszt landed (zmienny), a `keyCost` to
+   * cena ODCZYTANA (stała) — dzięki temu ponowny import jest idempotentny mimo zmiany sumy.
+   * Brak → klucz liczony z `purchaseCost` (import z CSV bez zmian, zgodnie wstecznie).
+   */
+  keyCost?: number
+  /**
    * Wzbogacenie pochodzące z importu ze zrzutu ekranu (vision). Opcjonalne i
    * czysto addytywne — import z CSV ich nie ustawia, więc jego zachowanie się nie zmienia.
    */
@@ -179,6 +186,15 @@ export interface KeyedStockDraft {
  */
 export function stockImportKey(name: string, purchaseCost?: number): string {
   return [normalizeForMatch(name), purchaseCost ?? ''].join('|')
+}
+
+/**
+ * Klucz dedup ze szkicu. Używa STABILNEGO `keyCost` (cena odczytana), a w jego braku
+ * `purchaseCost` — dzięki czemu import z CSV zachowuje się jak dawniej, a import ze zrzutu
+ * pozostaje idempotentny mimo zmiany sumy zamówienia (która zmienia tylko koszt landed).
+ */
+export function draftImportKey(d: { name: string; purchaseCost?: number; keyCost?: number }): string {
+  return stockImportKey(d.name, d.keyCost ?? d.purchaseCost)
 }
 
 /**

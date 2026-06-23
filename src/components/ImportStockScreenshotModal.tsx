@@ -5,15 +5,18 @@ import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { db, importStock } from '@/db/db'
 import { extractFromImages, MAX_BASE64_CHARS, MAX_RAW_BYTES, type InlineImage } from '@/lib/gemini'
 import {
-  parseExtractionResponse,
+  parseExtractionResult,
   extractedToStockDrafts,
+  allocateLandedCosts,
+  landedFactor,
   rowFlags,
   EXTRACTION_PROMPT,
   EXTRACTION_SCHEMA,
   type ExtractedItem,
+  type OrderTotals,
 } from '@/lib/screenshotImport'
 import {
-  stockImportKey,
+  draftImportKey,
   dedupKeyedStock,
   type KeyedStockDraft,
   type ResolvedStockDraft,
@@ -54,6 +57,8 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
   const [busy, setBusy] = useState(false) // zapis do bazy w toku
   const [accountId, setAccountId] = useState('') // opcjonalne konto dla całego importu
   const [extractedEmpty, setExtractedEmpty] = useState(false) // odczyt zakończony, 0 przedmiotów
+  const [orderTotal, setOrderTotal] = useState<number | undefined>(undefined) // suma zamówienia (z dostawą), edytowalna
+  const [readOrder, setReadOrder] = useState<OrderTotals>({}) // oryginalny odczyt sum — audyt/sanity-check
   const shotsRef = useRef<Shot[]>([])
   // Identyfikator bieżącego odczytu — unieważnia wyniki odczytów porzuconych (close)
   // lub wyprzedzonych (ponowny upload), by nie zapisać rzędów na zamkniętym modalu.
@@ -74,6 +79,8 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
     setShots([])
     setAccountId('')
     setExtractedEmpty(false)
+    setOrderTotal(undefined)
+    setReadOrder({})
     setReading(false)
     onClose()
   }
@@ -98,6 +105,8 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
     setShots(nextShots)
     setRows([])
     setExtractedEmpty(false)
+    setOrderTotal(undefined)
+    setReadOrder({})
     setReading(true)
     const id = ++reqId.current
     try {
@@ -116,13 +125,17 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
         responseSchema: EXTRACTION_SCHEMA,
       })
       if (reqId.current !== id) return // odczyt porzucony/wyprzedzony — nie zapisuj
-      const items = parseExtractionResponse(text)
+      const { items, order } = parseExtractionResult(text)
       if (!items.length) {
         setExtractedEmpty(true)
         toast.error('Nie znaleziono przedmiotów na zrzucie. Spróbuj wyraźniejszego zdjęcia zamówienia.')
         return
       }
       setRows(items.map((it, i) => ({ ...it, key: `shot-${i}`, include: true })))
+      setReadOrder(order)
+      // Pre-wypełnij sumę tylko, gdy w zł (lub waluta sum nieznana) — inaczej nie mieszamy z ceną w zł.
+      const totalIsPln = !order.currency || /^(pln|zł|zl)$/i.test(order.currency)
+      setOrderTotal(totalIsPln ? order.orderTotal : undefined)
     } catch (e) {
       if (reqId.current === id) toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać zrzutu ekranu.')
     } finally {
@@ -133,26 +146,42 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
   const patch = (key: string, changes: Partial<EditRow>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...changes } : r)))
 
-  // Wiersze faktycznie importowane: zaznaczone i BEZ nierozwiązanej obcej waluty.
+  // Rozkład landed liczony po PEŁNYM odczycie (wszystkie pozycje) — współczynnik dostawy ma
+  // wtedy poprawną podstawę, nawet gdy część pozycji odznaczysz. Zwraca te same wiersze (po
+  // indeksie) z ceną za sztukę zawierającą rozłożoną dostawę; bez sumy → ceny bez zmian.
+  const landedRows = useMemo(() => allocateLandedCosts(rows, orderTotal), [rows, orderTotal])
+  const factor = useMemo(() => landedFactor(rows, orderTotal), [rows, orderTotal])
+  const rawSubtotal = useMemo(() => rows.reduce((n, r) => n + (r.unitPrice ?? 0) * r.quantity, 0), [rows])
+
+  // Zaznaczone wiersze w zł (ceny ODCZYTANE) + ich koszt landed — wyrównane indeksami.
   // Wiersz w obcej walucie czeka, aż użytkownik wpisze cenę w zł (edycja czyści walutę),
   // żeby nie zapisać np. 4,99 USD jako 4,99 zł.
-  const includedRows = useMemo(() => rows.filter((r) => r.include && !rowFlags(r).nonPln), [rows])
+  const picked = useMemo(() => {
+    const sel: { raw: EditRow; landed: number | undefined }[] = []
+    rows.forEach((r, i) => {
+      if (r.include && !rowFlags(r).nonPln) sel.push({ raw: r, landed: landedRows[i]?.unitPrice })
+    })
+    return sel
+  }, [rows, landedRows])
   const needsCurrencyFix = useMemo(() => rows.filter((r) => r.include && rowFlags(r).nonPln).length, [rows])
 
-  // Podgląd: rozwiń zaznaczone wiersze na szkice (multizbiór), zdedupuj względem magazynu.
+  // Szkice do importu: purchaseCost = koszt landed (z dostawą), keyCost = cena odczytana
+  // (stabilny dedup, niezależny od edytowalnej sumy zamówienia).
+  const importDrafts = useMemo(
+    () => extractedToStockDrafts(picked.map((p) => p.raw), picked.map((p) => p.landed)),
+    [picked],
+  )
+
+  // Podgląd: zdedupuj szkice (multizbiór) względem magazynu po stabilnym kluczu odczytu.
   const { newCount, dupCount, totalCost } = useMemo(() => {
-    const drafts = extractedToStockDrafts(includedRows)
-    const keyed: KeyedStockDraft[] = drafts.map((d) => ({
-      key: stockImportKey(d.name, d.purchaseCost),
-      draft: d,
-    }))
+    const keyed: KeyedStockDraft[] = importDrafts.map((d) => ({ key: draftImportKey(d), draft: d }))
     const { toInsert, skipped } = dedupKeyedStock(existingCounts ?? new Map(), keyed)
     const cost = toInsert.reduce((n, k) => n + (k.draft.purchaseCost ?? 0), 0)
     return { newCount: toInsert.length, dupCount: skipped, totalCost: cost }
-  }, [includedRows, existingCounts])
+  }, [importDrafts, existingCounts])
 
   const doImport = async () => {
-    const drafts: ResolvedStockDraft[] = extractedToStockDrafts(includedRows).map((d) => ({
+    const drafts: ResolvedStockDraft[] = importDrafts.map((d) => ({
       ...d,
       accountId: accountId || undefined,
     }))
@@ -237,7 +266,8 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
           <div className="space-y-4">
             <p className="rounded-xl bg-ink-50 px-4 py-3 text-xs text-ink-500 ring-1 ring-ink-100 dark:bg-ink-900/40 dark:text-ink-300 dark:ring-ink-800">
               Sprawdź i popraw odczyt przed dodaniem. Ceny są <strong>za sztukę</strong>; ilość większa niż 1
-              doda osobny przedmiot za każdą sztukę. Konto przypiszesz później w Magazynie.
+              doda osobny przedmiot za każdą sztukę. Podaj sumę zamówienia poniżej, a dostawę rozłożymy na
+              sztuki. Konto przypiszesz później w Magazynie.
             </p>
 
             {accounts && accounts.length > 0 && (
@@ -253,14 +283,53 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
               </Field>
             )}
 
+            <Field label="Suma zamówienia z dostawą (opcjonalnie)">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="flex items-center gap-1">
+                  <NumberInput
+                    min={0}
+                    value={orderTotal}
+                    placeholder="suma"
+                    onValueChange={(n) => setOrderTotal(n != null && n > 0 ? n : undefined)}
+                    aria-label="Suma zamówienia z dostawą"
+                    className="w-28 text-right"
+                  />
+                  <span className="text-xs text-ink-400">zł</span>
+                </div>
+                {factor !== undefined && orderTotal !== undefined ? (
+                  <span className="text-xs text-ink-400">
+                    {orderTotal > rawSubtotal
+                      ? `+ ${money(orderTotal - rawSubtotal)} dostawy/cła`
+                      : orderTotal < rawSubtotal
+                        ? `− ${money(rawSubtotal - orderTotal)} rabatu`
+                        : 'bez dopłaty'}{' '}
+                    — rozłożone na sztuki proporcjonalnie do ceny.
+                  </span>
+                ) : orderTotal !== undefined ? (
+                  <span className="text-xs text-amber-600">
+                    Uzupełnij ceny wszystkich pozycji w zł, aby rozłożyć dostawę.
+                  </span>
+                ) : (
+                  <span className="text-xs text-ink-400">
+                    Wpisz „Sumę"/„Razem do zapłaty" z zamówienia, aby doliczyć dostawę do każdej sztuki.
+                  </span>
+                )}
+                {readOrder.subtotal !== undefined && Math.abs(readOrder.subtotal - rawSubtotal) >= 0.5 && (
+                  <span className="text-xs text-amber-600">
+                    Podsuma z odczytu ({money(readOrder.subtotal)}) ≠ suma cen pozycji ({money(rawSubtotal)}) — sprawdź ceny.
+                  </span>
+                )}
+              </div>
+            </Field>
+
             <div className="rounded-xl border border-ink-100">
               <div className="flex items-center justify-between border-b border-ink-100 px-4 py-2 text-sm font-semibold text-ink-700">
                 <span>Odczytane przedmioty ({rows.length})</span>
                 <span className="text-xs font-normal text-ink-400">{selectedCount} zaznaczonych</span>
               </div>
               <div className="divide-y divide-ink-50">
-                {rows.map((r) => (
-                  <ReviewLine key={r.key} r={r} onPatch={(c) => patch(r.key, c)} />
+                {rows.map((r, i) => (
+                  <ReviewLine key={r.key} r={r} landed={landedRows[i]?.unitPrice} onPatch={(c) => patch(r.key, c)} />
                 ))}
               </div>
             </div>
@@ -300,9 +369,20 @@ function Flag({
   )
 }
 
-function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<EditRow>) => void }) {
+function ReviewLine({
+  r,
+  landed,
+  onPatch,
+}: {
+  r: EditRow
+  landed?: number
+  onPatch: (changes: Partial<EditRow>) => void
+}) {
   const f = rowFlags(r)
   const variant = [r.color, r.size].filter(Boolean).join(' · ')
+  // Pokaż koszt landed (z rozłożoną dostawą), gdy różni się od odczytanej ceny za sztukę.
+  const showLanded =
+    landed !== undefined && r.unitPrice !== undefined && !f.nonPln && Math.abs(landed - r.unitPrice) >= 0.01
 
   return (
     <div className={clsx('px-4 py-3', !r.include && 'opacity-50')}>
@@ -346,10 +426,11 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
           <span className="text-xs text-ink-400">{f.nonPln ? r.currency : 'zł'}</span>
         </div>
       </div>
-      {(variant || r.priceText || f.bundle || f.nonPln || f.lowConfidence || f.noPrice) && (
+      {(variant || r.priceText || showLanded || f.bundle || f.nonPln || f.lowConfidence || f.noPrice) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7">
           {variant && <span className="text-xs text-ink-400">{variant}</span>}
           {r.priceText && <span className="text-xs text-ink-400">odczyt: {r.priceText}</span>}
+          {showLanded && <span className="text-xs font-medium text-emerald-600">→ {money(landed)} z dostawą</span>}
           {f.nonPln &&
             (r.unitPrice !== undefined ? (
               <Flag tone="warn" onClick={() => onPatch({ currency: undefined })}>

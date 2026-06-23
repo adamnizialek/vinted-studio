@@ -26,6 +26,24 @@ export interface ExtractedItem {
   confidence: ItemConfidence
 }
 
+/** Podsumowanie pieniężne zamówienia (nie pozycja) — do rozłożenia wysyłki/cła na sztuki. */
+export interface OrderTotals {
+  /** Wielka suma faktycznie zapłacona ("Suma") — z wysyłką/cłem/podatkiem, po rabatach. */
+  orderTotal?: number
+  /** Suma częściowa pozycji ("Podsuma") — przed wysyłką. Do audytu/sanity-check. */
+  subtotal?: number
+  /** Sama wysyłka, gdy widoczna osobno. Do audytu. */
+  shipping?: number
+  /** Waluta sum (wielkimi literami). */
+  currency?: string
+}
+
+/** Pełny odczyt: pozycje + podsumowanie pieniężne zamówienia. */
+export interface ExtractedResult {
+  items: ExtractedItem[]
+  order: OrderTotals
+}
+
 const MAX_QTY = 999
 
 // ---------------------------------------------------------------------------
@@ -67,9 +85,27 @@ export const EXTRACTION_SCHEMA = {
         propertyOrdering: ['name', 'brand', 'color', 'size', 'quantity', 'unitPrice', 'priceText', 'currency', 'bundle', 'confidence'],
       },
     },
+    // Podsumowanie pieniężne zamówienia (NIE pozycje). Pozwala rozłożyć wysyłkę/cło na sztuki.
+    orderSubtotal: {
+      type: 'NUMBER',
+      nullable: true,
+      description: 'The items subtotal BEFORE shipping (labels: "Podsuma", "Subtotal", "Suma częściowa"). null if not shown.',
+    },
+    orderTotal: {
+      type: 'NUMBER',
+      nullable: true,
+      description:
+        'The FINAL amount ACTUALLY PAID for the whole order — the bottom amount-to-pay line (labels: "Suma", "Razem", "Łącznie", "Do zapłaty", "Total"). It already includes shipping and customs/tax and subtracts any discounts/coins, so take the discounted amount even when it is SMALLER than the items subtotal, and ignore any struck-through original total. This is NOT the items subtotal ("Podsuma" / "Suma częściowa" / "Subtotal"); never return a subtotal. null if multiple separate orders are shown or it is not clearly readable.',
+    },
+    orderShipping: {
+      type: 'NUMBER',
+      nullable: true,
+      description: 'Shipping/delivery fee if shown as its own line (labels: "Dostawa", "Wysyłka", "Shipping"). null if free or not shown.',
+    },
+    orderCurrency: { type: 'STRING', nullable: true, description: 'Currency code of the order totals, e.g. PLN, USD, EUR. null if unknown.' },
   },
   required: ['items'],
-  propertyOrdering: ['items'],
+  propertyOrdering: ['items', 'orderSubtotal', 'orderTotal', 'orderShipping', 'orderCurrency'],
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +125,12 @@ Rules:
 - quantity: the number of units of this item ("x2" → 2). Default to 1 if not shown.
 - bundle: set true when the title or variant indicates a multi-piece set (PCS, Pieces, Set, Pack, 2-in-1, 3-piece, combo) — in that case the shown price is for the whole set, not per garment.
 - If a field is not clearly visible, return null for it. NEVER guess a value.
-- IGNORE: shipping fee, tax, seller discount / coupon / coins lines, order totals, promo banners, countdown timers, buttons (Confirm Receipt, Contact Seller…), tracking widgets, carrier logos. These are NOT items.
+- Do NOT add shipping, tax, discounts, coins or totals as item rows — they are NOT items. Instead capture the money summary in the top-level order fields below.
+
+Order money summary (top-level fields, NOT items):
+- orderTotal: the FINAL amount ACTUALLY PAID for the whole order — the bottom "amount to pay" line (labels: "Suma", "Razem", "Łącznie", "Do zapłaty", "Total"). It already includes shipping and customs/tax and subtracts any discounts/coins, so use the discounted amount even when it is SMALLER than the items subtotal, and ignore any struck-through original total. This number lets us spread shipping across the items, so read it carefully. It is NOT the items subtotal — never return a subtotal here.
+- orderSubtotal: the items subtotal BEFORE shipping ("Podsuma" / "Suma częściowa" / "Subtotal"). orderShipping: the shipping/delivery line if shown ("Dostawa" / "Wysyłka" / "Shipping"). orderCurrency: the currency of these totals.
+- If a total is not visible, return null for it. If screenshots show MORE THAN ONE order/shop, return null for orderTotal (do not sum across separate orders).
 - If no purchasable items are visible, return {"items": []}.`
 
 // ---------------------------------------------------------------------------
@@ -197,13 +238,7 @@ function toConfidence(v: unknown): ItemConfidence {
   return v === 'high' || v === 'medium' || v === 'low' ? v : 'low'
 }
 
-/**
- * Parsuje surowy tekst odpowiedzi modelu na listę przedmiotów. NIGDY nie rzuca:
- * błędny JSON → []. Akceptuje `{items:[…]}` oraz gołą tablicę. Odrzuca wiersze bez nazwy.
- */
-export function parseExtractionResponse(text: string): ExtractedItem[] {
-  const raw = parseJsonLoose(text)
-  if (!raw) return []
+function parseItemsFrom(raw: unknown): ExtractedItem[] {
   const arr = Array.isArray(raw)
     ? raw
     : raw && typeof raw === 'object' && Array.isArray((raw as { items?: unknown }).items)
@@ -233,6 +268,35 @@ export function parseExtractionResponse(text: string): ExtractedItem[] {
   return out
 }
 
+function parseOrderFrom(raw: unknown): OrderTotals {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const obj = raw as Record<string, unknown>
+  const order: OrderTotals = {}
+  const total = toPrice(obj.orderTotal)
+  const subtotal = toPrice(obj.orderSubtotal)
+  const shipping = toPrice(obj.orderShipping)
+  const currency = toStr(obj.orderCurrency)?.toUpperCase()
+  if (total !== undefined) order.orderTotal = total
+  if (subtotal !== undefined) order.subtotal = subtotal
+  if (shipping !== undefined) order.shipping = shipping
+  if (currency !== undefined) order.currency = currency
+  return order
+}
+
+/**
+ * Parsuje surowy tekst odpowiedzi modelu na pozycje + podsumowanie zamówienia. NIGDY nie
+ * rzuca: błędny JSON → puste. Akceptuje `{items:[…]}` oraz gołą tablicę (wtedy brak sum).
+ */
+export function parseExtractionResult(text: string): ExtractedResult {
+  const raw = parseJsonLoose(text)
+  return { items: parseItemsFrom(raw), order: parseOrderFrom(raw) }
+}
+
+/** Wstecznie zgodny skrót: same pozycje (bez podsumowania). Odrzuca wiersze bez nazwy. */
+export function parseExtractionResponse(text: string): ExtractedItem[] {
+  return parseItemsFrom(parseJsonLoose(text))
+}
+
 /**
  * Rozwija przedmioty na szkice magazynu: każda sztuka (quantity) = osobny szkic,
  * bo na Vinted każdy egzemplarz to osobne ogłoszenie (zgodnie z modelem `importStock`,
@@ -243,17 +307,21 @@ export function parseExtractionResponse(text: string): ExtractedItem[] {
  * są więc traktowane jak ten sam przedmiot przy ponownym imporcie — spójnie z importem z CSV.
  * Pierwszy import wstawia oba poprawnie; rozjazd możliwy tylko przy częściowym re-imporcie.
  */
-export function extractedToStockDrafts(items: ExtractedItem[]): StockDraft[] {
+export function extractedToStockDrafts(items: ExtractedItem[], landedUnit?: (number | undefined)[]): StockDraft[] {
   const drafts: StockDraft[] = []
-  for (const it of items) {
+  items.forEach((it, idx) => {
+    // Koszt do zapisu = landed (z dostawą), gdy podano; inaczej cena odczytana. Klucz dedup
+    // (keyCost) trzyma cenę ODCZYTANĄ, by ponowny import był idempotentny mimo zmiany sumy.
+    const cost = landedUnit?.[idx] ?? it.unitPrice
     const base: StockDraft = { name: it.name }
-    if (it.unitPrice !== undefined) base.purchaseCost = it.unitPrice
+    if (cost !== undefined) base.purchaseCost = cost
+    if (it.unitPrice !== undefined && it.unitPrice !== cost) base.keyCost = it.unitPrice
     if (it.brand) base.brand = it.brand
     if (it.color) base.color = it.color
     if (it.size) base.sizeLabel = it.size
     const qty = Math.max(1, Math.min(MAX_QTY, Math.floor(it.quantity || 1)))
     for (let i = 0; i < qty; i++) drafts.push({ ...base })
-  }
+  })
   return drafts
 }
 
@@ -277,4 +345,68 @@ export function rowFlags(it: ExtractedItem): RowFlags {
     lowConfidence: it.confidence === 'low',
     noPrice: it.unitPrice === undefined,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Rozłożenie kosztu landed (wysyłka/cło w cenie sztuki)
+// ---------------------------------------------------------------------------
+
+/** Zaokrąglenie do grosza (2 miejsca po przecinku). */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/**
+ * Współczynnik landed = (wielka suma zamówienia) / (suma częściowa pozycji ważona ilością).
+ * >1 gdy wysyłka/cło podnoszą koszt; <1 przy rabacie/monetach obniżających sumę.
+ * Zwraca undefined, gdy nie da się rzetelnie rozłożyć:
+ *  - brak / niedodatnia suma zamówienia,
+ *  - pusta lista,
+ *  - którakolwiek pozycja bez ceny (suma częściowa nieznana),
+ *  - jakakolwiek pozycja w obcej walucie (nie wolno mieszać z sumą w zł).
+ */
+export function landedFactor(items: ExtractedItem[], orderTotal: number | undefined): number | undefined {
+  if (orderTotal === undefined || !Number.isFinite(orderTotal) || orderTotal <= 0) return undefined
+  if (items.length === 0) return undefined
+  let subtotal = 0
+  for (const it of items) {
+    if (it.unitPrice === undefined) return undefined
+    if (rowFlags(it).nonPln) return undefined
+    subtotal += it.unitPrice * it.quantity
+  }
+  if (subtotal <= 0) return undefined
+  return orderTotal / subtotal
+}
+
+/**
+ * Rozkłada wielką sumę zamówienia (z wysyłką/cłem, po rabatach) na pozycje PROPORCJONALNIE
+ * do ich wartości — by `purchaseCost` (cena za sztukę) oddawał realny koszt landed. Zwraca
+ * NOWĄ listę z nadpisanym `unitPrice`; pozostałe pola (w tym `priceText` z oryginalnego
+ * odczytu) bez zmian. Resztę z zaokrąglenia parkuje na pozycji o ILOŚCI 1 (jeśli istnieje),
+ * więc suma kosztów (cena×ilość) trafia w sumę zamówienia co do grosza w typowym zamówieniu.
+ * Gdy WSZYSTKIE pozycje mają ilość > 1, dokładne trafienie jedną ceną za sztukę bywa
+ * niemożliwe — zostaje minimalna reszta (≤ ~liczba sztuk groszy). Cena nigdy nie schodzi < 0.
+ * Gdy rozkład się nie stosuje (zob. `landedFactor`), zwraca pozycje bez zmiany ceny.
+ */
+export function allocateLandedCosts(items: ExtractedItem[], orderTotal: number | undefined): ExtractedItem[] {
+  const factor = landedFactor(items, orderTotal)
+  if (factor === undefined) return items.map((it) => ({ ...it }))
+
+  const out = items.map((it) => ({ ...it, unitPrice: round2((it.unitPrice as number) * factor) }))
+  const achieved = out.reduce((n, it) => n + (it.unitPrice as number) * it.quantity, 0)
+  const drift = round2((orderTotal as number) - achieved)
+  if (drift !== 0) {
+    // Parkuj resztę na ostatniej pozycji o ilości 1 (wtedy reszta wchodzi w całości); gdy takiej
+    // nie ma — na ostatniej pozycji (reszta dzielona przez ilość, więc trafienie przybliżone).
+    let target = out.length - 1
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].quantity === 1) {
+        target = i
+        break
+      }
+    }
+    const t = out[target]
+    t.unitPrice = Math.max(0, round2((t.unitPrice as number) + drift / t.quantity))
+  }
+  return out
 }

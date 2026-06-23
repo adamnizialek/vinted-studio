@@ -26,7 +26,7 @@ import {
   type KeyedDraft,
 } from '@/lib/salesImport'
 import {
-  stockImportKey,
+  draftImportKey,
   dedupKeyedStock,
   type ResolvedStockDraft,
   type KeyedStockDraft,
@@ -683,7 +683,7 @@ export async function importStock(
     }
 
     const keyed: KeyedStockDraft[] = drafts.map((d) => ({
-      key: stockImportKey(d.name, d.purchaseCost),
+      key: draftImportKey(d),
       draft: d,
     }))
     const { toInsert, skipped } = dedupKeyedStock(counts, keyed)
