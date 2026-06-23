@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
-import { db, putEntity, groupProducts } from '@/db/db'
+import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
 import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -74,7 +74,11 @@ export function Inventory() {
   const [screenshotOpen, setScreenshotOpen] = useState(false)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Opcjonalny model docelowy: gdy zaznaczony, akcja DODAJE produkty do niego
+  // zamiast tworzyc nowy. Tylko jeden naraz (radio-like).
+  const [targetDesignId, setTargetDesignId] = useState<string | null>(null)
   const [groupOpen, setGroupOpen] = useState(false)
+  const [attaching, setAttaching] = useState(false)
 
   const toggleSelect = (id: string) =>
     setSelected((s) => {
@@ -83,9 +87,27 @@ export function Inventory() {
       else next.add(id)
       return next
     })
+  const toggleTargetDesign = (id: string) =>
+    setTargetDesignId((cur) => (cur === id ? null : id))
   const exitSelect = () => {
     setSelecting(false)
     setSelected(new Set())
+    setTargetDesignId(null)
+  }
+
+  const attachToModel = async () => {
+    if (!targetDesignId || selected.size < 1 || attaching) return
+    setAttaching(true)
+    try {
+      await attachProductsToDesign(targetDesignId, [...selected])
+      toast.success('Dodano do modelu 🧩')
+      exitSelect()
+      nav(`/magazyn/model/${targetDesignId}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nie udało się dodać do modelu.')
+    } finally {
+      setAttaching(false)
+    }
   }
 
   const filtered = useMemo<DisplayItem[]>(() => {
@@ -160,9 +182,15 @@ export function Inventory() {
             {selecting ? (
               <>
                 <Button variant="ghost" onClick={exitSelect}>Anuluj</Button>
-                <Button disabled={selected.size < 2} onClick={() => setGroupOpen(true)}>
-                  Połącz w model ({selected.size})
-                </Button>
+                {targetDesignId ? (
+                  <Button disabled={selected.size < 1 || attaching} onClick={attachToModel}>
+                    {attaching ? 'Dodaję…' : `Dodaj do modelu (${selected.size})`}
+                  </Button>
+                ) : (
+                  <Button disabled={selected.size < 2} onClick={() => setGroupOpen(true)}>
+                    Połącz w model ({selected.size})
+                  </Button>
+                )}
               </>
             ) : (
               <Button variant="ghost" onClick={() => setSelecting(true)}>Połącz</Button>
@@ -202,6 +230,14 @@ export function Inventory() {
           </div>
         }
       />
+
+      {selecting && (
+        <p className="mb-3 rounded-xl bg-brand-50 px-4 py-2.5 text-sm text-brand-700 ring-1 ring-brand-100">
+          {targetDesignId
+            ? 'Zaznaczone produkty trafią do wybranego modelu. Odznacz model, aby zamiast tego utworzyć nowy.'
+            : 'Zaznacz produkty, a opcjonalnie jeden istniejący model — produkty dołączą do niego zamiast tworzyć nowy.'}
+        </p>
+      )}
 
       {/* Filtry */}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
@@ -309,6 +345,9 @@ export function Inventory() {
                 design={it.design}
                 members={it.members}
                 cover={it.cover}
+                selecting={selecting}
+                selected={targetDesignId === it.design.id}
+                onToggle={() => toggleTargetDesign(it.design.id)}
                 onOpen={() => nav(`/magazyn/model/${it.design.id}`)}
               />
             ),
@@ -411,8 +450,9 @@ function GroupModal({ products, onClose, onConfirm }: {
   )
 }
 
-function DesignCard({ design, members, cover, onOpen }: {
+function DesignCard({ design, members, cover, onOpen, selecting, selected, onToggle }: {
   design: Design; members: Product[]; cover?: string; onOpen: () => void
+  selecting?: boolean; selected?: boolean; onToggle?: () => void
 }) {
   const prices = members.map((m) => m.listingPrice).filter((n): n is number => n != null)
   const currency = members[0]?.currency ?? 'PLN'
@@ -426,17 +466,27 @@ function DesignCard({ design, members, cover, onOpen }: {
     <div className="card group relative overflow-hidden transition hover:shadow-pop">
       <button
         type="button"
-        aria-label={`Otworz model ${design.name || 'model'}`}
-        onClick={onOpen}
+        aria-label={selecting ? `Wybierz model ${design.name || 'model'} jako docelowy` : `Otworz model ${design.name || 'model'}`}
+        onClick={() => (selecting ? onToggle?.() : onOpen())}
         className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400"
       />
+      {selecting && (
+        <label className="pointer-events-auto absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-lg bg-surface/90 ring-1 ring-ink-200">
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={() => onToggle?.()}
+            aria-label="Wybierz jako model docelowy"
+          />
+        </label>
+      )}
       <div className="pointer-events-none relative z-10">
         <div className="relative aspect-square w-full bg-ink-100">
           <Thumb imageId={cover} className="h-full w-full object-cover" alt={design.name} />
           <span className="badge absolute left-2 top-2 bg-ink-900/80 text-white">
             {members.length} {rozmiarLabel(members.length)}
           </span>
-          {design.generatedPhotoIds.length > 0 && (
+          {!selecting && design.generatedPhotoIds.length > 0 && (
             <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
               AI {design.generatedPhotoIds.length}
             </span>

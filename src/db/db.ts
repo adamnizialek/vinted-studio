@@ -810,6 +810,91 @@ export async function groupProducts(
   })
 }
 
+/**
+ * Dodaje istniejace, SAMODZIELNE produkty do JUZ istniejacego modelu. Odpowiednik
+ * `groupProducts`, ale celem jest gotowy Design — nie tworzy nowego. Zdjecia/opisy/
+ * tagi dolaczanych produktow sa scalane do modelu (dedup po id; tresc modelu jest
+ * pierwsza i kanoniczna, zachowany dokladnie jeden `active`). Kazdy dolaczony produkt:
+ * designId = model.id, pola wspolne wyczyszczone, jego obrazy przejmuje model; pola
+ * per-size (rozmiar, cena, stan, konto…) zostaja. Produkty juz bedace w jakims modelu
+ * sa pomijane (np. wybrany przez pomylke inny model).
+ */
+export async function attachProductsToDesign(
+  designId: string,
+  productIds: string[],
+): Promise<Design> {
+  const uniqueIds = [...new Set(productIds)]
+  const now = Date.now()
+  return db.transaction('rw', db.products, db.designs, db.images, db.outbox, async () => {
+    const design = await db.designs.get(designId)
+    if (!design) throw new Error('Nie znaleziono modelu docelowego.')
+    const loaded = await Promise.all(uniqueIds.map((id) => db.products.get(id)))
+    const incoming = loaded.filter((p): p is Product => !!p && !p.designId)
+    if (incoming.length === 0)
+      throw new Error('Zaznacz przynajmniej jeden samodzielny produkt do dodania.')
+
+    const dedup = (xs: string[]) => [...new Set(xs)]
+    const photoIds = dedup([...design.photoIds, ...incoming.flatMap((p) => p.photoIds)])
+    const generatedPhotoIds = dedup([
+      ...design.generatedPhotoIds,
+      ...incoming.flatMap((p) => p.generatedPhotoIds),
+    ])
+    const tags = dedup([...design.tags, ...incoming.flatMap((p) => p.tags)])
+
+    const seen = new Set<string>()
+    const merged: SavedDescription[] = []
+    for (const d of [...design.descriptions, ...incoming.flatMap((p) => p.descriptions)])
+      if (!seen.has(d.id)) { seen.add(d.id); merged.push({ ...d }) }
+    // Zachowaj aktywny opis modelu; gdy model go nie mial — pierwszy scalony.
+    const keepActiveId = design.descriptions.find((d) => d.active)?.id
+    const descriptions = merged.map((d, i) => ({
+      ...d,
+      active: keepActiveId ? d.id === keepActiveId : i === 0,
+    }))
+
+    const updated: Design = {
+      ...design,
+      tags,
+      photoIds,
+      generatedPhotoIds,
+      descriptions,
+      updatedAt: now,
+    }
+    await db.designs.put(updated)
+    await db.outbox.put({ table: 'designs', id: designId, deleted: 0, updatedAt: now })
+
+    // Przejmij obrazy dotad nalezace do dolaczanych produktow (obrazy modelu juz maja designId).
+    for (const imgId of dedup(incoming.flatMap((p) => [...p.photoIds, ...p.generatedPhotoIds]))) {
+      const img = await db.images.get(imgId)
+      if (!img) continue
+      await db.images.put({ ...img, designId, productId: undefined, updatedAt: now })
+      await db.outbox.put({ table: 'images', id: imgId, deleted: 0, updatedAt: now })
+    }
+
+    for (const p of incoming) {
+      const next: Product = {
+        ...p,
+        designId,
+        name: '',
+        brand: undefined,
+        color: undefined,
+        material: undefined,
+        category: undefined,
+        tags: [],
+        photoIds: [],
+        generatedPhotoIds: [],
+        // Okladka jest per-produkt — w modelu zdjecia sa wspolne (patrz groupProducts).
+        coverImageId: undefined,
+        descriptions: [],
+        updatedAt: now,
+      }
+      await db.products.put(next)
+      await db.outbox.put({ table: 'products', id: p.id, deleted: 0, updatedAt: now })
+    }
+    return updated
+  })
+}
+
 /** Klonuje wiersz obrazu na wlasnosc produktu (nowy id, ten sam blob). */
 async function cloneImageRow(
   id: string,

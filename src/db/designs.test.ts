@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { db, putEntity, exportAll, importAll, clearAllData, groupProducts, addSizeToDesign, dissolveDesign, deleteDesignCascade, deleteProductCascade } from './db'
+import { db, putEntity, exportAll, importAll, clearAllData, groupProducts, attachProductsToDesign, addSizeToDesign, dissolveDesign, deleteDesignCascade, deleteProductCascade } from './db'
 import type { Design, Product } from './types'
 
 const sampleProduct = (id: string, over: Partial<Product> = {}): Product => ({
@@ -132,6 +132,88 @@ describe('groupProducts', () => {
     const design = await groupProducts(['p1', 'p1', 'p2'], 'p1')
     const members = await db.products.where('designId').equals(design.id).toArray()
     expect(members.map((m) => m.id).sort()).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('attachProductsToDesign', () => {
+  it('attaches standalone products to an existing model and merges shared content', async () => {
+    await db.images.bulkPut([
+      { id: 'shared', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', designId: 'd1', createdAt: 1, updatedAt: 1 },
+      { id: 'inew', mime: 'image/jpeg', width: 1, height: 1, thumb: 't', kind: 'product', productId: 'pNew', createdAt: 1, updatedAt: 1 },
+    ])
+    await db.designs.put({ ...sampleDesign(), brand: 'NF', tags: ['x'], photoIds: ['shared'],
+      descriptions: [{ id: 'dShared', styleId: 's', styleLabel: 'S', text: 't', active: true, createdAt: 1 }] })
+    await db.products.bulkPut([
+      sampleProduct('pS', { designId: 'd1', name: '', sizeLabel: 'S' }),
+      sampleProduct('pNew', { name: 'Kurtka NYC', brand: 'NF', sizeLabel: 'L', listingPrice: 80,
+        photoIds: ['inew'], coverImageId: 'inew', tags: ['y'],
+        descriptions: [{ id: 'dNew', styleId: 's', styleLabel: 'S', text: 'n', active: true, createdAt: 1 }] }),
+    ])
+    await db.outbox.clear()
+
+    const updated = await attachProductsToDesign('d1', ['pNew'])
+
+    // Shared content merged (design's first, then incoming; dedup by id).
+    expect(updated.photoIds).toEqual(['shared', 'inew'])
+    expect(updated.tags.sort()).toEqual(['x', 'y'])
+    expect(updated.descriptions.map((d) => d.id)).toEqual(['dShared', 'dNew'])
+    // The model's active description is preserved; the incoming one is demoted.
+    expect(updated.descriptions.filter((d) => d.active).map((d) => d.id)).toEqual(['dShared'])
+
+    // The attached product becomes a size variant: designId set, shared fields cleared,
+    // per-size fields (size, price) kept, cover cleared.
+    const pNew = await db.products.get('pNew')
+    expect(pNew?.designId).toBe('d1')
+    expect(pNew?.name).toBe('')
+    expect(pNew?.photoIds).toEqual([])
+    expect(pNew?.coverImageId).toBeUndefined()
+    expect(pNew?.sizeLabel).toBe('L')
+    expect(pNew?.listingPrice).toBe(80)
+
+    // Its image is re-parented to the model.
+    expect((await db.images.get('inew'))?.designId).toBe('d1')
+    expect((await db.images.get('inew'))?.productId).toBeUndefined()
+
+    // Outbox entries for design, product and re-parented image.
+    expect((await db.outbox.get(['designs', 'd1']))?.deleted).toBe(0)
+    expect(await db.outbox.get(['products', 'pNew'])).toBeTruthy()
+    expect(await db.outbox.get(['images', 'inew'])).toBeTruthy()
+    // Pre-existing member untouched (still belongs to the model).
+    expect((await db.products.get('pS'))?.designId).toBe('d1')
+  })
+
+  it('skips products already in a model and throws when none remain standalone', async () => {
+    await db.designs.put(sampleDesign('d1'))
+    await db.designs.put(sampleDesign('dOther'))
+    await db.products.put(sampleProduct('pOther', { designId: 'dOther', name: '' }))
+    await expect(attachProductsToDesign('d1', ['pOther'])).rejects.toThrow()
+    // Untouched: still belongs to its original model.
+    expect((await db.products.get('pOther'))?.designId).toBe('dOther')
+  })
+
+  it('attaches only the standalone products when the selection is mixed', async () => {
+    await db.designs.put(sampleDesign('d1'))
+    await db.designs.put(sampleDesign('dOther'))
+    await db.products.bulkPut([
+      sampleProduct('pStand', { name: 'NYC', sizeLabel: 'M' }),
+      sampleProduct('pGrouped', { designId: 'dOther', name: '' }),
+    ])
+    await attachProductsToDesign('d1', ['pStand', 'pGrouped'])
+    expect((await db.products.get('pStand'))?.designId).toBe('d1')
+    expect((await db.products.get('pGrouped'))?.designId).toBe('dOther') // unchanged
+  })
+
+  it('throws when the target model does not exist', async () => {
+    await db.products.put(sampleProduct('pStand', { name: 'NYC' }))
+    await expect(attachProductsToDesign('missing', ['pStand'])).rejects.toThrow()
+  })
+
+  it('activates the first description when the model had none active', async () => {
+    await db.designs.put({ ...sampleDesign(), descriptions: [] })
+    await db.products.put(sampleProduct('pNew', { name: 'NYC',
+      descriptions: [{ id: 'dN', styleId: 's', styleLabel: 'S', text: 'n', active: false, createdAt: 1 }] }))
+    const updated = await attachProductsToDesign('d1', ['pNew'])
+    expect(updated.descriptions.filter((d) => d.active).map((d) => d.id)).toEqual(['dN'])
   })
 })
 
