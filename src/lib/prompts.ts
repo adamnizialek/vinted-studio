@@ -247,6 +247,7 @@ export function buildPhotoPrompt(input: PhotoPromptInput): string {
     `generate a realistic photo of THE SAME person — keep their face, identity, hair, skin tone and body proportions perfectly consistent with the reference — now wearing ${garment}.`,
     identity + modelNotes,
     'CRITICAL: preserve the garment exactly as in the product photo — same colour, print, pattern, texture, cut, length and all details. Fit it naturally on the body with realistic folds and draping.',
+    buildStylingClause(input.product),
     scene,
     `Framing/orientation: ${aspect}. Photorealistic, sharp focus on the clothing, natural realistic lighting and skin, correct anatomy and hands.`,
     'It must look like a genuine second-hand clothing listing photo. No text, no watermark, no brand logos overlaid.',
@@ -259,6 +260,20 @@ export function buildPhotoPrompt(input: PhotoPromptInput): string {
 function describeGarment(p: Product): string {
   const bits = [p.color, p.brand, p.name].filter(Boolean).join(' ')
   return bits ? `this ${bits}` : 'this clothing item'
+}
+
+function buildStylingClause(p?: Product): string {
+  const heroColor = p?.color?.trim() ? ` (which is ${p.color.trim()})` : ''
+  return [
+    `STYLING: Beyond the hero garment, dress the model in a complete, well-coordinated outfit`,
+    `chosen to flatter and complement THIS item${heroColor} — tasteful, understated pieces`,
+    `(simple bottoms or top, plain shoes) in neutral or softly coordinating colours.`,
+    `The complementary pieces must stay quiet and supporting: no loud prints, bold colours, large`,
+    `logos or statement accessories that compete with the hero garment, which stays the clear focal`,
+    `point. Do NOT copy the plain basics from the reference image — restyle the surrounding clothing`,
+    `freshly (the reference is ONLY for the person's identity, not their clothes). Keep accessories`,
+    `minimal. It must stay obvious that the hero garment is the single item being presented.`,
+  ].join(' ')
 }
 
 // ─────────────────────────────────────────────────────────────────────────

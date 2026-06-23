@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { AppSettings, Product } from '@/db/types'
 import {
   buildDescriptionPrompt,
+  buildPhotoPrompt,
   buildProductFacts,
   buildSeoTitle,
   DESCRIPTION_STYLES,
@@ -158,5 +159,55 @@ describe('buildDescriptionPrompt', () => {
     const without = buildDescriptionPrompt(p, style, settings({ appendSignature: false, signature: 'Wysyłka 24h' }))
     expect(withSig).toContain('Wysyłka 24h')
     expect(without).not.toContain('Wysyłka 24h')
+  })
+})
+
+describe('buildPhotoPrompt — automatic outfit styling', () => {
+  it('adds the styling clause and keeps the hero garment the focal point (tryOn)', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'tryOn',
+      product: product({ name: 'sukienka', color: 'czerwona' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).toContain('STYLING:')
+    expect(prompt).toContain('focal point')
+    expect(prompt).toContain('single item')
+  })
+
+  it('weaves the product colour into the styling clause when present', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'tryOn',
+      product: product({ name: 'sukienka', color: 'czerwona' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).toContain('(which is czerwona)')
+  })
+
+  it('omits the colour parenthetical when the product has no colour', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'tryOn',
+      product: product({ name: 'sukienka' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).toContain('STYLING:')
+    expect(prompt).not.toContain('(which is')
+  })
+
+  it('does not add styling in enhance mode', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'enhance',
+      product: product({ name: 'sukienka', color: 'czerwona' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).not.toContain('STYLING:')
+  })
+
+  it('still preserves the hero garment exactly (tryOn)', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'tryOn',
+      product: product({ name: 'sukienka' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).toContain('CRITICAL: preserve the garment exactly')
   })
 })
