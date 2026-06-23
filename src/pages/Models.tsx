@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Loader2, Plus, Sparkles, Star, Trash2, Shirt, X } from 'lucide-react'
+import { Images, Loader2, Plus, Sparkles, Star, Trash2, Shirt, X } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, deleteModelCascade, putEntity } from '@/db/db'
 import type { AiModel } from '@/db/types'
@@ -13,9 +13,65 @@ import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { Button, EmptyState, Field, Modal, SectionTitle, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
+import { ModelGallery } from '@/components/ModelGallery'
+
+type ModelsTab = 'models' | 'gallery'
+
+/** Siatka zapisanych modelek (zakładka „Modelki") + pusty stan. */
+function ModelsGrid({
+  models,
+  onNew,
+  onOpen,
+}: {
+  models: AiModel[] | undefined
+  onNew: () => void
+  onOpen: (m: AiModel) => void
+}) {
+  return (
+    <>
+      {models && models.length === 0 && (
+        <EmptyState
+          icon={<Shirt size={40} />}
+          title="Brak modelek"
+          description="Dodaj zdjęcia referencyjne istniejącej modelki albo wygeneruj nową z opisu. Posłuży do przymierzania ubrań."
+          action={
+            <Button onClick={onNew}>
+              <Plus size={16} /> Stwórz modelkę
+            </Button>
+          }
+        />
+      )}
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {models?.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => onOpen(m)}
+            className="card overflow-hidden text-left transition hover:shadow-pop"
+          >
+            <div className="aspect-[3/4] w-full bg-ink-100">
+              <Thumb
+                imageId={m.coverImageId ?? m.referenceImageIds[0]}
+                className="h-full w-full object-cover"
+                alt={m.name}
+              />
+            </div>
+            <div className="p-3">
+              <p className="truncate font-semibold text-ink-900">{m.name}</p>
+              <p className="text-xs text-ink-400">
+                {m.referenceImageIds.length} zdjęć referencyjnych
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
 
 export function Models() {
   const models = useLiveQuery(() => db.models.orderBy('createdAt').reverse().toArray(), [])
+  const [tab, setTab] = useState<ModelsTab>('models')
   const [editing, setEditing] = useState<AiModel | null>(null)
   const [open, setOpen] = useState(false)
   // Dwie NIEZALEŻNE operacje async (wgrywanie plików vs generowanie z API) muszą
@@ -129,45 +185,46 @@ export function Models() {
         title="Modelki AI"
         subtitle="Stwórz spójną postać (z wgranych zdjęć lub wygenerowaną), na której ubierzesz produkty w Studio."
         right={
-          <Button onClick={startNew}>
-            <Plus size={16} /> Nowa modelka
-          </Button>
+          tab === 'models' ? (
+            <Button onClick={startNew}>
+              <Plus size={16} /> Nowa modelka
+            </Button>
+          ) : undefined
         }
       />
 
-      {models && models.length === 0 && (
-        <EmptyState
-          icon={<Shirt size={40} />}
-          title="Brak modelek"
-          description="Dodaj zdjęcia referencyjne istniejącej modelki albo wygeneruj nową z opisu. Posłuży do przymierzania ubrań."
-          action={
-            <Button onClick={startNew}>
-              <Plus size={16} /> Stwórz modelkę
-            </Button>
-          }
-        />
-      )}
-
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {models?.map((m) => (
+      <div className="mb-5 inline-flex gap-1 rounded-xl bg-ink-100 p-1">
+        {(
+          [
+            { id: 'models', label: 'Modelki', icon: Shirt },
+            { id: 'gallery', label: 'Galeria', icon: Images },
+          ] as const
+        ).map(({ id, label, icon: Icon }) => (
           <button
-            key={m.id}
-            onClick={() => {
-              setEditing(m)
-              setOpen(true)
-            }}
-            className="card overflow-hidden text-left transition hover:shadow-pop"
+            key={id}
+            onClick={() => setTab(id)}
+            className={clsx(
+              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition',
+              tab === id ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-700',
+            )}
           >
-            <div className="aspect-[3/4] w-full bg-ink-100">
-              <Thumb imageId={m.coverImageId ?? m.referenceImageIds[0]} className="h-full w-full object-cover" alt={m.name} />
-            </div>
-            <div className="p-3">
-              <p className="truncate font-semibold text-ink-900">{m.name}</p>
-              <p className="text-xs text-ink-400">{m.referenceImageIds.length} zdjęć referencyjnych</p>
-            </div>
+            <Icon size={15} /> {label}
           </button>
         ))}
       </div>
+
+      {tab === 'gallery' ? (
+        <ModelGallery models={models} />
+      ) : (
+        <ModelsGrid
+          models={models}
+          onNew={startNew}
+          onOpen={(m) => {
+            setEditing(m)
+            setOpen(true)
+          }}
+        />
+      )}
 
       <Modal
         open={open}
