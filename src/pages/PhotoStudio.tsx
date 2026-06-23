@@ -349,7 +349,9 @@ export function PhotoStudio() {
               {product.generatedPhotoIds.map((id) => (
                 <div key={id} className="group relative overflow-hidden rounded-2xl bg-ink-100 ring-1 ring-ink-100">
                   <FullImage imageId={id} className="aspect-[3/4] w-full object-cover" />
-                  <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
+                  {/* Na dotyku nie ma :hover — pasek akcji (pobierz/usuń) musi być
+                      od razu widoczny na telefonie; na desktopie chowamy do hovera. */}
+                  <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
                     <button onClick={() => download(id)} className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface" title="Pobierz">
                       <Download size={15} />
                     </button>

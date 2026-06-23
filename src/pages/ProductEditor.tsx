@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   Copy,
+  Download,
   ExternalLink,
   Loader2,
   Plus,
@@ -63,7 +64,8 @@ import {
   styleById,
 } from '@/lib/prompts'
 import { generateText } from '@/lib/gemini'
-import { addImageFromFile } from '@/lib/images'
+import { addImageFromFile, getImageBlob } from '@/lib/images'
+import { downloadBlob } from '@/lib/csv'
 import { Button, Field, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
@@ -771,6 +773,7 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
               <PhotoCell
                 key={id}
                 id={id}
+                name={draft.name}
                 onRemove={() => removePhoto(id, 'orig')}
                 isCover={showCover && cover === id}
                 onSetCover={showCover ? () => update({ coverImageId: id }) : undefined}
@@ -798,6 +801,7 @@ function PhotosTab({ draft, update, imageLink }: { draft: Product; update: Updat
                 key={id}
                 id={id}
                 ai
+                name={draft.name}
                 onRemove={() => removePhoto(id, 'gen')}
                 isCover={showCover && cover === id}
                 onSetCover={showCover ? () => update({ coverImageId: id }) : undefined}
@@ -816,13 +820,55 @@ function PhotoCell({
   ai,
   isCover,
   onSetCover,
+  name,
 }: {
   id: string
   onRemove: () => void
   ai?: boolean
   isCover?: boolean
   onSetCover?: () => void
+  name?: string
 }) {
+  const [downloading, setDownloading] = useState(false)
+
+  // Pobiera PEŁNY blob (lokalny lub doczytany leniwie z R2) i zapisuje go jako plik.
+  // Siatka pokazuje tylko miniaturę 320 px (`Thumb`); na telefonie jedynym sposobem
+  // na „pobranie" było przytrzymanie zdjęcia → „Zapisz", co zapisywało właśnie tę
+  // miniaturę w bardzo niskiej rozdzielczości. Ten przycisk daje pełny zapisany blob:
+  // zdjęcia AI w pełnym 2K/4K, oryginały w ~1600 px (uploady skalujemy przy imporcie).
+  const download = async () => {
+    if (downloading) return
+    setDownloading(true)
+    try {
+      const blob = await getImageBlob(id)
+      if (!blob) {
+        toast.error('Nie udało się pobrać pełnego zdjęcia. Sprawdź połączenie i spróbuj ponownie.')
+        return
+      }
+      const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+      const filename = `vinted-${name || 'zdjecie'}-${id.slice(0, 6)}.${ext}`
+      // Na telefonie natywny arkusz udostępniania („Zapisz w Zdjęciach/Plikach") jest
+      // pewniejszy niż <a download>, które iOS Safari często ignoruje (otwiera blob
+      // zamiast zapisać). Na desktopie canShare zwykle daje false → klasyczne pobranie.
+      const file = new File([blob], filename, { type: blob.type || 'image/jpeg' })
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] })
+          return
+        } catch (e) {
+          // Anulowanie arkusza przez użytkownika to nie błąd — nie pobieraj awaryjnie.
+          if (e instanceof DOMException && e.name === 'AbortError') return
+          // Inny błąd udostępniania → spróbuj klasycznego pobrania poniżej.
+        }
+      }
+      downloadBlob(filename, blob)
+    } catch {
+      toast.error('Nie udało się pobrać zdjęcia.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <div className="group relative overflow-hidden rounded-xl bg-ink-100">
       <Thumb imageId={id} className="aspect-square w-full object-cover" />
@@ -843,6 +889,18 @@ function PhotoCell({
           <Star size={13} fill={isCover ? 'currentColor' : 'none'} />
         </button>
       )}
+      {/* Zawsze widoczny (nie chowamy za :hover) — na dotyku nie ma kursora, a to
+          właśnie mobilni użytkownicy potrzebują pełnej rozdzielczości zamiast
+          przytrzymania miniatury. */}
+      <button
+        onClick={download}
+        disabled={downloading}
+        title={ai ? 'Pobierz w pełnej rozdzielczości' : 'Pobierz zdjęcie'}
+        aria-label={ai ? 'Pobierz w pełnej rozdzielczości' : 'Pobierz zdjęcie'}
+        className="absolute bottom-1.5 right-1.5 rounded-lg bg-black/50 p-1 text-white transition hover:bg-black/70 disabled:opacity-60"
+      >
+        {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+      </button>
       <button
         onClick={onRemove}
         className="absolute right-1.5 top-1.5 rounded-lg bg-black/50 p-1 text-white opacity-0 transition group-hover:opacity-100"
