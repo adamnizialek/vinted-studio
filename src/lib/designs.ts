@@ -31,3 +31,14 @@ export function resolveProduct(product: Product, designsById: Map<ID, Design>): 
     descriptions: d.descriptions,
   }
 }
+
+/**
+ * Rozmiary pokazywane w pasku rozmiarow edytora modelu. Sprzedane rozmiary znikaja
+ * — po sprzedazy zyja w Sprzedazy i nie sa juz stanem roboczym — CHYBA ze sprzedane
+ * sa wszystkie; wtedy zwracamy je, by edytor nigdy nie byl pusty (np. otwarcie w pelni
+ * sprzedanego modelu z filtra „Sprzedane"). Kolejnosc wejscia zachowana.
+ */
+export function visibleSizes(members: Product[]): Product[] {
+  const active = members.filter((m) => m.status !== 'sold')
+  return active.length ? active : members
+}

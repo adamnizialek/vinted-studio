@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveProduct, SHARED_FIELDS } from './designs'
+import { resolveProduct, SHARED_FIELDS, visibleSizes } from './designs'
 import type { Design, Product } from '@/db/types'
 
 const design = (over: Partial<Design> = {}): Design => ({
@@ -83,5 +83,30 @@ describe('resolveProduct', () => {
     for (const key of SHARED_FIELDS) {
       expect(r[key]).toStrictEqual(d[key])
     }
+  })
+})
+
+describe('visibleSizes', () => {
+  it('returns an empty array for no members', () => {
+    expect(visibleSizes([])).toEqual([])
+  })
+
+  it('returns all members unchanged when none are sold', () => {
+    const a = product({ id: 'a', status: 'in_stock' })
+    const b = product({ id: 'b', status: 'listed' })
+    expect(visibleSizes([a, b])).toEqual([a, b])
+  })
+
+  it('drops sold members, preserving order of the rest', () => {
+    const a = product({ id: 'a', status: 'in_stock' })
+    const sold = product({ id: 's', status: 'sold' })
+    const c = product({ id: 'c', status: 'listed' })
+    expect(visibleSizes([a, sold, c])).toEqual([a, c])
+  })
+
+  it('falls back to all members when every size is sold', () => {
+    const a = product({ id: 'a', status: 'sold' })
+    const b = product({ id: 'b', status: 'sold' })
+    expect(visibleSizes([a, b])).toEqual([a, b])
   })
 })
