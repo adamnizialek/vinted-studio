@@ -83,6 +83,12 @@ describe('aggregateProfit with products (inventory cost)', () => {
     expect(aggregateProfit(sales, []).inventoryCost).toBe(0)
     expect(aggregateProfit(sales, [])).toEqual(aggregateProfit(sales, [], []))
   })
+
+  it('reports a non-finite margin with no revenue but a loss (avoids misleading 0%)', () => {
+    const agg = aggregateProfit([], [], [product({ purchasePrice: 100 })])
+    expect(agg.profit).toBe(-100)
+    expect(Number.isFinite(agg.margin)).toBe(false)
+  })
 })
 
 describe('parseDecimal', () => {

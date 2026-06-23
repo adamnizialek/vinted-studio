@@ -163,6 +163,9 @@ Period view with: 1 sold item (salePrice 100, purchaseCost 30); ad spend 10;
   (product is `sold`, sale excluded by `countsAsRevenue`). Rare data state; not specially
   handled.
 - **Missing `purchasePrice`:** treated as 0 (item adds nothing to inventory cost).
+- **Margin with no revenue:** when `revenue === 0` but inventory cost makes profit
+  negative, `aggregateProfit` returns `margin = NaN` so the "Marża" card renders `—`
+  (via `percent()`), not a misleading `0%`. (Found in adversarial review.)
 
 ## Out of scope
 

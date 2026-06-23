@@ -130,12 +130,14 @@ export function aggregateProfit(
     .reduce((sum, p) => sum + (p.purchasePrice ?? 0) * (p.quantity || 1), 0)
   const costs = base.costs + adSpend + inventoryCost
   const profit = base.revenue - costs
+  // Bez przychodu marża jest nieokreślona — zwracamy NaN (percent() pokaże „—"),
+  // żeby strata z samego magazynu nie wyglądała jak 0% (zerowy/neutralny wynik).
   return {
     revenue: base.revenue,
     costs,
     profit,
     inventoryCost,
-    margin: base.revenue > 0 ? profit / base.revenue : 0,
+    margin: base.revenue > 0 ? profit / base.revenue : NaN,
   }
 }
 
