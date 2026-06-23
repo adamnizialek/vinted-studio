@@ -26,6 +26,7 @@ export function Sales() {
   const sales = useLiveQuery(() => db.sales.orderBy('soldAt').reverse().toArray(), [])
   const expenses = useLiveQuery(() => db.expenses.orderBy('incurredAt').reverse().toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const products = useLiveQuery(() => db.products.toArray(), [])
 
   const [view, setView] = useState<string>('all') // 'all' = wspólna, lub accountId
   const [period, setPeriod] = useState<Period>('all')
@@ -60,9 +61,18 @@ export function Sales() {
     return list
   }, [expenses, view, period])
 
+  // Koszt magazynu liczymy NIEZALEŻNIE od okresu — to pieniądze zamrożone teraz,
+  // nie przepływ z danego miesiąca. Filtrujemy tylko po koncie; stany bez konta
+  // (z importu) liczą się wyłącznie w widoku „Wspólna".
+  const filteredProducts = useMemo(() => {
+    let list = products ?? []
+    if (view !== 'all') list = list.filter((p) => p.accountId === view)
+    return list
+  }, [products, view])
+
   const stats = useMemo(
-    () => aggregateProfit(filtered, filteredExpenses),
-    [filtered, filteredExpenses],
+    () => aggregateProfit(filtered, filteredExpenses, filteredProducts),
+    [filtered, filteredExpenses, filteredProducts],
   )
   const accName = (id?: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
   const currency = settings?.currency ?? 'PLN'
@@ -180,8 +190,12 @@ export function Sales() {
       {/* Statystyki */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Przychód" value={money(stats.revenue, currency)} tone="brand" />
-        <StatCard label="Koszty" value={money(stats.costs, currency)} />
-        <StatCard label="Zysk" value={money(stats.profit, currency)} tone="good" />
+        <StatCard
+          label="Koszty"
+          value={money(stats.costs, currency)}
+          sub={stats.inventoryCost ? `w tym magazyn: ${money(stats.inventoryCost, currency)}` : undefined}
+        />
+        <StatCard label="Zysk" value={money(stats.profit, currency)} tone={stats.profit >= 0 ? 'good' : 'bad'} />
         <StatCard label="Marża" value={percent(stats.margin)} sub={`${filtered.length} transakcji`} />
       </div>
 

@@ -174,7 +174,7 @@ export function StatCard({
   label: string
   value: ReactNode
   sub?: ReactNode
-  tone?: 'default' | 'good' | 'warn' | 'brand'
+  tone?: 'default' | 'good' | 'warn' | 'brand' | 'bad'
   icon?: ReactNode
 }) {
   const toneCls = {
@@ -182,6 +182,7 @@ export function StatCard({
     good: 'text-emerald-600',
     warn: 'text-amber-600',
     brand: 'text-brand-600',
+    bad: 'text-red-500',
   }[tone]
   return (
     <div className="card p-4">
