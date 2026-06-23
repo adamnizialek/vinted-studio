@@ -19,6 +19,8 @@ import {
   base64ToBlob,
   fitWithin,
   preservesResolution,
+  prepareScreenshotForVision,
+  screenshotTargetSize,
 } from '@/lib/images'
 
 // Środowisko testów to Node (bez DOM) — podstawiamy minimalne createImageBitmap
@@ -30,6 +32,26 @@ beforeAll(() => {
   vi.stubGlobal(
     'createImageBitmap',
     vi.fn(async () => ({ width: bitmapDims.width, height: bitmapDims.height, close: closeSpy })),
+  )
+  // Node nie ma FileReader (używanego przez blobToBase64) — minimalny stub przez arrayBuffer.
+  vi.stubGlobal(
+    'FileReader',
+    class {
+      result: string | null = null
+      onload: (() => void) | null = null
+      onerror: ((e: unknown) => void) | null = null
+      readAsDataURL(blob: Blob) {
+        blob
+          .arrayBuffer()
+          .then((buf) => {
+            let bin = ''
+            for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b)
+            this.result = `data:${blob.type};base64,${btoa(bin)}`
+            this.onload?.()
+          })
+          .catch((e) => this.onerror?.(e))
+      }
+    },
   )
   vi.stubGlobal('document', {
     createElement: (tag: string) => {
@@ -88,6 +110,55 @@ describe('fitWithin', () => {
   })
   it('never upscales an image already smaller than the max', () => {
     expect(fitWithin(800, 600, 1600)).toEqual({ width: 800, height: 600 })
+  })
+})
+
+describe('screenshotTargetSize', () => {
+  it('caps the width (and scales height proportionally) for a wide desktop screenshot', () => {
+    expect(screenshotTargetSize(2560, 1440)).toEqual({ width: 1200, height: 675 })
+  })
+  it('leaves a typical phone-width screenshot at full pixel size (re-encode does the work)', () => {
+    expect(screenshotTargetSize(1080, 3000)).toEqual({ width: 1080, height: 3000 })
+  })
+  it('never upscales a small image', () => {
+    expect(screenshotTargetSize(400, 800)).toEqual({ width: 400, height: 800 })
+  })
+  it('applies the height safety cap for an extremely tall page', () => {
+    const { width, height } = screenshotTargetSize(1080, 12000)
+    expect(height).toBe(8192)
+    expect(width).toBe(737) // 1080 * (8192/12000)
+  })
+})
+
+describe('prepareScreenshotForVision', () => {
+  it('re-encodes the screenshot to JPEG and routes the bytes through the canvas', async () => {
+    bitmapDims = { width: 1080, height: 3000 }
+    const source = new Blob([new Uint8Array(5000)], { type: 'image/png' })
+
+    const out = await prepareScreenshotForVision(source)
+
+    expect(out.mime).toBe('image/jpeg')
+    // Canvas stub koduje do 64 B — dowód, że nie wysłano surowych 5000 B oryginału.
+    expect(base64ToBlob(out.base64, out.mime).size).toBe(64)
+    expect(closeSpy).toHaveBeenCalled()
+  })
+
+  it('falls back to the original bytes when the image cannot be decoded', async () => {
+    const good = globalThis.createImageBitmap
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => {
+        throw new Error('decode failed')
+      }),
+    )
+    try {
+      const source = new Blob([new Uint8Array(5000)], { type: 'image/png' })
+      const out = await prepareScreenshotForVision(source)
+      expect(out.mime).toBe('image/png')
+      expect(base64ToBlob(out.base64, out.mime).size).toBe(5000)
+    } finally {
+      vi.stubGlobal('createImageBitmap', good)
+    }
   })
 })
 

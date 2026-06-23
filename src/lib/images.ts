@@ -9,6 +9,13 @@ const THUMB_DIM = 320 // dluzszy bok miniatury (px)
 const JPEG_QUALITY = 0.92
 const THUMB_QUALITY = 0.72
 
+// Zrzuty ekranu zamowien to zwykle wielkie PNG. Do WIZJI (OCR) nie trzeba pelnej
+// rozdzielczosci — ograniczamy szerokosc (czytelnosc tekstu + rozmiar), bezpiecznikowo
+// wysokosc, i re-enkodujemy do JPEG (zwykle 5–10x mniej) → szybszy upload, mniej timeoutow.
+const SCREENSHOT_MAX_WIDTH = 1200
+const SCREENSHOT_MAX_HEIGHT = 8192
+const SCREENSHOT_JPEG_QUALITY = 0.85
+
 /**
  * Rodzaje obrazow bedacych PLATNYM wyjsciem modelu (Gemini): zapisujemy je w
  * pelnej rozdzielczosci, bez przeskalowania i bez ponownej kompresji — inaczej
@@ -85,6 +92,34 @@ export async function processImage(
     return { blob, mime, width, height, thumb }
   } finally {
     bitmap.close()
+  }
+}
+
+/** Docelowy rozmiar zrzutu dla wizji: ogranicza szerokosc i (bezpiecznikowo) wysokosc; nigdy nie powieksza. */
+export function screenshotTargetSize(width: number, height: number): { width: number; height: number } {
+  const scale = Math.min(1, SCREENSHOT_MAX_WIDTH / width, SCREENSHOT_MAX_HEIGHT / height)
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+
+/**
+ * Normalizuje zrzut ekranu zamowienia przed wyslaniem do wizji Gemini: dekoduje, skaluje
+ * (zob. screenshotTargetSize) i RE-ENKODUJE do JPEG. Tekst pozostaje czytelny, a zadanie
+ * jest znacznie mniejsze niz surowy PNG → szybszy upload i mniejsze ryzyko timeoutu.
+ * Gdy dekodowanie/encode zawiedzie, wraca do oryginalnych bajtow (zachowanie jak dawniej).
+ */
+export async function prepareScreenshotForVision(source: Blob): Promise<{ mime: string; base64: string }> {
+  try {
+    const bitmap = await createImageBitmap(source)
+    try {
+      const { width, height } = screenshotTargetSize(bitmap.width, bitmap.height)
+      const canvas = drawToCanvas(bitmap, width, height)
+      const blob = await canvasToBlob(canvas, 'image/jpeg', SCREENSHOT_JPEG_QUALITY)
+      return { mime: 'image/jpeg', base64: await blobToBase64(blob) }
+    } finally {
+      bitmap.close()
+    }
+  } catch {
+    return { mime: source.type || 'image/png', base64: await blobToBase64(source) }
   }
 }
 

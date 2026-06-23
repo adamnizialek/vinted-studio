@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { db, importStock } from '@/db/db'
-import { extractFromImages, MAX_BASE64_CHARS, MAX_RAW_BYTES, type InlineImage } from '@/lib/gemini'
+import { extractFromImages, GeminiError, MAX_BASE64_CHARS, MAX_RAW_BYTES, type InlineImage } from '@/lib/gemini'
 import {
   parseExtractionResult,
   extractedToStockDrafts,
@@ -21,7 +21,7 @@ import {
   type KeyedStockDraft,
   type ResolvedStockDraft,
 } from '@/lib/stockImport'
-import { blobToBase64 } from '@/lib/images'
+import { prepareScreenshotForVision } from '@/lib/images'
 import { money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { useSettings } from '@/state/settings'
@@ -110,9 +110,9 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
     setReading(true)
     const id = ++reqId.current
     try {
-      const images: InlineImage[] = await Promise.all(
-        files.map(async (f) => ({ mime: f.type || 'image/png', base64: await blobToBase64(f) })),
-      )
+      // Normalizuj zrzuty (downscale + JPEG) przed wysłaniem — surowe PNG są ogromne i
+      // zacinają model (timeout). Zob. prepareScreenshotForVision.
+      const images: InlineImage[] = await Promise.all(files.map((f) => prepareScreenshotForVision(f)))
       if (reqId.current !== id) return
       const totalChars = images.reduce((n, img) => n + img.base64.length, 0)
       if (totalChars > MAX_BASE64_CHARS) {
@@ -137,7 +137,15 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
       const totalIsPln = !order.currency || /^(pln|zł|zl)$/i.test(order.currency)
       setOrderTotal(totalIsPln ? order.orderTotal : undefined)
     } catch (e) {
-      if (reqId.current === id) toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać zrzutu ekranu.')
+      if (reqId.current === id) {
+        const msg =
+          e instanceof GeminiError && e.code === 'timeout'
+            ? 'Odczyt zrzutu trwał za długo — spróbuj ponownie lub wgraj mniejszy/przycięty zrzut.'
+            : e instanceof Error
+              ? e.message
+              : 'Nie udało się odczytać zrzutu ekranu.'
+        toast.error(msg)
+      }
     } finally {
       if (reqId.current === id) setReading(false)
     }

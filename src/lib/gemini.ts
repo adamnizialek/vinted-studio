@@ -26,11 +26,14 @@ export class GeminiError extends Error {
   status?: number
   /** Czy błąd jest PRZEMIJAJĄCY i wart jednego ponowienia (timeout, sieć, 5xx). */
   retryable: boolean
-  constructor(message: string, status?: number, retryable = false) {
+  /** Stabilny kod błędu do rozróżnienia w UI/logice (np. 'timeout'). */
+  code?: string
+  constructor(message: string, status?: number, retryable = false, code?: string) {
     super(message)
     this.name = 'GeminiError'
     this.status = status
     this.retryable = retryable
+    this.code = code
   }
 }
 
@@ -39,6 +42,11 @@ export interface CallOptions {
   timeoutMs?: number
   /** Zewnętrzny sygnał anulowania (np. przycisk „Anuluj" w UI). */
   signal?: AbortSignal
+  /**
+   * Czy ponawiać po TIMEOUCIE (domyślnie tak). Ekstrakcja ze zrzutu ustawia `false` —
+   * interaktywny odczyt woli szybką porażkę niż drugie 60 s czekania na ten sam wynik.
+   */
+  retryTimeout?: boolean
 }
 
 export interface InlineImage {
@@ -172,6 +180,7 @@ async function callGenerateOnce(
           'Przekroczono limit czasu — model nie odpowiedział na czas. Spróbuj ponownie lub zmniejsz rozdzielczość w Ustawieniach.',
           undefined,
           true, // przemijające — pozwól na jedno ponowienie
+          'timeout',
         )
       // Przerwane świadomie przez użytkownika (przycisk „Anuluj").
       throw new GeminiError('Anulowano generowanie.')
@@ -213,6 +222,8 @@ async function callGenerate(
       // albo wyczerpaliśmy próby.
       if (opts.signal?.aborted) throw e
       if (!(e instanceof GeminiError && e.retryable)) throw e
+      // Timeout NIE jest ponawiany, gdy wywołujący tego nie chce (ekstrakcja ze zrzutu).
+      if (e.code === 'timeout' && opts.retryTimeout === false) throw e
       if (attempt >= MAX_ATTEMPTS - 1) throw e
     }
   }
@@ -431,6 +442,7 @@ export async function extractFromImages(
   const parts = await callGenerate(opts.model, opts.apiKey, body, {
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     signal: opts.signal,
+    retryTimeout: false, // interaktywny odczyt — nie czekaj drugich 60 s na ten sam timeout
   })
   const text = extractText(parts)
   if (!text)

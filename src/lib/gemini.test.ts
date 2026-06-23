@@ -7,6 +7,7 @@ import {
   finishReasonError,
   generateText,
   generateImage,
+  extractFromImages,
   GeminiError,
 } from '@/lib/gemini'
 
@@ -235,6 +236,21 @@ describe('callGenerate — timeout / cancel / retry (przez generateText)', () =>
     await expect(
       generateText('hi', { apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 20 }),
     ).rejects.toBeInstanceOf(GeminiError)
+  })
+
+  it('extractFromImages NIE ponawia po timeoutcie (interaktywny odczyt — szybka porażka)', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      extractFromImages('p', [{ mime: 'image/jpeg', base64: 'AAAA' }], {
+        apiKey: 'k',
+        model: 'gemini-2.5-flash',
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow(/limit czasu|nie odpowiedział/i)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1) // timeout ekstrakcji nie jest ponawiany
   })
 
   it('przerywa zacięcie podczas ODCZYTU treści (nagłówki wracają, body wisi)', async () => {
