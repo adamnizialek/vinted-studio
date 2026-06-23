@@ -20,7 +20,7 @@ import { dateFromInput, dateInputValue, dateShort, money } from '@/lib/format'
 import type { Account } from '@/db/types'
 import { toast } from '@/state/toast'
 import { FileDrop } from '@/components/FileDrop'
-import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
+import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
 
 const rowValid = (r: { salePrice?: number; dateTs: number | null }) =>
   r.salePrice != null && r.salePrice > 0 && r.dateTs != null
@@ -472,13 +472,11 @@ function ReviewLine({ r, onChange }: { r: EditRow; onChange: (patch: Partial<Edi
           onChange({ dateTs: e.target.value ? dateFromInput(e.target.value, Date.now()) : null })
         }
       />
-      <TextInput
-        type="number"
-        inputMode="decimal"
+      <NumberInput
         className="w-24"
         placeholder="cena"
-        value={r.salePrice ?? ''}
-        onChange={(e) => onChange({ salePrice: e.target.value === '' ? undefined : Number(e.target.value) })}
+        value={r.salePrice}
+        onValueChange={(n) => onChange({ salePrice: n })}
       />
       <span className="w-full text-xs text-amber-600 sm:w-auto">{r.issues.join('; ')}</span>
     </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateProfit } from '@/lib/format'
+import { aggregateProfit, parseDecimal } from '@/lib/format'
 import type { Expense, Sale } from '@/db/types'
 
 const sale = (over: Partial<Sale>): Sale => ({
@@ -24,5 +24,47 @@ describe('aggregateProfit with expenses', () => {
   it('is unchanged when the expenses list is empty (back-compat)', () => {
     const sales = [sale({ salePrice: 100, purchaseCost: 40 })]
     expect(aggregateProfit(sales, [])).toEqual(aggregateProfit(sales))
+  })
+})
+
+describe('parseDecimal', () => {
+  it('accepts a comma decimal separator (PL mobile keyboard)', () => {
+    expect(parseDecimal('12,50')).toBe(12.5)
+    expect(parseDecimal('0,99')).toBe(0.99)
+    expect(parseDecimal(',5')).toBe(0.5)
+  })
+
+  it('still accepts a dot decimal separator', () => {
+    expect(parseDecimal('12.50')).toBe(12.5)
+    expect(parseDecimal('199')).toBe(199)
+  })
+
+  it('treats blank / partial input as undefined', () => {
+    expect(parseDecimal('')).toBeUndefined()
+    expect(parseDecimal('   ')).toBeUndefined()
+    expect(parseDecimal(',')).toBeUndefined()
+    expect(parseDecimal('.')).toBeUndefined()
+    expect(parseDecimal('-')).toBeUndefined()
+    expect(parseDecimal('abc')).toBeUndefined()
+  })
+
+  it('keeps a trailing separator usable mid-typing (parses the integer part)', () => {
+    expect(parseDecimal('12,')).toBe(12)
+    expect(parseDecimal('12.')).toBe(12)
+  })
+
+  it('ignores surrounding whitespace', () => {
+    expect(parseDecimal(' 12,50 ')).toBe(12.5)
+  })
+
+  it('parses integers when integer=true', () => {
+    expect(parseDecimal('3', true)).toBe(3)
+    expect(parseDecimal('2,9', true)).toBe(2)
+    expect(parseDecimal('', true)).toBeUndefined()
+  })
+
+  it('rejects non-finite results', () => {
+    expect(parseDecimal('NaN')).toBeUndefined()
+    expect(parseDecimal('Infinity')).toBeUndefined()
   })
 })

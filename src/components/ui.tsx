@@ -5,10 +5,12 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useEffect,
+  useState,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, X } from 'lucide-react'
 import clsx from 'clsx'
+import { parseDecimal } from '@/lib/format'
 
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={clsx('animate-spin-slow', className)} />
@@ -56,6 +58,81 @@ export function Field({
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={clsx('input', props.className)} />
+}
+
+function numToText(value: number | undefined | null): string {
+  return value == null ? '' : String(value)
+}
+
+// Tekst startowy bufora: 0 traktujemy jak „nie podano" (puste pole), bo formularze
+// inicjalizują cenę/kwotę zerem (np. nowa sprzedaż salePrice:0). Bez tego pole
+// świeciłoby „0", które trzeba by skasować przed wpisaniem. Samodzielnie wpisane „0"
+// żyje dalej w buforze — to dotyczy tylko wartości z propsa.
+function seedText(value: number | undefined | null): string {
+  return value ? String(value) : ''
+}
+
+/**
+ * Pole liczbowe odporne na przecinek dziesiętny. Polskie klawiatury mobilne
+ * pokazują „,", a natywny <input type="number"> odrzuca przecinek (czyści
+ * wartość) — przez co nie dało się wpisać ceny z groszami na telefonie.
+ *
+ * Dlatego renderujemy `type="text"` + `inputMode="decimal"` (na telefonie i tak
+ * wyświetla klawiaturę numeryczną), a przecinek normalizujemy przez parseDecimal.
+ *
+ * Trzyma WŁASNY bufor tekstu, bo wartość w górę emitujemy jako liczbę: gdyby
+ * `value` było sterowane wprost liczbą, wpisanie „12," zaokrąglałoby się od razu
+ * do „12" i nie dało się dopisać groszy. Bufor synchronizujemy z propsem `value`
+ * tylko gdy pole NIE jest edytowane (np. seed formularza, przycisk „użyj ceny").
+ */
+export function NumberInput({
+  value,
+  onValueChange,
+  integer = false,
+  onFocus,
+  onBlur,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
+  value: number | undefined | null
+  onValueChange: (value: number | undefined) => void
+  integer?: boolean
+}) {
+  const [text, setText] = useState(() => seedText(value))
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (editing) return // użytkownik pisze — bufor lokalny ma pierwszeństwo
+    // Celowo opróżnione pole zostaw puste, nawet gdy rodzic skoercował je do 0
+    // (zachowuje UX „puste vs 0", np. cena domyślnie pusta zamiast „0").
+    if (text === '' && (value == null || value === 0)) return
+    const canonical = numToText(value)
+    if (canonical !== text) setText(canonical)
+    // `text` celowo poza zależnościami — efekt ma reagować na zmiany z ZEWNĄTRZ
+    // (props `value`), a nie na własne wpisywanie; aktualny `text` i tak jest
+    // widoczny w domknięciu przy każdym uruchomieniu efektu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, editing])
+
+  return (
+    <TextInput
+      {...props}
+      type="text"
+      inputMode={integer ? 'numeric' : 'decimal'}
+      value={text}
+      onFocus={(e) => {
+        setEditing(true)
+        onFocus?.(e)
+      }}
+      onChange={(e) => {
+        setText(e.target.value)
+        onValueChange(parseDecimal(e.target.value, integer))
+      }}
+      onBlur={(e) => {
+        setEditing(false)
+        onBlur?.(e)
+      }}
+    />
+  )
 }
 
 export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {

@@ -23,7 +23,7 @@ import { money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { useSettings } from '@/state/settings'
 import { FileDrop } from '@/components/FileDrop'
-import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
+import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
 
 /** Wiersz recenzji = przedmiot z odczytu + stan UI (klucz Reacta, zaznaczenie). */
 interface EditRow extends ExtractedItem {
@@ -303,9 +303,6 @@ function Flag({
 function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<EditRow>) => void }) {
   const f = rowFlags(r)
   const variant = [r.color, r.size].filter(Boolean).join(' · ')
-  // Bufor edycji ilości — pozwala wyczyścić pole i wpisać od nowa; ≥1 egzekwujemy na blur.
-  const [qtyText, setQtyText] = useState(String(r.quantity))
-  useEffect(() => setQtyText(String(r.quantity)), [r.quantity])
 
   return (
     <div className={clsx('px-4 py-3', !r.include && 'opacity-50')}>
@@ -323,38 +320,24 @@ function ReviewLine({ r, onPatch }: { r: EditRow; onPatch: (changes: Partial<Edi
           aria-label="Nazwa przedmiotu"
           className="min-w-[10rem] flex-1"
         />
-        <TextInput
-          type="number"
-          inputMode="numeric"
+        <NumberInput
+          integer
           min={1}
-          value={qtyText}
-          onChange={(e) => {
-            setQtyText(e.target.value)
-            const n = Math.floor(Number(e.target.value))
-            if (Number.isFinite(n) && n >= 1) onPatch({ quantity: n })
-          }}
-          onBlur={() => {
-            const n = Math.max(1, Math.floor(Number(qtyText) || 1))
-            setQtyText(String(n))
-            if (n !== r.quantity) onPatch({ quantity: n })
-          }}
+          value={r.quantity}
+          onValueChange={(n) => onPatch({ quantity: Math.max(1, n ?? 1) })}
           aria-label="Ilość"
           className="w-16 text-center"
         />
         <div className="flex items-center gap-1">
-          <TextInput
-            type="number"
-            inputMode="decimal"
+          <NumberInput
             min={0}
-            step="0.01"
-            value={r.unitPrice ?? ''}
+            value={r.unitPrice}
             placeholder="cena"
-            onChange={(e) => {
-              const n = e.target.valueAsNumber
+            onValueChange={(n) => {
               // Wpisanie poprawnej ceny = wartość w zł → czyścimy wykrytą walutę (znika nonPln).
               // Przy pustym/niepoprawnym polu NIE czyścimy waluty, by wiersz w obcej walucie
               // dalej był wyłączony z importu (nie zaimportuje się bez ceny jako 0 zł).
-              if (Number.isFinite(n) && n > 0) onPatch({ unitPrice: n, currency: undefined })
+              if (n != null && n > 0) onPatch({ unitPrice: n, currency: undefined })
               else onPatch({ unitPrice: undefined })
             }}
             aria-label="Cena za sztukę"

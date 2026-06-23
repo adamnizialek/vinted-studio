@@ -5,7 +5,7 @@ import { db, putEntity } from '@/db/db'
 import type { Product } from '@/db/types'
 import { uid } from '@/lib/id'
 import { toast } from '@/state/toast'
-import { Button, Field, Modal, Select, TextInput } from '@/components/ui'
+import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
 
 /**
  * Records a real Sale for the product, then calls onSold so the caller can flip
@@ -24,7 +24,7 @@ export function SoldModal({
   onSold: () => void
 }) {
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
-  const [price, setPrice] = useState('')
+  const [price, setPrice] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState('')
   const [buyer, setBuyer] = useState('')
 
@@ -35,7 +35,7 @@ export function SoldModal({
   const prevOpen = useRef(false)
   useEffect(() => {
     if (open && !prevOpen.current) {
-      setPrice(product.listingPrice ? String(product.listingPrice) : '')
+      setPrice(product.listingPrice || undefined)
       setAccountId(product.accountId ?? '')
       setBuyer('')
     }
@@ -43,7 +43,7 @@ export function SoldModal({
   }, [open, product])
 
   const confirm = async () => {
-    const salePrice = Number(price)
+    const salePrice = price
     if (!salePrice || salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
     await putEntity('sales', {
       id: uid(),
@@ -82,13 +82,7 @@ export function SoldModal({
     >
       <div className="space-y-4">
         <Field label={`Cena sprzedaży (${product.currency})`}>
-          <TextInput
-            type="number"
-            inputMode="decimal"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            autoFocus
-          />
+          <NumberInput value={price} onValueChange={setPrice} autoFocus />
         </Field>
         <Field label="Konto">
           <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>

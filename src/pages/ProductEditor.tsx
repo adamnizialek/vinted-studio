@@ -64,7 +64,7 @@ import {
 } from '@/lib/prompts'
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile } from '@/lib/images'
-import { Button, Field, Select, TextArea, TextInput } from '@/components/ui'
+import { Button, Field, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
 import { SoldModal } from '@/components/SoldModal'
@@ -462,9 +462,8 @@ function DetailsTab({
   )
   const seoTitle = useMemo(() => buildSeoTitle(draft), [draft])
 
-  const num = (v: string) => (v === '' ? undefined : Number(v))
-  const setM = (key: keyof Measurements, v: string) =>
-    update({ measurements: { ...draft.measurements, [key]: v === '' ? undefined : Number(v) } })
+  const setM = (key: keyof Measurements, v: number | undefined) =>
+    update({ measurements: { ...draft.measurements, [key]: v } })
 
   return (
     <div className="grid gap-5 lg:grid-cols-3">
@@ -553,12 +552,7 @@ function DetailsTab({
               ] as const
             ).map(([key, label]) => (
               <Field key={key} label={label}>
-                <TextInput
-                  type="number"
-                  inputMode="decimal"
-                  value={draft.measurements?.[key] ?? ''}
-                  onChange={(e) => setM(key, e.target.value)}
-                />
+                <NumberInput value={draft.measurements?.[key]} onValueChange={(n) => setM(key, n)} />
               </Field>
             ))}
           </div>
@@ -570,11 +564,9 @@ function DetailsTab({
         <div className="card space-y-4 p-5">
           <Field label="Cena wystawienia">
             <div className="flex gap-2">
-              <TextInput
-                type="number"
-                inputMode="decimal"
-                value={draft.listingPrice ?? ''}
-                onChange={(e) => update({ listingPrice: num(e.target.value) })}
+              <NumberInput
+                value={draft.listingPrice}
+                onValueChange={(n) => update({ listingPrice: n })}
                 placeholder="0"
               />
               <Select
@@ -591,20 +583,18 @@ function DetailsTab({
             </div>
           </Field>
           <Field label="Cena zakupu (koszt)">
-            <TextInput
-              type="number"
-              inputMode="decimal"
-              value={draft.purchasePrice ?? ''}
-              onChange={(e) => update({ purchasePrice: num(e.target.value) })}
+            <NumberInput
+              value={draft.purchasePrice}
+              onValueChange={(n) => update({ purchasePrice: n })}
               placeholder="0"
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Ilość">
-              <TextInput
-                type="number"
+              <NumberInput
+                integer
                 value={draft.quantity}
-                onChange={(e) => update({ quantity: Math.max(1, Number(e.target.value) || 1) })}
+                onValueChange={(n) => update({ quantity: Math.max(1, n ?? 1) })}
               />
             </Field>
             <Field label="Konto">
@@ -627,11 +617,9 @@ function DetailsTab({
             <p className="font-bold text-ink-900">Kalkulator ceny</p>
           </div>
           <Field label="Cena detaliczna (nowa)" hint="Wyliczy sugerowany przedział wg stanu.">
-            <TextInput
-              type="number"
-              inputMode="decimal"
-              value={draft.retailPrice ?? ''}
-              onChange={(e) => update({ retailPrice: num(e.target.value) })}
+            <NumberInput
+              value={draft.retailPrice}
+              onValueChange={(n) => update({ retailPrice: n })}
               placeholder="np. 199"
             />
           </Field>

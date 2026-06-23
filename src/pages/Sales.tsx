@@ -16,7 +16,7 @@ import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { useLocalStorageState } from '@/lib/hooks'
 import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
 import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/promotionScreenshot'
-import { Button, EmptyState, Field, Modal, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
+import { Button, EmptyState, Field, Modal, NumberInput, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import { ImportSalesModal } from '@/components/ImportSalesModal'
 
 type Period = 'all' | 'month' | 'year'
@@ -367,7 +367,6 @@ function SaleModal({
   useEffect(() => setForm(sale), [sale])
   if (!form) return null
 
-  const num = (v: string) => (v === '' ? undefined : Number(v))
   const set = <K extends keyof Sale>(k: K, v: Sale[K]) => setForm({ ...form, [k]: v })
 
   const save = async () => {
@@ -413,22 +412,22 @@ function SaleModal({
           </Select>
         </Field>
         <Field label={`Cena sprzedaży (${form.currency})`}>
-          <TextInput type="number" inputMode="decimal" value={form.salePrice || ''} onChange={(e) => set('salePrice', Number(e.target.value) || 0)} />
+          <NumberInput value={form.salePrice} onValueChange={(n) => set('salePrice', n ?? 0)} />
         </Field>
         <Field label="Ilość">
-          <TextInput type="number" value={form.quantity} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value) || 1))} />
+          <NumberInput integer value={form.quantity} onValueChange={(n) => set('quantity', Math.max(1, n ?? 1))} />
         </Field>
         <Field label="Koszt zakupu">
-          <TextInput type="number" inputMode="decimal" value={form.purchaseCost ?? ''} onChange={(e) => set('purchaseCost', num(e.target.value))} />
+          <NumberInput value={form.purchaseCost} onValueChange={(n) => set('purchaseCost', n)} />
         </Field>
         <Field label="Koszt wysyłki (Twój)">
-          <TextInput type="number" inputMode="decimal" value={form.shippingCost ?? ''} onChange={(e) => set('shippingCost', num(e.target.value))} />
+          <NumberInput value={form.shippingCost} onValueChange={(n) => set('shippingCost', n)} />
         </Field>
         <Field label="Prowizja / opłaty">
-          <TextInput type="number" inputMode="decimal" value={form.platformFee ?? ''} onChange={(e) => set('platformFee', num(e.target.value))} />
+          <NumberInput value={form.platformFee} onValueChange={(n) => set('platformFee', n)} />
         </Field>
         <Field label="Inne koszty">
-          <TextInput type="number" inputMode="decimal" value={form.otherCosts ?? ''} onChange={(e) => set('otherCosts', num(e.target.value))} />
+          <NumberInput value={form.otherCosts} onValueChange={(n) => set('otherCosts', n)} />
         </Field>
         <Field label="Data sprzedaży">
           <TextInput
@@ -653,7 +652,7 @@ function ExpenseModal({
             </Select>
           </Field>
           <Field label={`Kwota (${form.currency})`}>
-            <TextInput type="number" inputMode="decimal" value={form.amount || ''} onChange={(e) => set('amount', Number(e.target.value) || 0)} />
+            <NumberInput value={form.amount} onValueChange={(n) => set('amount', n ?? 0)} />
           </Field>
           {form.kind !== 'other' && (
             <Field label="Czas trwania">

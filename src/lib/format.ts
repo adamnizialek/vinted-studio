@@ -15,6 +15,23 @@ export function money(amount: number | undefined | null, currency = 'PLN'): stri
   }
 }
 
+/**
+ * Parsuje liczbę wpisaną przez użytkownika, która może używać PRZECINKA jako
+ * separatora dziesiętnego. Polskie klawiatury mobilne pokazują „,", a nie „."
+ * — a natywny <input type="number"> odrzuca przecinek (zwraca pustą wartość),
+ * przez co nie dało się wpisać ceny z groszami na telefonie. Tu normalizujemy
+ * przecinek na kropkę i parsujemy bezpiecznie.
+ *
+ * Zwraca undefined dla pustego/niepełnego/niepoprawnego wejścia (np. samo „,"
+ * albo „-" w trakcie pisania), żeby wywołujący sam zdecydował o wartości domyślnej.
+ */
+export function parseDecimal(raw: string, integer = false): number | undefined {
+  const cleaned = raw.replace(/\s/g, '').replace(/,/g, '.')
+  if (cleaned === '' || cleaned === '.' || cleaned === '-' || cleaned === '-.') return undefined
+  const n = integer ? parseInt(cleaned, 10) : parseFloat(cleaned)
+  return Number.isFinite(n) ? n : undefined
+}
+
 export function percent(value: number): string {
   if (!Number.isFinite(value)) return '—'
   return new Intl.NumberFormat('pl-PL', {
