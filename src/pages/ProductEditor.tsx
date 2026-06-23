@@ -41,7 +41,7 @@ import type {
   SavedDescription,
 } from '@/db/types'
 import { removeCandidate, upsertCandidate } from '@/lib/descriptions'
-import { resolveProduct, SHARED_FIELDS } from '@/lib/designs'
+import { resolveProduct, SHARED_FIELDS, visibleSizes } from '@/lib/designs'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
@@ -234,6 +234,9 @@ function DesignEditor({ designId }: { designId: string }) {
     () => db.products.where('designId').equals(designId).sortBy('createdAt'),
     [designId],
   )
+  // Pasek rozmiarow pomija sprzedane rozmiary (wracaja do widoku tylko, gdy WSZYSTKIE
+  // sa sprzedane — by edytor nie byl pusty). Patrz visibleSizes w lib/designs.
+  const shownSizes = useMemo(() => visibleSizes(members ?? []), [members])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Product | null>(null)
   const [tab, setTab] = useState<'detale' | 'zdjecia' | 'opisy'>('detale')
@@ -244,12 +247,14 @@ function DesignEditor({ designId }: { designId: string }) {
     [design],
   )
 
-  // Wybierz aktywny rozmiar, gdy lista czlonkow sie zmieni a biezacy zniknal.
+  // Trzymaj aktywny rozmiar wsrod widocznych (niesprzedanych). Gdy biezacy wypadnie
+  // z widocznych — otwarcie modelu, ktorego pierwszy rozmiar jest sprzedany, albo
+  // oznaczenie biezacego jako sprzedane — przeskocz na pierwszy widoczny.
   useEffect(() => {
-    if (members && members.length && !members.some((m) => m.id === activeId)) {
-      setActiveId(members[0].id)
+    if (shownSizes.length && !shownSizes.some((m) => m.id === activeId)) {
+      setActiveId(shownSizes[0].id)
     }
-  }, [members, activeId])
+  }, [shownSizes, activeId])
 
   // Zasiej optymistyczny draft przy zmianie rozmiaru i pierwszym zaladowaniu modelu —
   // NIE przy kazdej edycji pola modelu (design.id jest stabilne), by nie zadeptywac
@@ -355,7 +360,7 @@ function DesignEditor({ designId }: { designId: string }) {
 
       {/* Pasek rozmiarów */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {members?.map((m) => (
+        {shownSizes.map((m) => (
           <button
             key={m.id}
             onClick={() => setActiveId(m.id)}
