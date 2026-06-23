@@ -15,7 +15,7 @@ import {
 import { AlertTriangle, Camera, Clock, ExternalLink, Package, Percent, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
-import { aggregateProfit, countsAsRevenue, dateShort, money, percent, pluralPl } from '@/lib/format'
+import { aggregateProfit, countsAsInventoryCost, countsAsRevenue, dateShort, money, percent, pluralPl } from '@/lib/format'
 import { resolveProduct } from '@/lib/designs'
 import {
   STALE_LISTING_DAYS,
@@ -29,8 +29,6 @@ import { useChartColors } from '@/lib/hooks'
 
 const STALE_VISIBLE = 8
 
-const ACTIVE_STATUSES = new Set(['draft', 'in_stock', 'listed', 'reserved'])
-
 export function Dashboard() {
   const settings = useSettings((s) => s.settings)
   const products = useLiveQuery(() => db.products.toArray(), [])
@@ -42,15 +40,16 @@ export function Dashboard() {
   const currency = settings?.currency ?? 'PLN'
   const chartColors = useChartColors()
 
-  const active = (products ?? []).filter((p) => ACTIVE_STATUSES.has(p.status))
+  const active = (products ?? []).filter((p) => countsAsInventoryCost(p.status))
   const inventoryValue = active.reduce((s, p) => s + (p.listingPrice ?? 0) * (p.quantity || 1), 0)
+  const inventoryCost = active.reduce((s, p) => s + (p.purchasePrice ?? 0) * (p.quantity || 1), 0)
   const toList = active.filter((p) => p.status === 'in_stock' || p.status === 'draft').length
 
   const monthStart = startOfMonth(new Date()).getTime()
   const monthSales = (sales ?? []).filter((s) => s.soldAt >= monthStart)
   const monthExpenses = (expenses ?? []).filter((e) => e.incurredAt >= monthStart)
   const monthAgg = useMemo(() => aggregateProfit(monthSales, monthExpenses), [monthSales, monthExpenses])
-  const totalAgg = useMemo(() => aggregateProfit(sales ?? [], expenses ?? []), [sales, expenses])
+  const totalAgg = useMemo(() => aggregateProfit(sales ?? [], expenses ?? [], products ?? []), [sales, expenses, products])
 
   // Wykres: przychód w ostatnich 6 miesiącach.
   const chart = useMemo(() => {
@@ -115,10 +114,10 @@ export function Dashboard() {
 
       {/* Statystyki */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Wartość magazynu" value={money(inventoryValue, currency)} icon={<Package size={16} />} sub={`${active.length} aktywnych`} />
+        <StatCard label="Wartość magazynu" value={money(inventoryValue, currency)} icon={<Package size={16} />} sub={`${active.length} aktywnych · koszt ${money(inventoryCost, currency)}`} />
         <StatCard label="Sprzedaż (mies.)" value={money(monthAgg.revenue, currency)} tone="brand" icon={<Wallet size={16} />} sub={`${monthSales.length} transakcji`} />
-        <StatCard label="Zysk (mies.)" value={money(monthAgg.profit, currency)} tone="good" icon={<TrendingUp size={16} />} />
-        <StatCard label="Zysk łącznie" value={money(totalAgg.profit, currency)} tone="good" sub={`${(sales ?? []).length} sprzedaży`} />
+        <StatCard label="Zysk (mies.)" value={money(monthAgg.profit, currency)} tone={monthAgg.profit >= 0 ? 'good' : 'bad'} icon={<TrendingUp size={16} />} />
+        <StatCard label="Zysk łącznie" value={money(totalAgg.profit, currency)} tone={totalAgg.profit >= 0 ? 'good' : 'bad'} sub={`${(sales ?? []).length} sprzedaży`} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
