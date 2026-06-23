@@ -1,6 +1,6 @@
 import { format, formatDistanceToNow } from 'date-fns'
 import { pl } from 'date-fns/locale'
-import type { Expense, ProfitBreakdown, Sale } from '@/db/types'
+import type { Expense, ProfitBreakdown, Product, ProductStatus, Sale } from '@/db/types'
 
 export function money(amount: number | undefined | null, currency = 'PLN'): string {
   const value = Number.isFinite(amount as number) ? (amount as number) : 0
@@ -91,8 +91,30 @@ export function countsAsRevenue(status: Sale['status']): boolean {
   return status === 'completed' || status === 'pending'
 }
 
-/** Agreguje zysk z listy sprzedazy (pomija anulowane i zwroty) minus koszty promocji. */
-export function aggregateProfit(sales: Sale[], expenses: Expense[] = []): ProfitBreakdown {
+/**
+ * Czy produkt liczy się jako koszt magazynowy: kupiony, ale jeszcze niesprzedany.
+ * Wyklucza 'sold' i 'archived' — koszt sprzedanego niesie już wpis sprzedaży (Sale),
+ * więc liczenie produktu podwajałoby koszt.
+ */
+export function countsAsInventoryCost(status: ProductStatus): boolean {
+  return (
+    status === 'draft' ||
+    status === 'in_stock' ||
+    status === 'listed' ||
+    status === 'reserved'
+  )
+}
+
+/**
+ * Agreguje zysk: sprzedaże (bez anulowanych i zwrotów) + koszty promocji + koszt
+ * niesprzedanego magazynu. Widok kasowy: zysk = przychód − wszystkie koszty.
+ * `products` domyślnie [] (zgodność wstecz: wywołania bez magazynu dają inventoryCost 0).
+ */
+export function aggregateProfit(
+  sales: Sale[],
+  expenses: Expense[] = [],
+  products: Product[] = [],
+): ProfitBreakdown {
   const base = sales
     .filter((s) => countsAsRevenue(s.status))
     .reduce(
@@ -103,9 +125,18 @@ export function aggregateProfit(sales: Sale[], expenses: Expense[] = []): Profit
       { revenue: 0, costs: 0 },
     )
   const adSpend = expenses.reduce((sum, e) => sum + (e.amount || 0), 0)
-  const costs = base.costs + adSpend
+  const inventoryCost = products
+    .filter((p) => countsAsInventoryCost(p.status))
+    .reduce((sum, p) => sum + (p.purchasePrice ?? 0) * (p.quantity || 1), 0)
+  const costs = base.costs + adSpend + inventoryCost
   const profit = base.revenue - costs
-  return { revenue: base.revenue, costs, profit, margin: base.revenue > 0 ? profit / base.revenue : 0 }
+  return {
+    revenue: base.revenue,
+    costs,
+    profit,
+    inventoryCost,
+    margin: base.revenue > 0 ? profit / base.revenue : 0,
+  }
 }
 
 export function pluralPl(n: number, one: string, few: string, many: string): string {

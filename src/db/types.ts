@@ -293,7 +293,9 @@ export interface AppSettings {
 /** Wynik kalkulacji zysku — uzywany w ewidencji i na dashboardzie. */
 export interface ProfitBreakdown {
   revenue: number // salePrice * qty + shippingCharged
-  costs: number // purchase + shipping + fee + other
+  costs: number // purchase + shipping + fee + other (+ magazyn w agregacie)
   profit: number
   margin: number // profit / revenue
+  /** Koszt niesprzedanego magazynu zawarty w `costs` (tylko w agregacie). */
+  inventoryCost?: number
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateProfit, parseDecimal } from '@/lib/format'
-import type { Expense, Sale } from '@/db/types'
+import { aggregateProfit, countsAsInventoryCost, parseDecimal } from '@/lib/format'
+import type { Expense, Product, Sale } from '@/db/types'
 
 const sale = (over: Partial<Sale>): Sale => ({
   id: 'x', productName: 'p', salePrice: 100, currency: 'PLN', quantity: 1,
@@ -9,6 +9,11 @@ const sale = (over: Partial<Sale>): Sale => ({
 const expense = (amount: number): Expense => ({
   id: 'e', kind: 'boost', description: 'Podbicia', amount, currency: 'PLN',
   incurredAt: 0, createdAt: 0, updatedAt: 0,
+})
+const product = (over: Partial<Product>): Product => ({
+  id: 'p1', name: 'prod', condition: 'dobry', currency: 'PLN', quantity: 1,
+  status: 'in_stock', photoIds: [], generatedPhotoIds: [], descriptions: [],
+  tags: [], createdAt: 0, updatedAt: 0, ...over,
 })
 
 describe('aggregateProfit with expenses', () => {
@@ -24,6 +29,59 @@ describe('aggregateProfit with expenses', () => {
   it('is unchanged when the expenses list is empty (back-compat)', () => {
     const sales = [sale({ salePrice: 100, purchaseCost: 40 })]
     expect(aggregateProfit(sales, [])).toEqual(aggregateProfit(sales))
+  })
+})
+
+describe('countsAsInventoryCost', () => {
+  it('counts not-yet-sold statuses, excludes sold and archived', () => {
+    expect(countsAsInventoryCost('draft')).toBe(true)
+    expect(countsAsInventoryCost('in_stock')).toBe(true)
+    expect(countsAsInventoryCost('listed')).toBe(true)
+    expect(countsAsInventoryCost('reserved')).toBe(true)
+    expect(countsAsInventoryCost('sold')).toBe(false)
+    expect(countsAsInventoryCost('archived')).toBe(false)
+  })
+})
+
+describe('aggregateProfit with products (inventory cost)', () => {
+  it('adds unsold-stock purchase cost to costs + inventoryCost, reducing profit', () => {
+    const sales = [sale({ salePrice: 100, purchaseCost: 30 })]
+    const products = [
+      product({ purchasePrice: 40, quantity: 1 }),
+      product({ id: 'p2', purchasePrice: 40, quantity: 1 }),
+    ]
+    const agg = aggregateProfit(sales, [expense(10)], products)
+    expect(agg.inventoryCost).toBe(80)
+    expect(agg.costs).toBe(120) // 30 COGS + 10 ad + 80 stock
+    expect(agg.profit).toBe(-20) // 100 - 120
+  })
+
+  it('multiplies purchasePrice by quantity', () => {
+    const products = [product({ purchasePrice: 25, quantity: 3 })]
+    expect(aggregateProfit([], [], products).inventoryCost).toBe(75)
+  })
+
+  it('excludes sold and archived products (no double-count vs sales)', () => {
+    const products = [
+      product({ id: 'a', status: 'sold', purchasePrice: 99 }),
+      product({ id: 'b', status: 'archived', purchasePrice: 99 }),
+      product({ id: 'c', status: 'in_stock', purchasePrice: 10 }),
+    ]
+    expect(aggregateProfit([], [], products).inventoryCost).toBe(10)
+  })
+
+  it('treats missing purchasePrice as 0', () => {
+    const products = [
+      product({ purchasePrice: undefined }),
+      product({ id: 'p2', purchasePrice: 12 }),
+    ]
+    expect(aggregateProfit([], [], products).inventoryCost).toBe(12)
+  })
+
+  it('reports inventoryCost 0 and stays unchanged when products omitted (back-compat)', () => {
+    const sales = [sale({ salePrice: 100, purchaseCost: 40 })]
+    expect(aggregateProfit(sales, []).inventoryCost).toBe(0)
+    expect(aggregateProfit(sales, [])).toEqual(aggregateProfit(sales, [], []))
   })
 })
 
