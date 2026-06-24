@@ -63,6 +63,10 @@ export interface GeneratedImageMeta {
   imageModel: string
   /** id zdjec wejsciowych (produkt + ew. dodatkowe). */
   sourceImageIds: ID[]
+  /** id zdjecia-zrodla edycji (gdy ten obraz powstal przez "Edytuj z AI"). */
+  editedFromId?: ID
+  /** Instrukcja edycji wpisana przez uzytkownika (prowenancja/audyt). */
+  editInstruction?: string
 }
 
 /** Konto sprzedazowe (np. dwie osoby / dwa profile Vinted). */
