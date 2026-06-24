@@ -175,23 +175,29 @@ export function PhotoStudio() {
   }
 
   const runEdit = async () => {
+    if (editBusy) return // re-entrancy: nie zlecaj drugiej (płatnej) edycji w trakcie pierwszej
     if (!editTarget || !editSource || !rawProduct) return
     if (!settings?.geminiApiKey) return toast.error('Dodaj klucz API w Ustawieniach.')
     const instruction = editInstruction.trim()
     if (!instruction) return toast.error('Opisz, co zmienić na zdjęciu.')
 
-    const inl = await toInline(editTarget)
-    if (!inl)
-      return toast.error('Nie udało się wczytać zdjęcia źródłowego. Sprawdź połączenie i spróbuj ponownie.')
-    // Pełne 2K/4K PNG w base64 (+~33%) może przekroczyć limit inline Gemini — czytelny
-    // komunikat zamiast surowego HTTP 400, bez naliczania kosztu.
-    if (inl.base64.length > MAX_BASE64_CHARS)
-      return toast.error('To zdjęcie jest zbyt duże, aby edytować je w pełnej rozdzielczości.')
-
     const ac = new AbortController()
     setEditController(ac)
+    // Ustaw busy PRZED odczytem źródła (wielomegabajtowy blob + base64): inaczej w oknie
+    // tego awaitu przycisk pozostaje aktywny i szybki podwójny tap zleca DWIE płatne edycje.
     setEditBusy(true)
     try {
+      const inl = await toInline(editTarget)
+      if (!inl) {
+        toast.error('Nie udało się wczytać zdjęcia źródłowego. Sprawdź połączenie i spróbuj ponownie.')
+        return
+      }
+      // Pełne 2K/4K PNG w base64 (+~33%) może przekroczyć limit inline Gemini — czytelny
+      // komunikat zamiast surowego HTTP 400, bez naliczania kosztu.
+      if (inl.base64.length > MAX_BASE64_CHARS) {
+        toast.error('To zdjęcie jest zbyt duże, aby edytować je w pełnej rozdzielczości.')
+        return
+      }
       const prompt = buildEditPrompt({ instruction, isTryOn: !!editSource.meta?.modelId })
       const { images } = await generateImage(prompt, [inl], {
         apiKey: settings.geminiApiKey,
