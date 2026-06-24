@@ -86,9 +86,11 @@ export function PhotoStudio() {
     async () => (editTarget ? await db.images.get(editTarget) : undefined),
     [editTarget],
   )
+  // Gdy źródło niewczytane, editResolution NIE jest nigdzie konsumowane (editCost jest
+  // null, a runEdit wychodzi wcześniej) — placeholder, nie realny fallback z ustawień.
   const editResolution = editSource
     ? resolutionForEdit(editSource.width, editSource.height)
-    : settings?.imageResolution ?? DEFAULT_IMAGE_RESOLUTION
+    : DEFAULT_IMAGE_RESOLUTION
   // Koszt pokazujemy dopiero, gdy źródło się wczyta — inaczej na jeden tick mignąłby
   // koszt z rozdzielczości z ustawień zamiast wyprowadzonej ze źródła (mylące dla 4K).
   const editCost = editSource

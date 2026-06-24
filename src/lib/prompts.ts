@@ -274,9 +274,11 @@ export interface EditPromptInput {
  */
 export function buildEditPrompt(input: EditPromptInput): string {
   const instruction = input.instruction.trim().replace(/[\s.!?…]+$/, '')
+  const garment =
+    'the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
   const preserve = input.isTryOn
-    ? 'the same person — their face, identity, hair, skin tone, pose and body proportions; the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
-    : 'the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
+    ? `the same person — their face, identity, hair, skin tone, pose and body proportions; ${garment}`
+    : garment
   return [
     `Using the provided photo, ${instruction}.`,
     'Blend the change naturally into the existing photo — match the current lighting, colour temperature, shadow direction, perspective and grain.',
