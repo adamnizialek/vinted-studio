@@ -1,5 +1,5 @@
 import { putEntity } from '@/db/db'
-import type { GeneratedImageMeta, ImageKind, ImageRecord } from '@/db/types'
+import type { GeneratedImageMeta, ImageKind, ImageRecord, ImageResolution } from '@/db/types'
 import { uid } from './id'
 import { enqueueBlobUpload, getBlob } from '@/sync/blobSync'
 import { currentRemote } from '@/sync/config'
@@ -30,6 +30,15 @@ const RESOLUTION_PRESERVING_KINDS: ReadonlySet<ImageKind> = new Set<ImageKind>([
 
 export function preservesResolution(kind: ImageKind): boolean {
   return RESOLUTION_PRESERVING_KINDS.has(kind)
+}
+
+/**
+ * Dobiera rozdzielczosc EDYCJI do ZRODLA: nigdy ponizej oryginalu i nigdy ponizej
+ * 2K (regula Vinted). Edycja platnego 4K nie moze cicho zejsc do 2K. Prog 3072 px
+ * lezy w luce miedzy dlugim bokiem 2K (~2K px) a 4K (~4K px).
+ */
+export function resolutionForEdit(width: number, height: number): ImageResolution {
+  return Math.max(width, height) > 3072 ? '4K' : '2K'
 }
 
 /** Skaluje (wylacznie w dol) dluzszy bok do `maxDim`, zachowujac proporcje. */

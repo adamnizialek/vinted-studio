@@ -20,6 +20,7 @@ import {
   fitWithin,
   preservesResolution,
   prepareScreenshotForVision,
+  resolutionForEdit,
   screenshotTargetSize,
 } from '@/lib/images'
 
@@ -98,6 +99,20 @@ describe('preservesResolution', () => {
   it('downscales user-uploaded source kinds (product, reference)', () => {
     expect(preservesResolution('product')).toBe(false)
     expect(preservesResolution('reference')).toBe(false)
+  })
+})
+
+describe('resolutionForEdit (preserve the source tier, never below 2K)', () => {
+  it('keeps a 4K-class source at 4K', () => {
+    expect(resolutionForEdit(4096, 3072)).toBe('4K')
+    expect(resolutionForEdit(3528, 4704)).toBe('4K')
+  })
+  it('keeps a 2K-class source at 2K (no spurious upgrade)', () => {
+    expect(resolutionForEdit(2048, 2731)).toBe('2K')
+    expect(resolutionForEdit(2048, 1536)).toBe('2K')
+  })
+  it('floors a 1K-class source up to 2K (Vinted >=2K rule)', () => {
+    expect(resolutionForEdit(1024, 1152)).toBe('2K')
   })
 })
 
