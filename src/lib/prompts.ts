@@ -273,7 +273,7 @@ export interface EditPromptInput {
  * model nie ma kanału negative-prompt; dyscyplinę "reszta bez zmian" niesie lista-zachowaj.
  */
 export function buildEditPrompt(input: EditPromptInput): string {
-  const instruction = input.instruction.trim().replace(/\.+$/, '')
+  const instruction = input.instruction.trim().replace(/[\s.!?…]+$/, '')
   const preserve = input.isTryOn
     ? 'the same person — their face, identity, hair, skin tone, pose and body proportions; the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
     : 'the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'

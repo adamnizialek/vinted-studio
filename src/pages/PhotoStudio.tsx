@@ -89,10 +89,11 @@ export function PhotoStudio() {
   const editResolution = editSource
     ? resolutionForEdit(editSource.width, editSource.height)
     : settings?.imageResolution ?? DEFAULT_IMAGE_RESOLUTION
-  const editCost = estimateImageCostUsd(
-    settings?.imageModel ?? DEFAULT_IMAGE_MODEL,
-    editResolution,
-  ).toFixed(3)
+  // Koszt pokazujemy dopiero, gdy źródło się wczyta — inaczej na jeden tick mignąłby
+  // koszt z rozdzielczości z ustawień zamiast wyprowadzonej ze źródła (mylące dla 4K).
+  const editCost = editSource
+    ? estimateImageCostUsd(settings?.imageModel ?? DEFAULT_IMAGE_MODEL, editResolution).toFixed(3)
+    : null
 
   const noModels = models && models.length === 0
   const canGenerate =
@@ -433,13 +434,14 @@ export function PhotoStudio() {
                       }}
                       className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface"
                       title="Edytuj z AI"
+                      aria-label="Edytuj z AI"
                     >
                       <Wand2 size={15} />
                     </button>
-                    <button onClick={() => download(id)} className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface" title="Pobierz">
+                    <button onClick={() => download(id)} className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface" title="Pobierz" aria-label="Pobierz">
                       <Download size={15} />
                     </button>
-                    <button onClick={() => removeGenerated(id)} className="rounded-lg bg-surface/90 p-1.5 text-red-600 hover:bg-surface" title="Usuń">
+                    <button onClick={() => removeGenerated(id)} className="rounded-lg bg-surface/90 p-1.5 text-red-600 hover:bg-surface" title="Usuń" aria-label="Usuń">
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -468,7 +470,7 @@ export function PhotoStudio() {
             )}
             <Button onClick={runEdit} disabled={editBusy || !editInstruction.trim()}>
               {editBusy ? <Loader2 size={16} className="animate-spin-slow" /> : <Wand2 size={16} />}
-              Generuj (≈ ${editCost})
+              Generuj{editCost ? ` (≈ $${editCost})` : ''}
             </Button>
           </div>
         }
@@ -507,7 +509,8 @@ export function PhotoStudio() {
           </Field>
 
           <p className="text-xs text-ink-400">
-            Powstanie nowe zdjęcie obok oryginału (oryginał zostaje). Płatne API ≈ ${editCost}.
+            Powstanie nowe zdjęcie obok oryginału (oryginał zostaje). Płatne API
+            {editCost ? ` ≈ $${editCost}` : ''}.
           </p>
         </div>
       </Modal>

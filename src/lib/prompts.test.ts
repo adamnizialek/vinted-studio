@@ -243,6 +243,12 @@ describe('buildEditPrompt — positive 5-slot edit template', () => {
     expect(p).toContain('tło.')
   })
 
+  it('strips other trailing terminators (? ! …) so the appended period stays clean', () => {
+    expect(buildEditPrompt({ instruction: 'rozjaśnij?', isTryOn: false })).not.toContain('?.')
+    expect(buildEditPrompt({ instruction: 'zmień tło!', isTryOn: false })).not.toContain('!.')
+    expect(buildEditPrompt({ instruction: 'zmień tło…', isTryOn: false })).not.toContain('….')
+  })
+
   it("exposes positive, uniquely-id'd Polish presets that pre-fill the box", () => {
     expect(EDIT_PRESETS.length).toBeGreaterThanOrEqual(2)
     const ids = EDIT_PRESETS.map((c) => c.id)

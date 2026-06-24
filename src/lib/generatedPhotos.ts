@@ -1,4 +1,4 @@
-import { db, patchEntity, putEntity } from '@/db/db'
+import { db, patchEntity } from '@/db/db'
 import type { GeneratedImageMeta, ImageRecord, Product } from '@/db/types'
 import { addGeneratedImage } from './images'
 
@@ -41,8 +41,9 @@ export async function saveGeneratedToTarget(
   } else {
     const fresh = await db.products.get(rawProduct.id)
     if (fresh)
-      await putEntity('products', {
-        ...fresh,
+      // patchEntity (jak gałąź Design powyżej) scala tylko to pole w transakcji —
+      // nie nadpisuje równolegle zmienionych pól produktu (status/cena) całym dokumentem.
+      await patchEntity('products', rawProduct.id, {
         generatedPhotoIds: insertAfterId(fresh.generatedPhotoIds, rec.id, opts.insertAfter),
       })
   }

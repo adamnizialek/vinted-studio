@@ -320,6 +320,23 @@ describe('callGenerate — timeout / cancel / retry (przez generateText)', () =>
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('generateImage z retryTimeout:false NIE ponawia po timeoucie (ochrona przed podwójnym naliczeniem edycji)', async () => {
+    // Edycja jest płatna: ponowienie po timeoucie mogłoby naliczyć drugą generację
+    // serwerowo. runEdit ustawia retryTimeout:false — generateImage MUSI go przekazać.
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateImage('hi', [], {
+        apiKey: 'k',
+        model: 'gemini-3.1-flash-image',
+        timeoutMs: 30,
+        retryTimeout: false,
+      }),
+    ).rejects.toThrow(/limit czasu|nie odpowiedział/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // brak ponowienia → brak ryzyka podwójnej generacji
+  })
+
   it('domyślny budżet zależy od typu: obraz=120 s, tekst=60 s', async () => {
     // Stałe są prywatne; obserwujemy je przez argument setTimeout w withTimeout.
     // `fetch` zwraca od razu, więc timer jest natychmiast czyszczony (zero realnego czekania).

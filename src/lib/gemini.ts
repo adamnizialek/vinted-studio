@@ -469,6 +469,9 @@ export async function generateImage(
   const resParts = await callGenerate(opts.model, opts.apiKey, body, {
     timeoutMs: opts.timeoutMs ?? IMAGE_TIMEOUT_MS,
     signal: opts.signal,
+    // Przekaż preferencję ponawiania timeoutu: edycja (płatna) ustawia false, by
+    // timeout NIE był ponawiany — inaczej ryzyko podwójnego naliczenia generacji.
+    retryTimeout: opts.retryTimeout,
   })
   const images = extractImages(resParts)
   const text = extractText(resParts)
