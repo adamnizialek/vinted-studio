@@ -72,6 +72,13 @@ describe('finishReasonError', () => {
     expect(finishReasonError('SAFETY')).toBeInstanceOf(Error)
     expect(finishReasonError('PROHIBITED_CONTENT')).toBeInstanceOf(Error)
   })
+  it('flags image-output safety stops as withheld-image errors', () => {
+    const a = finishReasonError('IMAGE_SAFETY')
+    const b = finishReasonError('IMAGE_PROHIBITED_CONTENT')
+    expect(a).toBeInstanceOf(Error)
+    expect(b).toBeInstanceOf(Error)
+    expect(a?.message).toMatch(/wstrzymany|bezpieczeństwa/i)
+  })
 })
 
 describe('supportsThinkingLevel', () => {

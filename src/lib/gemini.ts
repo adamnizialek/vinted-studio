@@ -65,6 +65,10 @@ export interface InlineImage {
 export function finishReasonError(finish: string | undefined): GeminiError | null {
   if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT')
     return new GeminiError('Odpowiedź zatrzymana przez filtry bezpieczeństwa. Zmień dane wejściowe.')
+  if (finish === 'IMAGE_SAFETY' || finish === 'IMAGE_PROHIBITED_CONTENT')
+    return new GeminiError(
+      'Obraz wstrzymany przez filtry bezpieczeństwa. Zmień opis edycji lub zdjęcie i spróbuj ponownie.',
+    )
   if (finish === 'MAX_TOKENS')
     return new GeminiError(
       'Odpowiedź została ucięta przez limit tokenów. Spróbuj ponownie z wyraźniejszym/mniejszym zrzutem lub wybierz inny model w Ustawieniach.',
