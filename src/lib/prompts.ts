@@ -257,6 +257,60 @@ export function buildPhotoPrompt(input: PhotoPromptInput): string {
     .join('\n')
 }
 
+export interface EditPromptInput {
+  /** Co zmienić — dowolny tekst użytkownika (lub instrukcja z presetu). */
+  instruction: string
+  /** Czy źródłem była przymierzalnia (jest na nim osoba) — wtedy chronimy też tożsamość modelki. */
+  isTryOn: boolean
+}
+
+/**
+ * Buduje prompt EDYCJI istniejącego (już wygenerowanego) zdjęcia: pozytywny szablon
+ * 5-slotowy zgodny z wytycznymi modeli Nano Banana — KOTWICA ("Using the provided
+ * photo,") + zmiana (tekst użytkownika) + WTOPIENIE (dopasuj światło/temperaturę/
+ * cienie/perspektywę/ziarno) + LISTA-ZACHOWAJ (tożsamość modelki tylko dla try-on,
+ * wierność ubrania i kadr zawsze) + jakość. Nie wstrzykujemy własnych negacji —
+ * model nie ma kanału negative-prompt; dyscyplinę "reszta bez zmian" niesie lista-zachowaj.
+ */
+export function buildEditPrompt(input: EditPromptInput): string {
+  const instruction = input.instruction.trim().replace(/\.+$/, '')
+  const preserve = input.isTryOn
+    ? 'the same person — their face, identity, hair, skin tone, pose and body proportions; the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
+    : 'the garment exactly — same colour, print, pattern, texture, cut and length; and the overall framing and composition'
+  return [
+    `Using the provided photo, ${instruction}.`,
+    'Blend the change naturally into the existing photo — match the current lighting, colour temperature, shadow direction, perspective and grain.',
+    `Keep everything else in the image exactly the same: ${preserve}.`,
+    'Maintain full photographic detail and sharpness. It must look like a genuine second-hand clothing listing photo. No added text, watermark or brand logos.',
+  ].join('\n')
+}
+
+/**
+ * Gotowe, POZYTYWNIE sformułowane podpowiedzi edycji (PL). Klik wstawia `instruction`
+ * do pola tekstowego (rusztowanie, nie zamiennik — można dowolnie edytować przed wysłaniem).
+ * Celowo tylko wiarygodne kategorie (tło/światło/zagniecenia); edycje twarzy/min pomijamy
+ * w v1 (najczęstszy wyzwalacz IMAGE_SAFETY i dryfu tożsamości).
+ */
+export const EDIT_PRESETS: { id: string; label: string; instruction: string }[] = [
+  {
+    id: 'studio',
+    label: 'Czyste tło studyjne',
+    instruction:
+      'umieść przedmiot na czystym, jednolitym, jasnym tle studyjnym z miękkim, równomiernym światłem',
+  },
+  {
+    id: 'light',
+    label: 'Rozjaśnij i ociepl',
+    instruction:
+      'rozjaśnij zdjęcie i nadaj mu cieplejsze, naturalne światło z poprawnym balansem bieli',
+  },
+  {
+    id: 'dewrinkle',
+    label: 'Wygładź zagniecenia',
+    instruction: 'wygładź zagniecenia i fałdy materiału tak, aby ubranie leżało gładko i równo',
+  },
+]
+
 function describeGarment(p: Product): string {
   const bits = [p.color, p.brand, p.name].filter(Boolean).join(' ')
   return bits ? `this ${bits}` : 'this clothing item'

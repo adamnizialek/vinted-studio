@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import type { AppSettings, Product } from '@/db/types'
 import {
   buildDescriptionPrompt,
+  buildEditPrompt,
   buildPhotoPrompt,
   buildProductFacts,
   buildSeoTitle,
   DESCRIPTION_STYLES,
+  EDIT_PRESETS,
   styleById,
 } from '@/lib/prompts'
 
@@ -211,6 +213,46 @@ describe('buildPhotoPrompt — footwear true-to-size scale', () => {
       sceneId: 'studio',
     })
     expect(prompt).not.toContain('footwear scale')
+  })
+})
+
+describe('buildEditPrompt — positive 5-slot edit template', () => {
+  it('anchors to the provided photo and includes the verbatim instruction', () => {
+    const p = buildEditPrompt({ instruction: 'zmień tło na jasne studio', isTryOn: false })
+    expect(p).toContain('Using the provided photo,')
+    expect(p).toContain('zmień tło na jasne studio')
+  })
+
+  it('carries an integration clause and a keep-everything-else preserve-list', () => {
+    const p = buildEditPrompt({ instruction: 'rozjaśnij', isTryOn: false })
+    expect(p).toMatch(/match the current lighting/i)
+    expect(p).toMatch(/keep everything else in the image exactly the same/i)
+  })
+
+  it('locks model identity ONLY when the source was a try-on (has a person)', () => {
+    const tryOn = buildEditPrompt({ instruction: 'x', isTryOn: true })
+    const enhance = buildEditPrompt({ instruction: 'x', isTryOn: false })
+    expect(tryOn).toContain('the same person')
+    expect(enhance).not.toContain('the same person')
+    expect(enhance).toContain('the garment exactly') // garment fidelity always locked
+  })
+
+  it('does not emit a double period when the instruction already ends with one', () => {
+    const p = buildEditPrompt({ instruction: 'zmień tło.', isTryOn: false })
+    expect(p).not.toContain('tło..')
+    expect(p).toContain('tło.')
+  })
+
+  it("exposes positive, uniquely-id'd Polish presets that pre-fill the box", () => {
+    expect(EDIT_PRESETS.length).toBeGreaterThanOrEqual(2)
+    const ids = EDIT_PRESETS.map((c) => c.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const c of EDIT_PRESETS) {
+      expect(c.label.trim()).not.toBe('')
+      expect(c.instruction.trim()).not.toBe('')
+      // App-authored scaffolding must be positive — never a naked negation.
+      expect(c.instruction.toLowerCase()).not.toMatch(/\b(nie|bez)\b/)
+    }
   })
 })
 
