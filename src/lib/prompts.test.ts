@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { AppSettings, Product } from '@/db/types'
 import {
   buildDescriptionPrompt,
+  buildPhotoPrompt,
   buildProductFacts,
   buildSeoTitle,
   DESCRIPTION_STYLES,
@@ -140,6 +141,76 @@ describe('buildProductFacts', () => {
     )
     expect(facts).toMatch(/Wymiary:.*pas 38 cm/)
     expect(facts).toMatch(/Wymiary:.*długość 60 cm/)
+  })
+})
+
+describe('buildPhotoPrompt — footwear true-to-size scale', () => {
+  const tryOn = (over: Partial<Product>) =>
+    buildPhotoPrompt({ mode: 'tryOn', product: product(over), sceneId: 'studio' })
+
+  it('adds a footwear-scale clause for shoes (category "Buty") anchored to the size label', () => {
+    const prompt = tryOn({ name: 'baleriny', category: 'Kobiety / Buty', sizeLabel: '37' })
+    expect(prompt).toContain('footwear scale')
+    expect(prompt).toContain('size 37')
+    expect(prompt).toContain('true-to-size')
+    // Positive framing only — image models have no negative-prompt channel and
+    // fixate on vivid nouns ("oversized"/"too-big"), which can backfire.
+    expect(prompt).toContain('hug the foot')
+  })
+
+  it('detects footwear from the insole measurement (footLength) even without a category keyword', () => {
+    const prompt = tryOn({ name: 'mokasyny', measurements: { footLength: 24 }, sizeLabel: '38' })
+    expect(prompt).toContain('footwear scale')
+    expect(prompt).toContain('size 38')
+  })
+
+  it('detects footwear from English category words ("Shoes")', () => {
+    const prompt = tryOn({ name: 'sneakers', category: 'Women / Shoes', sizeLabel: '40' })
+    expect(prompt).toContain('footwear scale')
+  })
+
+  it('does NOT add the footwear clause for clothing', () => {
+    const prompt = tryOn({ name: 'sukienka', category: 'Kobiety / Ubrania', sizeLabel: 'M' })
+    expect(prompt).not.toContain('footwear scale')
+    expect(prompt).not.toContain('true-to-size')
+  })
+
+  it('does NOT treat bootcut trousers as footwear (false-positive guard)', () => {
+    // "bootcut" zawiera "boot", ale to spodnie — kategoria decyduje, nie nazwa.
+    const prompt = tryOn({ name: 'spodnie bootcut', category: 'Kobiety / Ubrania' })
+    expect(prompt).not.toContain('footwear scale')
+  })
+
+  it('does NOT trip on "boot" even when it is a substring of a free-text category', () => {
+    // Kategoria to pole dowolne — token-aware detekcja: "bootcut"/"bootleg" to NIE buty.
+    expect(tryOn({ name: 'spodnie', category: 'Spodnie bootcut' })).not.toContain('footwear scale')
+    expect(tryOn({ name: 'jeansy', category: 'Bootleg jeans' })).not.toContain('footwear scale')
+  })
+
+  it('still detects the English boot family as a whole word', () => {
+    expect(tryOn({ name: 'kozaki', category: 'Boots' })).toContain('footwear scale')
+  })
+
+  it('detects standalone Polish footwear leaf categories (kozaczki, klapki, adidasy)', () => {
+    expect(tryOn({ name: 'kozaczki', category: 'Kozaczki' })).toContain('footwear scale')
+    expect(tryOn({ name: 'klapki', category: 'Klapki' })).toContain('footwear scale')
+    expect(tryOn({ name: 'adidasy', category: 'Adidasy' })).toContain('footwear scale')
+  })
+
+  it('still constrains scale for footwear without a size label (no "size undefined")', () => {
+    const prompt = tryOn({ name: 'buty', category: 'Buty' })
+    expect(prompt).toContain('footwear scale')
+    expect(prompt).not.toContain('undefined')
+    expect(prompt).toContain('true-to-size')
+  })
+
+  it('does not add the footwear clause in enhance mode (no model, product-only)', () => {
+    const prompt = buildPhotoPrompt({
+      mode: 'enhance',
+      product: product({ name: 'buty', category: 'Buty', sizeLabel: '37' }),
+      sceneId: 'studio',
+    })
+    expect(prompt).not.toContain('footwear scale')
   })
 })
 

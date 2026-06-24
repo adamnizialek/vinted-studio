@@ -247,6 +247,7 @@ export function buildPhotoPrompt(input: PhotoPromptInput): string {
     `generate a realistic photo of THE SAME person — keep their face, identity, hair, skin tone and body proportions perfectly consistent with the reference — now wearing ${garment}.`,
     identity + modelNotes,
     'CRITICAL: preserve the garment exactly as in the product photo — same colour, print, pattern, texture, cut, length and all details. Fit it naturally on the body with realistic folds and draping.',
+    input.product ? footwearScaleNote(input.product) : '',
     scene,
     `Framing/orientation: ${aspect}. Photorealistic, sharp focus on the clothing, natural realistic lighting and skin, correct anatomy and hands.`,
     'It must look like a genuine second-hand clothing listing photo. No text, no watermark, no brand logos overlaid.',
@@ -259,6 +260,62 @@ export function buildPhotoPrompt(input: PhotoPromptInput): string {
 function describeGarment(p: Product): string {
   const bits = [p.color, p.brand, p.name].filter(Boolean).join(' ')
   return bits ? `this ${bits}` : 'this clothing item'
+}
+
+// Rdzenie kategorii wskazujace na obuwie (PL + EN), dopasowywane do POCZATKU
+// tokenu kategorii — obsluguje polska fleksje (kozak→kozaczki, klapk→klapki)
+// bez falszywych trafien. Sprawdzamy KATEGORIE, nie nazwe.
+const FOOTWEAR_STEMS = [
+  'buty',
+  'obuwie',
+  'shoe',
+  'footwear',
+  'sneaker',
+  'trainer',
+  'trampki',
+  'baleriny',
+  'mokasyn',
+  'szpilk',
+  'kozak',
+  'kozacz',
+  'sandal',
+  'sandał',
+  'klapk',
+  'adidas',
+]
+
+// Angielska rodzina "boot" — tylko jako CALE slowo. Inaczej "bootcut"/"bootleg"
+// (spodnie) wpadlyby jako obuwie i zepsuly prompt ubraniowy.
+const BOOT_TOKENS = new Set(['boot', 'boots', 'bootie', 'booties'])
+
+/** Czy produkt to obuwie — po wymiarze wkladki (footLength) lub kategorii. */
+function isFootwear(p: Product): boolean {
+  if (p.measurements?.footLength != null) return true
+  const tokens = (p.category ?? '')
+    .toLowerCase()
+    .split(/[^\p{L}]+/u)
+    .filter(Boolean)
+  return tokens.some(
+    (tok) => BOOT_TOKENS.has(tok) || FOOTWEAR_STEMS.some((stem) => tok.startsWith(stem)),
+  )
+}
+
+/**
+ * Dla obuwia dokleja wskazowke o realistycznej, zgodnej z rozmiarem skali —
+ * model AI bez tego renderuje buty za duze (rozmiar 37 wyglada jak 45).
+ * Sformulowane POZYTYWNIE (modele obrazowe nie maja kanalu negative-prompt i
+ * lapia sie na konkretne rzeczowniki typu "oversized", co dziala odwrotnie).
+ * Zwraca '' dla nie-obuwia (pomijane przez .filter(Boolean) w buildPhotoPrompt).
+ */
+function footwearScaleNote(p: Product): string {
+  if (!isFootwear(p)) return ''
+  const size = p.sizeLabel?.trim()
+  const ref = size ? `size ${size}` : 'real-world'
+  return [
+    `IMPORTANT — footwear scale: these are shoes${size ? ` in size ${size}` : ''}.`,
+    `Render them at a realistic, true-to-size scale on the model's feet — small and neat, fitting the foot closely and proportionally like genuine ${ref} footwear.`,
+    "The shoe length should extend only slightly past the toes and hug the foot, staying proportionate to the model's foot.",
+  ].join(' ')
 }
 
 // ─────────────────────────────────────────────────────────────────────────
