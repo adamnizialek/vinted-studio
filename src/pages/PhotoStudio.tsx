@@ -3,13 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Camera, Download, Loader2, Shirt, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import clsx from 'clsx'
-import { db, deleteEntity, patchEntity, putEntity } from '@/db/db'
+import { db, deleteEntity, patchEntity } from '@/db/db'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_RESOLUTION, estimateImageCostUsd } from '@/lib/constants'
 import { SCENE_PRESETS, buildPhotoPrompt, type PhotoMode } from '@/lib/prompts'
 import { generateImage, type InlineImage } from '@/lib/gemini'
-import { addGeneratedImage, blobToBase64, getImageBlob } from '@/lib/images'
+import { blobToBase64, getImageBlob } from '@/lib/images'
+import { saveGeneratedToTarget } from '@/lib/generatedPhotos'
 import { resolveProduct } from '@/lib/designs'
 import { downloadBlob } from '@/lib/csv'
 import { Button, EmptyState, Field, Select, TextArea, SectionTitle } from '@/components/ui'
@@ -127,24 +128,12 @@ export function PhotoStudio() {
         })
         await bumpImageCount(images.length)
         for (const img of images) {
-          const rec = await addGeneratedImage(
-            img.base64,
-            img.mime,
-            { modelId: mode === 'tryOn' ? selModelId : undefined, prompt, imageModel: settings.imageModel, sourceImageIds: sourceIds },
-            rawProduct?.designId ? {} : { productId: product.id },
-          )
-          if (rawProduct?.designId) {
-            const d = await db.designs.get(rawProduct.designId)
-            if (d)
-              await patchEntity('designs', d.id, {
-                generatedPhotoIds: [rec.id, ...d.generatedPhotoIds],
-              })
-            await patchEntity('images', rec.id, { designId: rawProduct.designId, productId: undefined })
-          } else {
-            const fresh = await db.products.get(product.id)
-            if (fresh)
-              await putEntity('products', { ...fresh, generatedPhotoIds: [rec.id, ...fresh.generatedPhotoIds] })
-          }
+          await saveGeneratedToTarget(rawProduct!, img, {
+            modelId: mode === 'tryOn' ? selModelId : undefined,
+            prompt,
+            imageModel: settings.imageModel,
+            sourceImageIds: sourceIds,
+          })
           saved++
         }
       }

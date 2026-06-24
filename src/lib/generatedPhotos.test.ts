@@ -8,7 +8,7 @@ import type { Design, GeneratedImageMeta, ImageRecord, Product } from '@/db/type
 vi.mock('@/lib/images', () => ({
   addGeneratedImage: vi.fn(
     async (
-      base64: string,
+      _base64: string,
       mime: string,
       meta: GeneratedImageMeta,
       links?: { productId?: string },
