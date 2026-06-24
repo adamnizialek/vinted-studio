@@ -7,13 +7,13 @@ import { db, deleteEntity, patchEntity } from '@/db/db'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_RESOLUTION, estimateImageCostUsd } from '@/lib/constants'
-import { SCENE_PRESETS, buildPhotoPrompt, type PhotoMode } from '@/lib/prompts'
-import { generateImage, type InlineImage } from '@/lib/gemini'
-import { blobToBase64, getImageBlob } from '@/lib/images'
+import { SCENE_PRESETS, buildPhotoPrompt, buildEditPrompt, EDIT_PRESETS, type PhotoMode } from '@/lib/prompts'
+import { generateImage, MAX_BASE64_CHARS, type InlineImage } from '@/lib/gemini'
+import { blobToBase64, getImageBlob, resolutionForEdit } from '@/lib/images'
 import { saveGeneratedToTarget } from '@/lib/generatedPhotos'
 import { resolveProduct } from '@/lib/designs'
 import { downloadBlob } from '@/lib/csv'
-import { Button, EmptyState, Field, Select, TextArea, SectionTitle } from '@/components/ui'
+import { Button, EmptyState, Field, Modal, Select, TextArea, SectionTitle } from '@/components/ui'
 import { FullImage, Thumb } from '@/components/ImageView'
 
 const ASPECTS: { value: string; label: string; hint: string }[] = [
@@ -46,6 +46,13 @@ export function PhotoStudio() {
   const [progress, setProgress] = useState('')
   const [controller, setController] = useState<AbortController | null>(null)
 
+  // Edycja istniejącego zdjęcia ("Edytuj z AI") — własne flagi/AbortController,
+  // niezależne od głównej generacji (modal i tak blokuje tło backdropem).
+  const [editTarget, setEditTarget] = useState<string | null>(null)
+  const [editInstruction, setEditInstruction] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [editController, setEditController] = useState<AbortController | null>(null)
+
   const designs = useLiveQuery(() => db.designs.toArray(), [])
   const designsById = useMemo(() => new Map((designs ?? []).map((d) => [d.id, d])), [designs])
   const rawProduct = useLiveQuery(
@@ -72,6 +79,20 @@ export function PhotoStudio() {
     settings?.imageResolution ?? DEFAULT_IMAGE_RESOLUTION,
   )
   const estCost = (variants * perImageCost).toFixed(3)
+
+  // Zdjęcie wybrane do edycji + koszt w lockstep z tym, co realnie wyślemy
+  // (model z ustawień + rozdzielczość WYWODZONA ZE ŹRÓDŁA, nigdy poniżej oryginału).
+  const editSource = useLiveQuery(
+    async () => (editTarget ? await db.images.get(editTarget) : undefined),
+    [editTarget],
+  )
+  const editResolution = editSource
+    ? resolutionForEdit(editSource.width, editSource.height)
+    : settings?.imageResolution ?? DEFAULT_IMAGE_RESOLUTION
+  const editCost = estimateImageCostUsd(
+    settings?.imageModel ?? DEFAULT_IMAGE_MODEL,
+    editResolution,
+  ).toFixed(3)
 
   const noModels = models && models.length === 0
   const canGenerate =
@@ -147,6 +168,70 @@ export function PhotoStudio() {
       setBusy(false)
       setProgress('')
       setController(null)
+    }
+  }
+
+  const runEdit = async () => {
+    if (!editTarget || !editSource || !rawProduct) return
+    if (!settings?.geminiApiKey) return toast.error('Dodaj klucz API w Ustawieniach.')
+    const instruction = editInstruction.trim()
+    if (!instruction) return toast.error('Opisz, co zmienić na zdjęciu.')
+
+    const inl = await toInline(editTarget)
+    if (!inl)
+      return toast.error('Nie udało się wczytać zdjęcia źródłowego. Sprawdź połączenie i spróbuj ponownie.')
+    // Pełne 2K/4K PNG w base64 (+~33%) może przekroczyć limit inline Gemini — czytelny
+    // komunikat zamiast surowego HTTP 400, bez naliczania kosztu.
+    if (inl.base64.length > MAX_BASE64_CHARS)
+      return toast.error('To zdjęcie jest zbyt duże, aby edytować je w pełnej rozdzielczości.')
+
+    const ac = new AbortController()
+    setEditController(ac)
+    setEditBusy(true)
+    try {
+      const prompt = buildEditPrompt({ instruction, isTryOn: !!editSource.meta?.modelId })
+      const { images } = await generateImage(prompt, [inl], {
+        apiKey: settings.geminiApiKey,
+        model: settings.imageModel,
+        resolution: editResolution,
+        // Celowo BEZ aspectRatio — model dziedziczy kształt źródła (pewniejsze niż wymuszanie).
+        signal: ac.signal,
+        // Każda edycja jest płatna — nie ryzykuj podwójnego naliczenia po timeoucie.
+        retryTimeout: false,
+      })
+      await bumpImageCount(images.length)
+      let lowRes = false
+      for (const img of images) {
+        const rec = await saveGeneratedToTarget(
+          rawProduct,
+          img,
+          {
+            modelId: editSource.meta?.modelId,
+            prompt,
+            imageModel: settings.imageModel,
+            sourceImageIds: [editTarget],
+            editedFromId: editTarget,
+            editInstruction: instruction,
+          },
+          { insertAfter: editTarget },
+        )
+        if (Math.max(rec.width, rec.height) < 2000) lowRes = true
+      }
+      toast.success('Zapisano edytowane zdjęcie ✨')
+      // gemini-3.1-flash-image bywa, że ignoruje imageSize i zwraca ~1K — ostrzeż
+      // (nie ponawiaj automatycznie: redo = podwójny koszt).
+      if (lowRes)
+        toast.info(
+          'Uwaga: wynik ma mniej niż 2K. Dla Vinted wybierz model „gemini-3-pro-image” w Ustawieniach.',
+        )
+      setEditTarget(null)
+      setEditInstruction('')
+    } catch (e) {
+      if (ac.signal.aborted) toast.info('Anulowano edycję.')
+      else toast.error(e instanceof Error ? e.message : 'Błąd edycji.')
+    } finally {
+      setEditBusy(false)
+      setEditController(null)
     }
   }
 
@@ -338,9 +423,19 @@ export function PhotoStudio() {
               {product.generatedPhotoIds.map((id) => (
                 <div key={id} className="group relative overflow-hidden rounded-2xl bg-ink-100 ring-1 ring-ink-100">
                   <FullImage imageId={id} className="aspect-[3/4] w-full object-cover" />
-                  {/* Na dotyku nie ma :hover — pasek akcji (pobierz/usuń) musi być
+                  {/* Na dotyku nie ma :hover — pasek akcji (edytuj/pobierz/usuń) musi być
                       od razu widoczny na telefonie; na desktopie chowamy do hovera. */}
                   <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+                    <button
+                      onClick={() => {
+                        setEditTarget(id)
+                        setEditInstruction('')
+                      }}
+                      className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface"
+                      title="Edytuj z AI"
+                    >
+                      <Wand2 size={15} />
+                    </button>
                     <button onClick={() => download(id)} className="rounded-lg bg-surface/90 p-1.5 text-ink-700 hover:bg-surface" title="Pobierz">
                       <Download size={15} />
                     </button>
@@ -354,6 +449,68 @@ export function PhotoStudio() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={editTarget !== null}
+        onClose={() => {
+          if (!editBusy) setEditTarget(null)
+        }}
+        size="md"
+        title="Edytuj zdjęcie z AI"
+        footer={
+          <div className="flex items-center justify-between gap-2">
+            {editBusy ? (
+              <Button variant="ghost" onClick={() => editController?.abort()}>
+                <X size={16} /> Anuluj
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button onClick={runEdit} disabled={editBusy || !editInstruction.trim()}>
+              {editBusy ? <Loader2 size={16} className="animate-spin-slow" /> : <Wand2 size={16} />}
+              Generuj (≈ ${editCost})
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <FullImage
+              imageId={editTarget ?? undefined}
+              className="h-24 w-auto rounded-xl object-cover"
+            />
+            <p className="text-sm text-ink-500">
+              Opisz, co zmienić. Reszta zdjęcia (modelka, ubranie, kadr) zostanie bez zmian.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {EDIT_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setEditInstruction(p.instruction)}
+                className="rounded-full bg-ink-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition hover:bg-ink-200"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <Field label="Co zmienić?">
+            <TextArea
+              rows={3}
+              value={editInstruction}
+              onChange={(e) => setEditInstruction(e.target.value)}
+              placeholder="np. zmień tło na jasne studio, rozjaśnij światło…"
+            />
+          </Field>
+
+          <p className="text-xs text-ink-400">
+            Powstanie nowe zdjęcie obok oryginału (oryginał zostaje). Płatne API ≈ ${editCost}.
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }
