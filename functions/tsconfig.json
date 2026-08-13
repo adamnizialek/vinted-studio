@@ -13,5 +13,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  // Ten projekt sprawdza WYŁĄCZNIE kod, który leci na Workers — stąd `types` bez Node.
+  // Testy działają w Node (node:sqlite, node:fs) i celowo tu nie pasują; sprawdza je vitest.
+  "exclude": ["**/*.test.ts"]
 }
