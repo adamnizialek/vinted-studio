@@ -8,6 +8,8 @@ import {
   generateText,
   generateImage,
   extractFromImages,
+  classifyQuotaError,
+  isBillingForbidden,
   GeminiError,
 } from '@/lib/gemini'
 
@@ -180,8 +182,109 @@ const OK_TEXT = {
   candidates: [{ content: { parts: [{ text: 'OK' }] }, finishReason: 'STOP' }],
 }
 
+// Modele obrazów Gemini mają w cenniku „Free tier: Not available", więc klucz bez płatności
+// dostaje 429 przy PIERWSZEJ próbie. Dawny komunikat kazał „odczekać chwilę" — czekanie
+// nigdy nie pomagało i wyglądało to jak awaria aplikacji.
+describe('classifyQuotaError', () => {
+  const zeroQuota = {
+    error: {
+      code: 429,
+      message: 'You exceeded your current quota, please check your plan and billing details.',
+      status: 'RESOURCE_EXHAUSTED',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [
+            { quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', quotaValue: '0' },
+          ],
+        },
+      ],
+    },
+  }
+  const realRateLimit = {
+    error: {
+      code: 429,
+      message: 'You exceeded your current quota, please check your plan and billing details.',
+      status: 'RESOURCE_EXHAUSTED',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [
+            { quotaId: 'GenerateRequestsPerMinutePerProjectPerModel', quotaValue: '15' },
+          ],
+        },
+      ],
+    },
+  }
+
+  it('treats a zero quota as "billing not enabled", not as a rate limit', () => {
+    const r = classifyQuotaError(zeroQuota, 'text')
+    expect(r.code).toBe('billing')
+    expect(r.message).not.toMatch(/odczekaj chwilę i spróbuj/i)
+  })
+
+  it('treats a non-zero per-minute quota as a real rate limit', () => {
+    const r = classifyQuotaError(realRateLimit, 'text')
+    expect(r.code).toBe('rate_limit')
+    expect(r.message).toMatch(/odczekaj/i)
+  })
+
+  it('always reads an image 429 as a billing problem (image models have no free tier)', () => {
+    const r = classifyQuotaError(realRateLimit, 'image')
+    expect(r.code).toBe('billing')
+    expect(r.message).toMatch(/płatnoś/i)
+    expect(r.message).toMatch(/nie mają darmowego limitu/i)
+  })
+
+  it('does not treat Google\'s boilerplate "billing details" wording as a billing signal', () => {
+    // Ta fraza jest w KAŻDYM 429 — sama z siebie nic nie znaczy.
+    expect(classifyQuotaError({ error: { message: 'check your plan and billing details' } }, 'text').code)
+      .toBe('rate_limit')
+  })
+
+  it('survives a malformed error body', () => {
+    expect(classifyQuotaError(null, 'text').code).toBe('rate_limit')
+    expect(classifyQuotaError({ error: { details: 'nope' } }, 'text').code).toBe('rate_limit')
+  })
+})
+
+describe('isBillingForbidden', () => {
+  it('recognises a disabled-API / billing 403', () => {
+    expect(isBillingForbidden('Billing has not been enabled for this project')).toBe(true)
+    expect(isBillingForbidden('Generative Language API has not been used in project 123')).toBe(true)
+  })
+  it('leaves an ordinary permission error alone', () => {
+    expect(isBillingForbidden('The caller does not have permission')).toBe(false)
+  })
+})
+
 describe('callGenerate — timeout / cancel / retry (przez generateText)', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it('nie ponawia 429 i tłumaczy brak płatności przy generowaniu obrazu', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(429, {
+        error: { message: 'You exceeded your current quota.', status: 'RESOURCE_EXHAUSTED' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateImage('hi', [], { apiKey: 'k', model: 'gemini-3.1-flash-image' }),
+    ).rejects.toThrow(/płatnoś/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // 429 jest deterministyczny — bez ponowień
+  })
+
+  it('mapuje 403 o wyłączonych płatnościach na ten sam komunikat', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(403, { error: { message: 'Billing has not been enabled for this project.' } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateImage('hi', [], { apiKey: 'k', model: 'gemini-3.1-flash-image' }),
+    ).rejects.toThrow(/płatnoś/i)
+  })
 
   it('przerywa zacięte żądanie po timeoutMs i ponawia raz, zanim zgłosi błąd', async () => {
     const fetchMock = hangingFetch()

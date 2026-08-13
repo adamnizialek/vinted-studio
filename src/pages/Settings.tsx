@@ -187,7 +187,8 @@ export function SettingsPage() {
               <a className="text-brand-600 underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
                 Google AI Studio → API keys
               </a>
-              . Klucz nie jest nigdzie wysyłany poza Google.
+              . Klucz nie jest nigdzie wysyłany poza Google. <b>Opisy tekstowe</b> działają na
+              darmowym kluczu; <b>generowanie zdjęć</b> wymaga włączenia płatności — patrz niżej.
             </>
           }
         >
@@ -271,10 +272,30 @@ export function SettingsPage() {
           <Coins size={18} className="text-amber-500" />
           <h3 className="font-bold">Generowanie zdjęć i koszty</h3>
         </div>
-        <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          Uwaga: generowanie obrazów przez Gemini API jest <b>płatne od pierwszego użycia</b> (brak
-          darmowego limitu). Orientacyjnie ok. <b>${perImageCost.toFixed(3)}</b> za obraz przy{' '}
-          <b>{form.imageModel}</b> @ <b>{form.imageResolution}</b>. Opisy tekstowe mają hojny darmowy limit.
+        <div className="space-y-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <p>
+            Generowanie obrazów przez Gemini API jest <b>płatne od pierwszego użycia</b> — w
+            cenniku Google modele obrazów mają darmowy limit <b>zero</b>. Na kluczu bez włączonych
+            płatności każda próba kończy się błędem 429; czekanie nic nie da.
+          </p>
+          <p>
+            Żeby to odblokować: w{' '}
+            <a
+              className="underline"
+              href="https://aistudio.google.com/apikey"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Google AI Studio → API keys
+            </a>{' '}
+            otwórz projekt swojego klucza i włącz płatności (plan płatny / billing). Koszt
+            orientacyjnie <b>${perImageCost.toFixed(3)}</b> za obraz przy <b>{form.imageModel}</b> @{' '}
+            <b>{form.imageResolution}</b> — czyli ok. <b>{(perImageCost * USD_PLN).toFixed(2)} zł</b>.
+          </p>
+          <p>
+            <b>Opisy, tytuły i ceny</b> działają normalnie na darmowym kluczu — płatność dotyczy
+            wyłącznie zdjęć.
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Wariantów na jedną generację" hint="Ile zdjęć generować naraz (więcej = wyższy koszt).">
@@ -339,10 +360,20 @@ export function SettingsPage() {
           <Cloud size={18} className="text-brand-500" />
           <h3 className="font-bold">Synchronizacja między urządzeniami</h3>
         </div>
-        <div className="rounded-xl bg-ink-50 px-4 py-3 text-sm text-ink-600">
-          Wpisz token synchronizacji (ustawiony w Twoim projekcie Cloudflare). Produkty, zdjęcia,
-          modelki i sprzedaże zapiszą się w Twojej darmowej chmurze i będą dostępne na telefonie i
-          komputerze. Token i klucz Gemini przechowywane są wyłącznie na tym urządzeniu.
+        <div className="space-y-2 rounded-xl bg-ink-50 px-4 py-3 text-sm text-ink-600 dark:bg-ink-900/40 dark:text-ink-300">
+          <p>
+            <b>Opcjonalne.</b> Bez tokenu aplikacja działa w całości lokalnie — wszystko zostaje w
+            tej przeglądarce. Token włącza synchronizację, żeby te same produkty, zdjęcia, modelki
+            i sprzedaże widzieć na telefonie i na komputerze.
+          </p>
+          <p>
+            Skąd wziąć token: dostajesz go od właściciela tej instalacji <b>albo</b> ustawiasz
+            własny we własnym projekcie Cloudflare. Każdy token ma <b>osobne, prywatne dane</b> —
+            osoba, która dała Ci token, nie widzi Twojego magazynu ani sprzedaży.
+          </p>
+          <p className="text-xs text-ink-400">
+            Token i klucz Gemini nigdy się nie synchronizują — zostają wyłącznie na tym urządzeniu.
+          </p>
         </div>
         <Field label="Token synchronizacji">
           <div className="flex gap-2">

@@ -47,6 +47,73 @@ export interface CallOptions {
    * interaktywny odczyt woli szybką porażkę niż drugie 60 s czekania na ten sam wynik.
    */
   retryTimeout?: boolean
+  /**
+   * Rodzaj żądania — zmienia TREŚĆ komunikatu o limicie. Modele obrazów nie mają
+   * darmowego limitu (patrz `imageQuotaMessage`), więc ich 429 znaczy co innego niż 429 tekstu.
+   */
+  kind?: 'text' | 'image'
+}
+
+// ---------------------------------------------------------------------------
+// Limity i rozliczenia (429 / 403).
+// ---------------------------------------------------------------------------
+
+/**
+ * Modele obrazów Gemini mają w cenniku „Free tier: Not available" — czyli darmowy limit
+ * ZERO. Klucz bez włączonych płatności dostaje więc 429 przy PIERWSZYM użyciu, a nie po
+ * przekroczeniu jakiegoś limitu. Dawny komunikat („odczekaj chwilę") kazał czekać na coś,
+ * co nigdy nie nadejdzie — stąd wrażenie, że „generowanie działa tylko dla płatnych API".
+ */
+export const BILLING_HELP_URL = 'https://aistudio.google.com/apikey'
+
+const IMAGE_BILLING_MESSAGE =
+  'Generowanie zdjęć wymaga klucza Gemini z włączonymi płatnościami — modele obrazów nie ' +
+  'mają darmowego limitu (0 obrazów dziennie za darmo). Włącz rozliczenia dla swojego ' +
+  'projektu w Google AI Studio → API keys → Plan, i spróbuj ponownie. Opisy tekstowe ' +
+  'działają dalej na darmowym kluczu. Jeśli płatności już masz — to zwykły limit zapytań, odczekaj chwilę.'
+
+const TEXT_BILLING_MESSAGE =
+  'Ten model ma dla Twojego klucza darmowy limit równy zero. Włącz płatności w Google AI ' +
+  'Studio albo wybierz inny model w Ustawieniach.'
+
+const RATE_LIMIT_MESSAGE =
+  'Przekroczono limit zapytań (429). Odczekaj chwilę i spróbuj ponownie.'
+
+/** Naruszenie limitu z `google.rpc.QuotaFailure` w odpowiedzi 429. */
+interface QuotaViolation {
+  quotaId?: string
+  quotaValue?: string
+}
+
+function quotaViolations(json: unknown): QuotaViolation[] {
+  const details = (json as any)?.error?.details
+  if (!Array.isArray(details)) return []
+  return details.flatMap((d: any) => (Array.isArray(d?.violations) ? d.violations : []))
+}
+
+/**
+ * Rozróżnia „nie masz płatności" od „za szybko pytasz" w odpowiedzi 429. Wydzielone jako
+ * czysta funkcja, żeby testować bez sieci.
+ *
+ * Rozstrzygający sygnał to `quotaValue: "0"` — limit zero znaczy, że tego modelu NIE DA SIĘ
+ * użyć na tym kluczu, a nie że chwilowo się go wyczerpało. Generyczna wzmianka o „billing"
+ * w treści błędu sygnałem NIE jest: Google dokleja ją do każdego 429.
+ */
+export function classifyQuotaError(
+  json: unknown,
+  kind: 'text' | 'image' = 'text',
+): { code: 'billing' | 'rate_limit'; message: string } {
+  const zeroQuota = quotaViolations(json).some((v) => String(v.quotaValue ?? '').trim() === '0')
+  // Obraz: darmowego limitu nie ma w ogóle, więc 429 to niemal zawsze brak płatności.
+  // Komunikat i tak wspomina o zwykłym limicie, gdyby użytkownik płatności już miał.
+  if (zeroQuota || kind === 'image')
+    return { code: 'billing', message: kind === 'image' ? IMAGE_BILLING_MESSAGE : TEXT_BILLING_MESSAGE }
+  return { code: 'rate_limit', message: RATE_LIMIT_MESSAGE }
+}
+
+/** Czy 403 dotyczy wyłączonych płatności / niewłączonego API, a nie samego klucza. */
+export function isBillingForbidden(message: string): boolean {
+  return /billing|SERVICE_DISABLED|has not been used in project|is disabled/i.test(message)
 }
 
 export interface InlineImage {
@@ -146,13 +213,19 @@ async function callGenerateOnce(
     if (!res.ok) {
       const msg =
         (json as any)?.error?.message ?? `Błąd Gemini API (HTTP ${res.status}).`
-      if (res.status === 429)
-        throw new GeminiError(
-          'Przekroczono limit zapytań (429). Odczekaj chwilę lub sprawdź limity klucza.',
-          429,
-        )
+      if (res.status === 429) {
+        const q = classifyQuotaError(json, opts.kind ?? 'text')
+        throw new GeminiError(q.message, 429, false, q.code)
+      }
       if (res.status === 400 && /API key not valid/i.test(msg))
         throw new GeminiError('Nieprawidłowy klucz API. Sprawdź go w Ustawieniach.', 400)
+      if (res.status === 403 && isBillingForbidden(msg))
+        throw new GeminiError(
+          opts.kind === 'image' ? IMAGE_BILLING_MESSAGE : TEXT_BILLING_MESSAGE,
+          403,
+          false,
+          'billing',
+        )
       if (res.status === 404)
         throw new GeminiError(
           `Model "${model}" nie istnieje lub jest niedostępny dla tego klucza. Wybierz inny model w Ustawieniach.`,
@@ -472,6 +545,7 @@ export async function generateImage(
     // Przekaż preferencję ponawiania timeoutu: edycja (płatna) ustawia false, by
     // timeout NIE był ponawiany — inaczej ryzyko podwójnego naliczenia generacji.
     retryTimeout: opts.retryTimeout,
+    kind: 'image',
   })
   const images = extractImages(resParts)
   const text = extractText(resParts)

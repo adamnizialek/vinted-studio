@@ -60,9 +60,15 @@ Otwórz zbudowaną aplikację w Chrome/Edge → ikona „Zainstaluj” w pasku a
 
 ## 🔑 Klucz API Gemini
 
-1. Wejdź na **[Google AI Studio → API keys](https://aistudio.google.com/apikey)** i wygeneruj klucz (darmowy).
+1. Wejdź na **[Google AI Studio → API keys](https://aistudio.google.com/apikey)** i wygeneruj klucz (samo utworzenie klucza jest darmowe).
 2. W aplikacji: **Ustawienia → wklej klucz → Testuj**.
 3. Klucz jest zapisywany **tylko lokalnie** (IndexedDB) i wysyłany wyłącznie do Google.
+
+> ⚠️ **Darmowy klucz wystarcza do opisów, ale NIE do zdjęć.** W cenniku Google wszystkie modele
+> obrazów mają darmowy limit **zero** („Free tier: Not available"), więc na kluczu bez włączonych
+> płatności *pierwsza* próba generowania zdjęcia zwraca błąd 429 i czekanie nic nie zmieni.
+> Żeby generować zdjęcia, włącz płatności (billing) dla projektu swojego klucza w Google AI Studio.
+> Opisy, tytuły SEO i kalkulator ceny działają normalnie na darmowym kluczu.
 
 ### Modele (konfigurowalne w Ustawieniach)
 - **Tekst (opisy):** domyślnie `gemini-2.5-flash` (hojny darmowy limit).
