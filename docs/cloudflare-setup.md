@@ -40,10 +40,36 @@ npx wrangler pages secret put SYNC_TOKEN
 
 Keep this token — you paste it once per device in the app (Settings → Synchronizacja).
 
-## 3. Deploy
+### Letting someone else sync on YOUR deployment
+
+`SYNC_TOKEN` is the **owner** token. Anyone holding it sees the owner's data, so never hand
+it out. To give another person sync without them creating a Cloudflare account, add their own
+token to `SYNC_TOKENS` (comma-separated). Each token gets a **fully isolated data space** —
+separate D1 rows, separate R2 objects, invisible to every other token.
 
 ```bash
-npm run cf:deploy           # builds dist/ and deploys Pages + Functions
+# One random token per person, e.g.:  openssl rand -hex 32
+npx wrangler pages secret put SYNC_TOKENS
+# paste ALL guest tokens at once, comma-separated:  tok_kolega,tok_ktos_inny
+```
+
+Send that person only *their* token. They open the app → **Ustawienia → Synchronizacja** →
+paste → **Połącz**. Nothing else on their side. Revoking = removing the token from the list
+and re-running the command (their rows stay in D1 until you delete them).
+
+> Their storage counts against **your** free tier (R2 10 GB, D1 500 MB). Fine for a handful of
+> people; see “Free-tier capacity” below.
+
+## 3. Deploy
+
+**Apply migrations before deploying** — the Functions query the `space` column added in
+`0004_sync_spaces.sql`, so a deploy that runs ahead of the migration answers `/api/sync`
+with HTTP 500 until you migrate. (The GitHub Actions workflow already does it in this
+order; only manual deploys need care.)
+
+```bash
+npm run db:migrate          # FIRST — schema (adds `space` to every table)
+npm run cf:deploy           # THEN — builds dist/ and deploys Pages + Functions
 ```
 
 First deploy will prompt to create/link the Pages project (name: `vinted-studio`).
@@ -62,8 +88,9 @@ First deploy will prompt to create/link the Pages project (name: `vinted-studio`
 # Apply schema to the LOCAL emulated D1
 npx wrangler d1 execute DB --local --file=migrations/0001_init.sql
 
-# Provide a token for local runs (gitignored)
-echo 'SYNC_TOKEN=devtoken' > .dev.vars
+# Provide tokens for local runs (gitignored). SYNC_TOKENS is optional — use it to
+# exercise the multi-person path (each guest token gets its own isolated space).
+printf 'SYNC_TOKEN=devtoken\nSYNC_TOKENS=guesttoken\n' > .dev.vars
 
 # Build + run Pages + Functions with local D1/R2 emulation
 npm run cf:dev              # http://127.0.0.1:8788
@@ -76,6 +103,8 @@ npm run cf:dev              # http://127.0.0.1:8788
 - [ ] Edit on B, delete on A → both changes propagate (last-write-wins; deletes via tombstone).
 - [ ] Make edits on A while offline → they reconcile when A reconnects.
 - [ ] Confirm the Gemini key entered on A is **not** present on B (it is never synced).
+- [ ] Connect a **guest** token on device C → it starts empty and never sees A/B's products.
+- [ ] Create a product on C → it does **not** appear on A or B.
 
 ## Free-tier capacity
 
