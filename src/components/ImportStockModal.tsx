@@ -4,12 +4,15 @@ import clsx from 'clsx'
 import { FileUp, Loader2 } from 'lucide-react'
 import { db, importStock } from '@/db/db'
 import {
-  parseStockTable,
+  parseStockSheet,
   matchAccounts,
   stockImportKey,
+  STOCK_FIELDS,
   type StockBucket,
   type ResolvedStockDraft,
 } from '@/lib/stockImport'
+import type { ColumnMap } from '@/lib/columnMap'
+import { ColumnMapper } from '@/components/ColumnMapper'
 import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import type { Account } from '@/db/types'
 import { money } from '@/lib/format'
@@ -46,6 +49,14 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
   const [workbook, setWorkbook] = useState<{ wb: Workbook; names: string[]; sheet: string } | null>(
     null,
   )
+  // Surowa tabela bieżącego arkusza + użyte przypisanie kolumn. Trzymamy tabelę, bo zmiana
+  // przypisania w ColumnMapperze wymaga przeparsowania tych samych danych od nowa.
+  const [sheetState, setSheetState] = useState<{
+    table: string[][]
+    columns: ColumnMap
+    headerDetected: boolean
+    hasHeaderRow: boolean
+  } | null>(null)
 
   // Klucze treści przedmiotów już w magazynie (multizbiór) — TYLKO do podglądu licznika.
   // Faktyczną deduplikację robi importStock.
@@ -62,17 +73,26 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
   const close = () => {
     setRows([])
     setWorkbook(null)
+    setSheetState(null)
     sheetCache.current.clear()
     onClose()
   }
 
   // Klasyfikuje wybrany arkusz i auto-dopasowuje konta do niesprzedanych przedmiotów.
-  const processStock = (table: string[][], sheet: string) => {
+  // `override` = ręczne przypisanie kolumn z ColumnMappera (gdy automat się pomylił).
+  const processStock = (table: string[][], sheet: string, override?: ColumnMap) => {
     const salesForMatch = (sales ?? []).map((s) => ({
       productName: s.productName,
       accountId: s.accountId,
     }))
-    const parsed = parseStockTable(table)
+    const sheetParse = parseStockSheet(table, override)
+    setSheetState({
+      table,
+      columns: sheetParse.columns,
+      headerDetected: sheetParse.headerDetected,
+      hasHeaderRow: sheetParse.hasHeaderRow,
+    })
+    const parsed = sheetParse.rows
     const stock = parsed.filter((r) => r.bucket === 'stock')
     const matches = matchAccounts(stock, salesForMatch)
     const byRow = new Map(stock.map((r, i) => [r.rowIndex, matches[i]]))
@@ -95,10 +115,11 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
         include: r.bucket === 'stock',
       }
     })
+    // Zero przedmiotów NIE kasuje podglądu — arkusz zostaje wczytany, a użytkownik może
+    // poprawić przypisanie kolumn w ColumnMapperze. Wcześniej kończyło się to komunikatem
+    // „nie znaleziono przedmiotów" bez żadnej drogi wyjścia.
     if (!next.some((r) => r.bucket === 'stock')) {
-      toast.error('Nie znaleziono przedmiotów w magazynie w tym arkuszu.')
-      setRows([])
-      return
+      toast.error('Nie znaleziono przedmiotów w tym arkuszu — sprawdź przypisanie kolumn poniżej.')
     }
     setRows(next)
   }
@@ -113,6 +134,7 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     } catch (e) {
       // Nieudany odczyt (np. uszkodzony XLSX) — wyczyść podgląd, by nie zaimportować starych danych.
       setWorkbook(null)
+      setSheetState(null)
       setRows([])
       toast.error(e instanceof Error ? e.message : 'Nie udało się odczytać pliku.')
     }
@@ -126,6 +148,14 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
     const cached = sheetCache.current.get(sheet)
     if (cached) setRows(cached)
     else processStock(workbook.wb.tableOf(sheet), sheet)
+  }
+
+  // Ręczna zmiana przypisania kolumn — te same dane, inne znaczenie kolumn. Wiersze
+  // powstają od nowa (poprzednie zaznaczenia dotyczyły innego odczytu tego arkusza).
+  const onColumns = (columns: ColumnMap) => {
+    if (!workbook || !sheetState) return
+    sheetCache.current.delete(workbook.sheet)
+    processStock(sheetState.table, workbook.sheet, columns)
   }
 
   // Wybór konta w recenzji: ustaw konto i automatycznie zaznacz wiersz do importu.
@@ -217,11 +247,12 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
         >
           <FileUp className="text-brand-500" />
           <span className="text-sm font-semibold text-ink-700">
-            Przeciągnij plik „all items" (finessin) — CSV lub XLSX — lub kliknij
+            Przeciągnij plik z listą przedmiotów — CSV lub XLSX — lub kliknij
           </span>
           <span className="text-xs text-ink-400">
-            Importują się tylko niesprzedane przedmioty — bez konta. Przypiszesz je w Magazynie,
-            gdy je wystawisz.
+            Kolumny mogą być w dowolnej kolejności, po polsku lub angielsku (rozdzielone
+            przecinkiem, średnikiem lub tabulatorem). Jeśli nie zgadniemy — wskażesz je sam poniżej.
+            Importują się tylko niesprzedane przedmioty, bez konta.
           </span>
         </FileDrop>
 
@@ -235,6 +266,18 @@ export function ImportStockModal({ open, onClose }: { open: boolean; onClose: ()
               ))}
             </Select>
           </Field>
+        )}
+
+        {sheetState && (
+          <ColumnMapper
+            header={sheetState.hasHeaderRow ? (sheetState.table[0] ?? []) : []}
+            sampleRows={sheetState.table.slice(sheetState.hasHeaderRow ? 1 : 0, 4)}
+            fields={STOCK_FIELDS}
+            requiredFields={['name']}
+            value={sheetState.columns}
+            onChange={onColumns}
+            headerDetected={sheetState.headerDetected}
+          />
         )}
 
         {rows.length > 0 && (

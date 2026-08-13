@@ -91,10 +91,36 @@ describe('parseSalesCsv', () => {
   })
 
   it('falls back to positional columns when headers are unknown', () => {
-    const csv = '1,2,3,4\n10.01.2026,Czapka,30,80'
+    const csv = 'kol_a,kol_b,kol_c,kol_d\n10.01.2026,Czapka,30,80'
     const s = parseSalesCsv(csv)
     expect(s.headerDetected).toBe(false)
     expect(s.rows[0]).toMatchObject({ productName: 'Czapka', purchaseCost: 30, salePrice: 80, bucket: 'ready' })
+  })
+
+  it('does NOT eat the first data row when the sheet has no header at all', () => {
+    // Wiersz „1,2,3,4" to dane, nie nagłówek — zjedzenie go cicho gubiłoby sprzedaż.
+    const s = parseSalesCsv('10.01.2026,Czapka,30,80\n11.01.2026,Szalik,20,50')
+    expect(s.hasHeaderRow).toBe(false)
+    expect(s.rows).toHaveLength(2)
+    expect(s.rows[0]).toMatchObject({ productName: 'Czapka', bucket: 'ready' })
+  })
+
+  it('accepts a manual column override when auto-detection is wrong', () => {
+    // Kolejność kolumn zupełnie inna, nagłówki nie do rozpoznania.
+    const csv = 'aaa,bbb,ccc\n80,Czapka,10.01.2026'
+    const s = parseSalesCsv(csv, { sale: 0, name: 1, date: 2, purchase: -1 })
+    expect(s.rows[0]).toMatchObject({
+      productName: 'Czapka',
+      salePrice: 80,
+      purchaseCost: undefined,
+      bucket: 'ready',
+    })
+  })
+
+  it('imports a sheet that has no purchase-cost column at all', () => {
+    const s = parseSalesCsv('Data,Nazwa,Cena sprzedaży\n10.01.2026,Czapka,80')
+    expect(s.columns.purchase).toBeUndefined()
+    expect(s.rows[0]).toMatchObject({ productName: 'Czapka', salePrice: 80, bucket: 'ready' })
   })
 
   it('parseSalesTable classifies a pre-tokenized table directly (XLSX path)', () => {

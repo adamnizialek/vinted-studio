@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { parseStockCsv, parseStockTable, normalizeForMatch, matchAccounts } from '@/lib/stockImport'
+import {
+  parseStockCsv,
+  parseStockTable,
+  parseStockSheet,
+  normalizeForMatch,
+  matchAccounts,
+} from '@/lib/stockImport'
 
 // Realny kształt eksportu z arkusza `finessin` (8 kolumn; komórki z przecinkiem w cudzysłowie).
 // Wiersze niesprzedane mają pustą datę, znacznik `rrrr-12` w kolumnie Miesiąc i PUSTĄ cenę sprzedaży.
@@ -41,6 +47,58 @@ describe('parseStockCsv', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].bucket).toBe('stock')
     expect(rows[0].name).toBe('Naszyjnik kościotrup XA20749')
+  })
+
+  it('imports a semicolon file from Excel PL (regression: whole sheet read as junk)', () => {
+    // Excel w polskim locale zapisuje ŚREDNIKI, bo przecinek to znak dziesiętny.
+    // Wcześniej cały arkusz rozpadał się na śmieci i modal mówił „nie znaleziono przedmiotów".
+    const excelPl = [
+      'Nazwa;Cena zakupu;Cena sprzedaży',
+      'Bluza Nike;35,00;',
+      'Kurtka Zara;60,50;',
+    ].join('\n')
+    const rows = parseStockCsv(excelPl)
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.bucket === 'stock')).toBe(true)
+    expect(rows[0]).toMatchObject({ name: 'Bluza Nike', purchaseCost: 35 })
+    expect(rows[1]).toMatchObject({ name: 'Kurtka Zara', purchaseCost: 60.5 })
+  })
+
+  it('imports a sheet whose columns are in a different order', () => {
+    const rows = parseStockCsv('Cena zakupu,Nazwa\n35,Bluza Nike\n60,Kurtka Zara')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ name: 'Bluza Nike', purchaseCost: 35, bucket: 'stock' })
+  })
+
+  it('imports a sheet with English headers', () => {
+    const rows = parseStockCsv('Item,Buy price\nNike hoodie,35\nZara jacket,60')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ name: 'Nike hoodie', purchaseCost: 35, bucket: 'stock' })
+  })
+
+  it('imports a sheet with no sale-price column (nothing is treated as sold)', () => {
+    const sheet = parseStockSheet([
+      ['Nazwa', 'Cena zakupu'],
+      ['Bluza', '35'],
+    ])
+    expect(sheet.columns.sale).toBeUndefined()
+    expect(sheet.rows[0].bucket).toBe('stock')
+  })
+
+  it('accepts a manual column override when auto-detection cannot help', () => {
+    const sheet = parseStockSheet(
+      [
+        ['aaa', 'bbb', 'ccc'],
+        ['35', 'Bluza Nike', 'x'],
+      ],
+      { purchase: 0, name: 1, sale: -1 },
+    )
+    expect(sheet.rows[0]).toMatchObject({ name: 'Bluza Nike', purchaseCost: 35, bucket: 'stock' })
+  })
+
+  it('reports whether the header was actually recognised', () => {
+    expect(parseStockSheet([['Nazwa', 'Cena zakupu'], ['Bluza', '35']]).headerDetected).toBe(true)
+    expect(parseStockSheet([['aaa', 'bbb'], ['Bluza', '35']]).headerDetected).toBe(false)
   })
 
   it('parseStockTable classifies a pre-tokenized table directly (XLSX path)', () => {

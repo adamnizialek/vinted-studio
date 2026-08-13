@@ -1,5 +1,13 @@
 // Czysta logika importu sprzedaży z CSV (Arkusze Google) — bez React i bez Dexie.
 import { parseCsv } from '@/lib/csv'
+import {
+  hasRequired,
+  looksLikeHeaderRow,
+  resolveColumns,
+  type ColumnMap,
+  type ImportField,
+  type ResolvedColumns,
+} from '@/lib/columnMap'
 import type { ExpenseKind } from '@/db/types'
 
 /** Parsuje liczbę w formacie PL (przecinek dziesiętny). Zwraca undefined, gdy brak liczby. */
@@ -45,8 +53,12 @@ export interface ParsedRow {
 
 export interface ParsedSheet {
   rows: ParsedRow[]
-  /** false → nie rozpoznano nagłówków, użyto kolumn A–D. */
+  /** false → nagłówków nie rozpoznano; kolumny trzeba wskazać ręcznie. */
   headerDetected: boolean
+  /** Faktycznie użyte przypisanie kolumn — do pokazania i poprawienia w UI. */
+  columns: ColumnMap
+  /** Czy pierwszy wiersz potraktowano jako nagłówek (a nie jako dane). */
+  hasHeaderRow: boolean
 }
 
 /** Czysty szkic sprzedaży gotowy do zapisu (bez pól nadawanych przez DB). */
@@ -58,31 +70,27 @@ export interface DraftSale {
   status: 'completed' | 'returned'
 }
 
-interface ColumnMap {
-  date: number
-  name: number
-  purchase: number
-  sale: number
+/** Pola, które import sprzedaży potrafi wykorzystać. */
+export const SALES_FIELDS: readonly ImportField[] = ['date', 'name', 'purchase', 'sale']
+
+/** Minimum, bez którego import sprzedaży nie ma sensu. Data i cena zakupu są opcjonalne. */
+const SALES_REQUIRED: readonly ImportField[] = ['name', 'sale']
+
+/** Czy przypisanie kolumn wystarcza, by cokolwiek zaimportować. */
+export function salesColumnsUsable(map: ColumnMap): boolean {
+  return hasRequired(map, SALES_REQUIRED)
 }
 
-/** Rozpoznaje kolumny po nagłówkach (z tolerancją na literówkę "zaukupu"). null → brak dopasowania. */
-function detectColumns(header: string[]): ColumnMap | null {
-  const norm = header.map((h) => h.trim().toLowerCase())
-  const find = (pred: (h: string) => boolean) => norm.findIndex(pred)
-  const date = find((h) => h.includes('data'))
-  const name = find((h) => h.includes('nazwa'))
-  const purchase = find((h) => h.includes('zakup') || h.includes('zaukup'))
-  // "Cena Sprzedaży" — odróżniamy od "Data sprzedaży" wymagając też "cena".
-  const sale = find((h) => h.includes('sprzeda') && h.includes('cena'))
-  if (date < 0 || name < 0 || purchase < 0 || sale < 0) return null
-  return { date, name, purchase, sale }
-}
+/** Pozycyjny plan awaryjny dla arkusza `finessin` (A=Data, B=Nazwa, C=Zakup, D=Sprzedaż). */
+const SALES_POSITIONAL: ColumnMap = { date: 0, name: 1, purchase: 2, sale: 3 }
 
 export const FEE_RE = /podbic|ekspozycj/i
 const RETURN_RE = /\(zwrot\)/i
 
 function classifyRow(cells: string[], col: ColumnMap, rowIndex: number): ParsedRow | null {
-  const cell = (i: number) => (cells[i] ?? '').trim()
+  // Pole nieobecne w pliku (brak indeksu) czytamy jako pustą komórkę — wiersz trafi
+  // wtedy do „do sprawdzenia" i użytkownik uzupełni brak ręcznie.
+  const cell = (i: number | undefined) => (i === undefined ? '' : (cells[i] ?? '').trim())
   const name = cell(col.name)
   const rawDate = cell(col.date)
   const rawSale = cell(col.sale)
@@ -121,24 +129,32 @@ function classifyRow(cells: string[], col: ColumnMap, rowIndex: number): ParsedR
   return { rowIndex, bucket, issues, productName: name, dateTs, salePrice, purchaseCost, status, excludedReason }
 }
 
-/** Klasyfikuje gotową tabelę (string[][]) sprzedaży: wykrywa kolumny, klasyfikuje wiersze. */
-export function parseSalesTable(table: string[][]): ParsedSheet {
-  if (table.length === 0) return { rows: [], headerDetected: false }
-  const detected = detectColumns(table[0])
-  const col: ColumnMap = detected ?? { date: 0, name: 1, purchase: 2, sale: 3 }
+/** Ustala przypisanie kolumn dla arkusza sprzedaży (polityka w `resolveColumns`). */
+export function resolveSalesColumns(header: string[], override?: ColumnMap): ResolvedColumns {
+  return resolveColumns(header, SALES_FIELDS, SALES_REQUIRED, SALES_POSITIONAL, override)
+}
+
+/**
+ * Klasyfikuje gotową tabelę (string[][]) sprzedaży: ustala kolumny, klasyfikuje wiersze.
+ * `override` pozwala UI narzucić własne przypisanie kolumn (wartość -1 = „brak w pliku").
+ */
+export function parseSalesTable(table: string[][], override?: ColumnMap): ParsedSheet {
+  if (table.length === 0)
+    return { rows: [], headerDetected: false, columns: {}, hasHeaderRow: false }
+  const { columns, headerDetected } = resolveSalesColumns(table[0], override)
+  // Arkusz BEZ wiersza nagłówka (sam eksport danych) nie może stracić pierwszego wiersza.
+  const hasHeaderRow = looksLikeHeaderRow(table[0])
   const rows: ParsedRow[] = []
-  // Pierwszy wiersz to zawsze nagłówek (eksport z Arkuszy go zawiera), więc dane
-  // czytamy od i = 1 — także przy fallbacku pozycyjnym.
-  for (let i = 1; i < table.length; i++) {
-    const r = classifyRow(table[i], col, i)
+  for (let i = hasHeaderRow ? 1 : 0; i < table.length; i++) {
+    const r = classifyRow(table[i], columns, i)
     if (r) rows.push(r)
   }
-  return { rows, headerDetected: detected !== null }
+  return { rows, headerDetected, columns, hasHeaderRow }
 }
 
 /** Parsuje cały plik CSV sprzedaży. */
-export function parseSalesCsv(text: string): ParsedSheet {
-  return parseSalesTable(parseCsv(text))
+export function parseSalesCsv(text: string, override?: ColumnMap): ParsedSheet {
+  return parseSalesTable(parseCsv(text), override)
 }
 
 export interface KeyedDraft {

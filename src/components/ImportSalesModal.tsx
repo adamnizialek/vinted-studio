@@ -9,10 +9,13 @@ import {
   saleImportKey,
   suggestAccountForSheet,
   looksLikeStockSheet,
+  SALES_FIELDS,
   type ParsedRow,
   type DraftSale,
   type DraftExpense,
 } from '@/lib/salesImport'
+import type { ColumnMap } from '@/lib/columnMap'
+import { ColumnMapper } from '@/components/ColumnMapper'
 import { readWorkbook, isSpreadsheet } from '@/lib/spreadsheet'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
@@ -37,7 +40,12 @@ interface Source {
   id: string
   fileName: string
   sheetName: string
-  header: string[]
+  /** Surowa tabela — potrzebna, by przeparsować arkusz po zmianie przypisania kolumn. */
+  table: string[][]
+  /** Użyte przypisanie kolumn + czy wyszło z rozpoznanych nagłówków. */
+  columns: ColumnMap
+  headerDetected: boolean
+  hasHeaderRow: boolean
   /** Wykryto plik „wszystkie przedmioty" (finessin) — nie importujemy go jako sprzedaży. */
   isStock: boolean
   /** Przypisane konto ('' = jeszcze nie wybrano). */
@@ -81,6 +89,36 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
     onClose()
   }
 
+  /** Buduje źródło z surowej tabeli — wspólne dla wczytania pliku i zmiany przypisania kolumn. */
+  const buildSource = (
+    id: string,
+    fileName: string,
+    sheetName: string,
+    table: string[][],
+    accountId: string,
+    override?: ColumnMap,
+  ): Source => {
+    const parsed = parseSalesTable(table, override)
+    const isStock = looksLikeStockSheet(table[0] ?? [])
+    return {
+      id,
+      fileName,
+      sheetName,
+      table,
+      columns: parsed.columns,
+      headerDetected: parsed.headerDetected,
+      hasHeaderRow: parsed.hasHeaderRow,
+      isStock,
+      accountId,
+      rows: parsed.rows.map((r) => ({
+        ...r,
+        key: `${id}#${r.rowIndex}`,
+        // Stock-plik nic nie zaznacza; reszta: gotowe sprzedaże + koszty promocji.
+        include: !isStock && (r.bucket === 'ready' || r.bucket === 'excluded'),
+      })),
+    }
+  }
+
   const onFiles = async (files: File[]) => {
     const next: Source[] = []
     for (const f of files) {
@@ -88,21 +126,15 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
         const wb = await readWorkbook(f)
         for (const sheetName of wb.sheetNames) {
           const table = wb.tableOf(sheetName)
-          const header = table[0] ?? []
-          const { rows: parsed } = parseSalesTable(table)
-          if (!parsed.length) continue
-          const isStock = looksLikeStockSheet(header)
+          // Arkusz z danymi zostaje NAWET gdy nic z niego nie sparsowaliśmy — inaczej zły
+          // odczyt kolumn kończył się komunikatem „nie znaleziono wierszy" bez drogi wyjścia.
+          // Dopiero pusty arkusz pomijamy.
+          if (table.length < 2) continue
           const id = `${f.name}::${sheetName}`
-          const rows: EditRow[] = parsed.map((r) => ({
-            ...r,
-            key: `${id}#${r.rowIndex}`,
-            // Stock-plik nic nie zaznacza; reszta: gotowe sprzedaże + koszty promocji.
-            include: !isStock && (r.bucket === 'ready' || r.bucket === 'excluded'),
-          }))
-          const accountId = isStock
+          const accountId = looksLikeStockSheet(table[0] ?? [])
             ? ''
             : suggestAccountForSheet(`${f.name} ${sheetName}`, accounts ?? []) ?? ''
-          next.push({ id, fileName: f.name, sheetName, header, isStock, accountId, rows })
+          next.push(buildSource(id, f.name, sheetName, table, accountId))
         }
       } catch (e) {
         toast.error(`${f.name}: ${e instanceof Error ? e.message : 'Nie udało się odczytać pliku.'}`)
@@ -112,6 +144,8 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
       toast.error('Nie znaleziono wierszy sprzedaży w wybranych plikach.')
       return
     }
+    if (next.every((s) => !s.rows.length))
+      toast.error('Nie odczytaliśmy wierszy — sprawdź przypisanie kolumn przy pliku.')
     // Pomiń źródła już wczytane (ten sam plik+arkusz), by ponowny drop nie dublował sekcji.
     setSources((prev) => {
       const have = new Set(prev.map((s) => s.id))
@@ -146,6 +180,17 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
 
   const setSourceAccount = (sourceId: string, accountId: string) =>
     setSources((ss) => ss.map((s) => (s.id === sourceId ? { ...s, accountId } : s)))
+
+  // Ręczna zmiana przypisania kolumn: te same dane, inne znaczenie kolumn → wiersze
+  // powstają od nowa (poprzednie zaznaczenia dotyczyły innego odczytu tego arkusza).
+  const setSourceColumns = (sourceId: string, columns: ColumnMap) =>
+    setSources((ss) =>
+      ss.map((s) =>
+        s.id !== sourceId
+          ? s
+          : buildSource(s.id, s.fileName, s.sheetName, s.table, s.accountId, columns),
+      ),
+    )
 
   const removeSource = (sourceId: string) =>
     setSources((ss) => ss.filter((s) => s.id !== sourceId))
@@ -254,7 +299,9 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
             Przeciągnij pliki sprzedaży (po jednym na konto) — CSV lub XLSX — lub kliknij
           </span>
           <span className="text-xs text-ink-400">
-            Każdy plik/arkusz przypiszesz do konta poniżej. Plik „wszystkie przedmioty" (finessin) zaimportuj w Magazynie.
+            Kolumny mogą być w dowolnej kolejności, po polsku lub angielsku (rozdzielone
+            przecinkiem, średnikiem lub tabulatorem) — jeśli nie zgadniemy, wskażesz je sam.
+            Każdy plik/arkusz przypiszesz do konta poniżej.
           </span>
         </FileDrop>
 
@@ -283,6 +330,7 @@ export function ImportSalesModal({ open, onClose }: { open: boolean; onClose: ()
             onRemove={() => removeSource(c.source.id)}
             onToggle={(key, include) => setRow(c.source.id, key, { include })}
             onReview={(key, patch) => patchReviewRow(c.source.id, key, patch)}
+            onColumns={(columns) => setSourceColumns(c.source.id, columns)}
           />
         ))}
       </div>
@@ -297,6 +345,7 @@ function SourceSection({
   onRemove,
   onToggle,
   onReview,
+  onColumns,
 }: {
   c: Computed
   accounts: Account[]
@@ -304,6 +353,7 @@ function SourceSection({
   onRemove: () => void
   onToggle: (key: string, include: boolean) => void
   onReview: (key: string, patch: Partial<EditRow>) => void
+  onColumns: (columns: ColumnMap) => void
 }) {
   const s = c.source
   const ready = s.rows.filter((r) => r.bucket === 'ready' && !c.dup.has(r.key))
@@ -344,6 +394,16 @@ function SourceSection({
               ))}
             </Select>
           </Field>
+
+          <ColumnMapper
+            header={s.hasHeaderRow ? (s.table[0] ?? []) : []}
+            sampleRows={s.table.slice(s.hasHeaderRow ? 1 : 0, 4)}
+            fields={SALES_FIELDS}
+            requiredFields={['name', 'sale']}
+            value={s.columns}
+            onChange={onColumns}
+            headerDetected={s.headerDetected}
+          />
 
           <Bucket title={`Gotowe do importu (${ready.length})`} tone="good">
             {ready.map((r) => (

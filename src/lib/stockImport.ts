@@ -2,6 +2,14 @@
 // Importujemy tylko wiersze NIESPRZEDANE; wiersze sprzedane należą do importu sprzedaży.
 import type { ID } from '@/db/types'
 import { parseCsv } from '@/lib/csv'
+import {
+  hasRequired,
+  looksLikeHeaderRow,
+  resolveColumns,
+  type ColumnMap,
+  type ImportField,
+  type ResolvedColumns,
+} from '@/lib/columnMap'
 import { parsePlNumber, FEE_RE } from '@/lib/salesImport'
 
 export type StockBucket = 'stock' | 'sold' | 'excluded'
@@ -40,30 +48,32 @@ export interface StockDraft {
 /** Szkic gotowy do zapisu — po auto-dopasowaniu i ręcznej recenzji. */
 export type ResolvedStockDraft = StockDraft & { accountId?: ID }
 
-interface StockColumnMap {
-  name: number
-  purchase: number
-  sale: number
+/** Pola, które import magazynu potrafi wykorzystać (data nie jest mu potrzebna). */
+export const STOCK_FIELDS: readonly ImportField[] = ['name', 'purchase', 'sale']
+
+/** Bez nazwy nie ma czego importować; ceny są opcjonalne. */
+const STOCK_REQUIRED: readonly ImportField[] = ['name']
+
+export function stockColumnsUsable(map: ColumnMap): boolean {
+  return hasRequired(map, STOCK_REQUIRED)
 }
 
-/** Rozpoznaje kolumny po nagłówkach (toleruje literówkę "zaukupu"). null → brak dopasowania. */
-function detectStockColumns(header: string[]): StockColumnMap | null {
-  const norm = header.map((h) => h.trim().toLowerCase())
-  const find = (pred: (h: string) => boolean) => norm.findIndex(pred)
-  const name = find((h) => h.includes('nazwa'))
-  const purchase = find((h) => h.includes('zakup') || h.includes('zaukup'))
-  // "Cena sprzedaży" — odróżniamy od "Data sprzedaży" wymagając też "cena".
-  const sale = find((h) => h.includes('sprzeda') && h.includes('cena'))
-  if (name < 0 || purchase < 0 || sale < 0) return null
-  return { name, purchase, sale }
+/** Pozycyjny plan awaryjny dla arkusza `finessin`: A=Data, B=Miesiąc, C=Nazwa, D=Zakup, E=Sprzedaż. */
+const STOCK_POSITIONAL: ColumnMap = { name: 2, purchase: 3, sale: 4 }
+
+/** Ustala przypisanie kolumn dla arkusza magazynu (polityka w `resolveColumns`). */
+export function resolveStockColumns(header: string[], override?: ColumnMap): ResolvedColumns {
+  return resolveColumns(header, STOCK_FIELDS, STOCK_REQUIRED, STOCK_POSITIONAL, override)
 }
 
 function classifyStockRow(
   cells: string[],
-  col: StockColumnMap,
+  col: ColumnMap,
   rowIndex: number,
 ): ParsedStockRow | null {
-  const cell = (i: number) => (cells[i] ?? '').trim()
+  // Kolumna nieobecna w pliku → pusta komórka (np. arkusz bez cen sprzedaży:
+  // nic nie zostanie uznane za sprzedane, wszystko trafi do magazynu).
+  const cell = (i: number | undefined) => (i === undefined ? '' : (cells[i] ?? '').trim())
   const name = cell(col.name)
   // Wiersz bez prawdziwej nazwy (pusty / sama liczba jak "0" / separator) — pomijamy.
   if (!name || !/[a-z]/i.test(name)) return null
@@ -95,23 +105,41 @@ function classifyStockRow(
   return { rowIndex, bucket: 'stock', issues: [], name, purchaseCost, salePrice }
 }
 
-/** Klasyfikuje gotową tabelę (string[][]) ze źródła `finessin`. Nigdy nie rzuca. */
-export function parseStockTable(table: string[][]): ParsedStockRow[] {
-  if (table.length === 0) return []
-  const detected = detectStockColumns(table[0])
-  // Fallback pozycyjny dla `finessin`: A=Data, B=Miesiąc, C=Nazwa, D=Cena zakupu, E=Cena sprzedaży.
-  const col: StockColumnMap = detected ?? { name: 2, purchase: 3, sale: 4 }
-  const rows: ParsedStockRow[] = []
-  for (let i = 1; i < table.length; i++) {
-    const r = classifyStockRow(table[i], col, i)
-    if (r) rows.push(r)
-  }
-  return rows
+export interface ParsedStockSheet {
+  rows: ParsedStockRow[]
+  /** false → nagłówków nie rozpoznano; użyto domysłu pozycyjnego. */
+  headerDetected: boolean
+  /** Faktycznie użyte przypisanie kolumn — do pokazania i poprawienia w UI. */
+  columns: ColumnMap
+  /** Czy pierwszy wiersz potraktowano jako nagłówek (a nie jako dane). */
+  hasHeaderRow: boolean
 }
 
-/** Parsuje cały plik CSV `finessin`. Nigdy nie rzuca. */
-export function parseStockCsv(text: string): ParsedStockRow[] {
-  return parseStockTable(parseCsv(text))
+/**
+ * Klasyfikuje gotową tabelę (string[][]) magazynu. Nigdy nie rzuca.
+ * `override` pozwala UI narzucić własne przypisanie kolumn (wartość -1 = „brak w pliku").
+ */
+export function parseStockSheet(table: string[][], override?: ColumnMap): ParsedStockSheet {
+  if (table.length === 0)
+    return { rows: [], headerDetected: false, columns: {}, hasHeaderRow: false }
+  const { columns, headerDetected } = resolveStockColumns(table[0], override)
+  const hasHeaderRow = looksLikeHeaderRow(table[0])
+  const rows: ParsedStockRow[] = []
+  for (let i = hasHeaderRow ? 1 : 0; i < table.length; i++) {
+    const r = classifyStockRow(table[i], columns, i)
+    if (r) rows.push(r)
+  }
+  return { rows, headerDetected, columns, hasHeaderRow }
+}
+
+/** Wygodny skrót, gdy interesują nas tylko wiersze. */
+export function parseStockTable(table: string[][], override?: ColumnMap): ParsedStockRow[] {
+  return parseStockSheet(table, override).rows
+}
+
+/** Parsuje cały plik CSV magazynu. Nigdy nie rzuca. */
+export function parseStockCsv(text: string, override?: ColumnMap): ParsedStockRow[] {
+  return parseStockTable(parseCsv(text), override)
 }
 
 export interface AccountMatch {
