@@ -68,6 +68,16 @@ describe('resolveSpace', () => {
     expect(await spaceIdForToken('friend-secret')).toBe(await spaceIdForToken('friend-secret'))
   })
 
+  it('keeps the owner in the default space even if his token is ALSO in SYNC_TOKENS', async () => {
+    // Realna pomyłka operatora przy dodawaniu gościa. Gdyby wygrała lista gości, właściciel
+    // wylądowałby w pustej przestrzeni i zobaczył aplikację bez swoich danych.
+    const space = await resolveSpace('owner-secret', {
+      SYNC_TOKEN: 'owner-secret',
+      SYNC_TOKENS: 'owner-secret,friend-secret',
+    })
+    expect(space).toBe(DEFAULT_SPACE)
+  })
+
   it('works when only SYNC_TOKENS is configured', async () => {
     expect(await resolveSpace('solo', { SYNC_TOKENS: 'solo' })).toMatch(/^[0-9a-f]{16}$/)
   })
