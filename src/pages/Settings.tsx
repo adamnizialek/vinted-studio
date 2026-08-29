@@ -30,6 +30,7 @@ import {
 import { testConnection } from '@/lib/gemini'
 import { clearAllData, clearImportedData, countImportedData, exportAll, importAll } from '@/db/db'
 import { getSyncToken, setSyncToken } from '@/sync/config'
+import { connectMessage, isConnected, manualSyncMessage, statusLabel } from '@/sync/status'
 import { seedOutbox } from '@/sync/syncEngine'
 import { downloadText } from '@/lib/csv'
 
@@ -41,8 +42,14 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
   const [syncToken, setSyncTokenInput] = useState(getSyncToken() ?? '')
-  const [connected, setConnected] = useState(!!getSyncToken())
+  const [savedToken, setSavedToken] = useState(getSyncToken() ?? '')
   const syncStatus = useSync((s) => s.status)
+  const lastSyncedAt = useSync((s) => s.lastSyncedAt)
+  const syncError = useSync((s) => s.error)
+  // Wprost ze sklepu — bez osobnego useState, który potrafił się rozjechać z konfiguracją.
+  const connected = isConnected(syncStatus)
+  // Zmieniony token trzeba móc zatwierdzić, nie tylko rozłączyć i połączyć od nowa.
+  const tokenChanged = syncToken.trim() !== savedToken
 
   useEffect(() => setForm(settings), [settings])
   if (!form) return null
@@ -91,16 +98,16 @@ export function SettingsPage() {
   }
 
   const connectSync = async () => {
-    if (!syncToken.trim()) return toast.error('Wpisz token synchronizacji.')
-    setSyncToken(syncToken.trim())
-    setConnected(true)
+    const token = syncToken.trim()
+    if (!token) return toast.error('Wpisz token synchronizacji.')
+    setSyncToken(token)
+    setSavedToken(token)
     setBusy(true)
     try {
       await seedOutbox()
-      await useSync.getState().syncNow()
-      const st = useSync.getState()
-      if (st.status === 'error') toast.error(st.error ?? 'Błąd synchronizacji.')
-      else toast.success('Połączono. Dane synchronizują się między urządzeniami ☁️')
+      const status = await useSync.getState().syncNow()
+      const msg = connectMessage(status, useSync.getState().error)
+      toast[msg.tone](msg.text)
     } finally {
       setBusy(false)
     }
@@ -108,16 +115,17 @@ export function SettingsPage() {
 
   const disconnectSync = () => {
     setSyncToken(null)
-    setConnected(false)
+    setSavedToken('')
     setSyncTokenInput('')
-    useSync.setState({ status: 'disabled', error: null })
+    useSync.setState({ status: 'disabled', error: null, lastSyncedAt: null })
     toast.success('Rozłączono synchronizację (dane pozostają lokalnie).')
   }
 
   const manualSync = async () => {
     setBusy(true)
     try {
-      await useSync.getState().syncNow()
+      const msg = manualSyncMessage(await useSync.getState().syncNow())
+      toast[msg.tone](msg.text)
     } finally {
       setBusy(false)
     }
@@ -385,13 +393,16 @@ export function SettingsPage() {
               autoComplete="off"
               spellCheck={false}
             />
-            {connected ? (
-              <Button variant="ghost" onClick={disconnectSync} disabled={busy}>
-                Rozłącz
-              </Button>
-            ) : (
+            {/* „Połącz” zostaje widoczny także po nieudanej próbie i po zmianie tokenu —
+                inaczej jedyną drogą do ponowienia było „Rozłącz”, co brzmiało jak porażka. */}
+            {(!connected || tokenChanged) && (
               <Button onClick={connectSync} disabled={busy}>
                 {busy ? <Loader2 size={16} className="animate-spin-slow" /> : 'Połącz'}
+              </Button>
+            )}
+            {connected && (
+              <Button variant="ghost" onClick={disconnectSync} disabled={busy}>
+                Rozłącz
               </Button>
             )}
           </div>
@@ -402,13 +413,13 @@ export function SettingsPage() {
               <RefreshCw size={16} className={syncStatus === 'syncing' ? 'animate-spin' : undefined} />
               Synchronizuj teraz
             </Button>
-            <span className="text-ink-400">
-              {syncStatus === 'syncing' && 'Synchronizacja…'}
-              {syncStatus === 'idle' && 'Połączono ✔'}
-              {syncStatus === 'offline' && 'Offline — zsynchronizuje się później'}
-              {syncStatus === 'error' && 'Błąd — sprawdź token'}
-            </span>
+            <span className="text-ink-400">{statusLabel(syncStatus, lastSyncedAt)}</span>
           </div>
+        )}
+        {syncStatus === 'error' && syncError && (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+            {syncError}
+          </p>
         )}
       </div>
 

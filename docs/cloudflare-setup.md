@@ -53,6 +53,14 @@ npx wrangler pages secret put SYNC_TOKENS
 # paste ALL guest tokens at once, comma-separated:  tok_kolega,tok_ktos_inny
 ```
 
+No CLI? Same thing in the browser: **Workers & Pages → project → Settings → Variables and
+Secrets → Add**, environment **Production**, tick **Encrypt**. Note that Cloudflare never
+shows a secret's value again after saving, so keep your own copy of the tokens you hand out.
+
+> **A secret only takes effect on the next deployment.** Until you redeploy, the guest's
+> token is rejected with `401` and the app tells them the server does not know it yet.
+> Trigger one with `gh workflow run deploy.yml` (or any push to `main`).
+
 Send that person only *their* token. They open the app → **Ustawienia → Synchronizacja** →
 paste → **Połącz**. Nothing else on their side. Revoking = removing the token from the list
 and re-running the command (their rows stay in D1 until you delete them).

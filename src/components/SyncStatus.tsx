@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { db } from '@/db/db'
 import { useSync } from '@/state/sync'
 import { syncEnabled } from '@/sync/config'
+import { relativeTime } from '@/sync/status'
 
 /**
  * Wires the sync triggers ONCE: initial sync on mount, on regaining focus/connectivity,
@@ -45,16 +46,6 @@ export function useSyncTriggers() {
     return () => clearTimeout(timer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending])
-}
-
-function relativeTime(ts: number): string {
-  const s = Math.round((Date.now() - ts) / 1000)
-  if (s < 60) return 'przed chwilą'
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m} min temu`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h} godz. temu`
-  return `${Math.round(h / 24)} dni temu`
 }
 
 export function SyncBadge({ className }: { className?: string }) {
