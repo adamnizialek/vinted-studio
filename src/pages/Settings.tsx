@@ -224,7 +224,7 @@ export function SettingsPage() {
           </div>
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Model tekstowy (opisy)" hint="Możesz wpisać dowolne ID modelu.">
             <TextInput
               list="text-models"
@@ -305,7 +305,7 @@ export function SettingsPage() {
             wyłącznie zdjęć.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Wariantów na jedną generację" hint="Ile zdjęć generować naraz (więcej = wyższy koszt).">
             <Select value={form.imageVariants} onChange={(e) => set('imageVariants', Number(e.target.value))}>
               {[1, 2, 3, 4].map((n) => (
@@ -330,7 +330,7 @@ export function SettingsPage() {
       {/* SPRZEDAZ / OPISY */}
       <div className="card space-y-4 p-5">
         <h3 className="font-bold text-ink-900">Sprzedaż i opisy</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Waluta">
             <Select value={form.currency} onChange={(e) => set('currency', e.target.value)}>
               {CURRENCY_OPTIONS.map((c) => (

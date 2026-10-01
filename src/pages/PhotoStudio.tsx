@@ -284,7 +284,7 @@ export function PhotoStudio() {
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[360px_1fr]">
         {/* Panel konfiguracji */}
         <div className="card space-y-4 self-start p-5">
           <div className="grid grid-cols-2 gap-2">

@@ -120,7 +120,7 @@ export function Dashboard() {
         <StatCard label="Zysk łącznie" value={money(totalAgg.profit, currency)} tone={totalAgg.profit >= 0 ? 'good' : 'bad'} sub={`${(sales ?? []).length} sprzedaży`} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Wykres */}
         <div className="card p-5 lg:col-span-2">
           <h3 className="mb-4 font-bold text-ink-900">Przychód — ostatnie 6 miesięcy</h3>
@@ -181,7 +181,7 @@ export function Dashboard() {
       {/* Cykl życia ofert */}
       <div className="space-y-3">
         <h2 className="font-bold text-ink-900">Cykl życia ofert</h2>
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
             <StatCard
               label="Sprzedawalność"
@@ -289,19 +289,19 @@ export function Dashboard() {
       </div>
 
       {/* Per-konto + ostatnie sprzedaże */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {perAccount.length > 0 && (
           <div className="card p-5">
             <h3 className="mb-3 font-bold text-ink-900">Sprzedaż wg kont</h3>
             <div className="space-y-2">
               {perAccount.map(({ account, agg, count }) => (
-                <div key={account.id} className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <span className="h-3 w-3 rounded-full" style={{ background: account.color }} />
-                    <span className="font-medium text-ink-800">{account.name}</span>
-                    <span className="text-xs text-ink-400">({count})</span>
+                <div key={account.id} className="flex items-center justify-between gap-3 rounded-xl bg-ink-50 px-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: account.color }} />
+                    <span className="truncate font-medium text-ink-800">{account.name}</span>
+                    <span className="shrink-0 text-xs text-ink-400">({count})</span>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <p className="text-sm font-bold text-ink-900">{money(agg.revenue, currency)}</p>
                     <p className="text-xs text-emerald-600">zysk {money(agg.profit, currency)}</p>
                   </div>
@@ -331,7 +331,7 @@ export function Dashboard() {
                     <p className="truncate text-sm font-medium text-ink-900">{s.productName}</p>
                     <p className="text-xs text-ink-400">{dateShort(s.soldAt)}</p>
                   </div>
-                  <p className="text-sm font-bold text-emerald-600">{money(s.salePrice, s.currency)}</p>
+                  <p className="shrink-0 text-sm font-bold text-emerald-600">{money(s.salePrice, s.currency)}</p>
                 </div>
               ))}
             </div>
