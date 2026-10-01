@@ -105,6 +105,13 @@
   textarea.input {
     @apply leading-relaxed;
   }
+  /* iOS Safari przybliza widok przy fokusie na polu z czcionka < 16px i nie
+     oddala go po schowaniu klawiatury — strona zostaje przesunieta. */
+  @media (pointer: coarse) {
+    .input {
+      font-size: 16px;
+    }
+  }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold;
   }
