@@ -216,8 +216,8 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
         open={soldOpen}
         onClose={() => setSoldOpen(false)}
         product={draft}
-        onSold={() => {
-          update({ status: 'sold', soldAt: Date.now() })
+        onSold={(soldAt) => {
+          update({ status: 'sold', soldAt })
           setSoldOpen(false)
         }}
       />
@@ -434,8 +434,8 @@ function DesignEditor({ designId }: { designId: string }) {
             ...draft,
             name: `${design.name}${draft.sizeLabel ? ` — ${draft.sizeLabel}` : ''}`.trim(),
           }}
-          onSold={() => {
-            update({ status: 'sold', soldAt: Date.now() })
+          onSold={(soldAt) => {
+            update({ status: 'sold', soldAt })
             setSoldOpen(false)
           }}
         />

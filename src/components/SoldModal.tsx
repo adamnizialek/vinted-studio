@@ -6,6 +6,7 @@ import type { Product } from '@/db/types'
 import { uid } from '@/lib/id'
 import { toast } from '@/state/toast'
 import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
+import { dateFromInput, dateInputValue } from '@/lib/format'
 
 /**
  * Records a real Sale for the product, then calls onSold so the caller can flip
@@ -21,12 +22,17 @@ export function SoldModal({
   open: boolean
   onClose: () => void
   product: Product
-  onSold: () => void
+  /** Dostaje datę sprzedaży, by produkt dostał ten sam `soldAt` co wpis w ewidencji. */
+  onSold: (soldAt: number) => void
 }) {
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
   const [price, setPrice] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState('')
   const [buyer, setBuyer] = useState('')
+  // Data sprzedaży — sprzedaż wpisana rano za wczoraj musi trafić we właściwy dzień
+  // ewidencji. null = „dziś” liczone w chwili zapisu (okno otwarte przed północą
+  // i zapisane po niej nie może cofnąć sprzedaży o dzień).
+  const [day, setDay] = useState<string | null>(null)
 
   // Seed the form only on the RISING EDGE of `open`, not on every `product` identity
   // change. In the grid, `product` comes from useLiveQuery and gets a fresh object on
@@ -38,6 +44,7 @@ export function SoldModal({
       setPrice(product.listingPrice || undefined)
       setAccountId(product.accountId ?? '')
       setBuyer('')
+      setDay(null)
     }
     prevOpen.current = open
   }, [open, product])
@@ -45,6 +52,11 @@ export function SoldModal({
   const confirm = async () => {
     const salePrice = price
     if (!salePrice || salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
+    if (day === '') return toast.error('Podaj datę sprzedaży.')
+    const now = Date.now()
+    // Dziś → dokładny czas; inny dzień → lokalne południe (jak w formularzu ewidencji).
+    const soldAt = day == null || day === dateInputValue(now) ? now : dateFromInput(day, now)
+    if (soldAt > now) return toast.error('Data sprzedaży nie może być z przyszłości.')
     await putEntity('sales', {
       id: uid(),
       productId: product.id,
@@ -57,11 +69,11 @@ export function SoldModal({
       quantity: 1,
       buyer: buyer || undefined,
       status: 'completed',
-      soldAt: Date.now(),
-      createdAt: Date.now(),
+      soldAt,
+      createdAt: now,
     })
     toast.success('Dodano do ewidencji sprzedaży 💸')
-    onSold()
+    onSold(soldAt)
   }
 
   return (
@@ -83,6 +95,14 @@ export function SoldModal({
       <div className="space-y-4">
         <Field label={`Cena sprzedaży (${product.currency})`}>
           <NumberInput value={price} onValueChange={setPrice} autoFocus />
+        </Field>
+        <Field label="Data sprzedaży">
+          <TextInput
+            type="date"
+            value={day ?? dateInputValue(Date.now())}
+            max={dateInputValue(Date.now())}
+            onChange={(e) => setDay(e.target.value)}
+          />
         </Field>
         <Field label="Konto">
           <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
