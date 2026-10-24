@@ -8,7 +8,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
-import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
+import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, pluralPl, profitOf } from '@/lib/format'
 import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
 import {
@@ -176,6 +176,19 @@ export function Sales() {
       `ewidencja-sprzedazy-${safeFileName(accName(view))}-${dateInputValue(Date.now())}.csv`,
       csv,
     )
+    // Sprzedaż bez konta nie trafia do niczyjej ewidencji — nie przemilczamy tego.
+    const unassigned = (sales ?? []).filter(
+      (s) => !s.accountId && inRange(s.soldAt, { from: rangeFrom, to: rangeTo }),
+    ).length
+    if (unassigned > 0)
+      toast.info(
+        `${unassigned} ${pluralPl(
+          unassigned,
+          'sprzedaż nie ma konta i nie trafiła',
+          'sprzedaże nie mają konta i nie trafiły',
+          'sprzedaży nie ma konta i nie trafiło',
+        )} do ewidencji — przypisz konto.`,
+      )
     toast.success('Wyeksportowano ewidencję sprzedaży.')
   }
 

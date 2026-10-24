@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Sale } from '@/db/types'
-import { dailySalesRecord, inRange, periodRange, previousQuarter, quarterOf } from './salesRecord'
+import { dailySalesRecord, inRange, periodRange } from './salesRecord'
 
 /** Lokalne południe danego dnia — spójnie z dateFromInput w aplikacji. */
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).getTime()
@@ -16,21 +16,6 @@ const sale = (over: Partial<Sale> = {}): Sale => ({
   createdAt: 1,
   updatedAt: 1,
   ...over,
-})
-
-describe('quarterOf / previousQuarter', () => {
-  it('maps months to quarters with local-midnight bounds', () => {
-    const q = quarterOf(at(2026, 10, 24))
-    expect([q.year, q.q]).toEqual([2026, 4])
-    expect(q.from).toBe(new Date(2026, 9, 1).getTime())
-    expect(q.to).toBe(new Date(2027, 0, 1).getTime())
-    expect(quarterOf(at(2026, 3, 31, 23)).q).toBe(1)
-    expect(quarterOf(new Date(2026, 3, 1, 0).getTime()).q).toBe(2)
-  })
-  it('steps back across a year boundary', () => {
-    const p = previousQuarter(at(2027, 2, 1))
-    expect([p.year, p.q]).toEqual([2026, 4])
-  })
 })
 
 describe('dailySalesRecord', () => {
@@ -51,6 +36,15 @@ describe('dailySalesRecord', () => {
   it('counts quantity and shipping charged to the buyer', () => {
     const rows = dailySalesRecord([sale({ salePrice: 100, quantity: 2, shippingCharged: 15 })])
     expect(rows[0].amount).toBe(215)
+  })
+
+  it('accumulates the rounded daily amounts so the columns add up to the grosz', () => {
+    const rows = dailySalesRecord([
+      sale({ salePrice: 10.005, soldAt: at(2026, 10, 1) }),
+      sale({ salePrice: 10.005, soldAt: at(2026, 10, 2) }),
+    ])
+    const sumOfRows = rows.reduce((n, r) => n + r.amount, 0)
+    expect(rows[1].cumulativeYear).toBeCloseTo(sumOfRows, 10)
   })
 
   it('resets the year total on 1 January', () => {
@@ -92,6 +86,12 @@ describe('periodRange', () => {
       to: new Date(2026, 0, 1).getTime(),
     })
     expect(periodRange('year', now)).toEqual({ from: new Date(2026, 0, 1).getTime() })
+  })
+  it('steps back across a year boundary for the previous quarter', () => {
+    expect(periodRange('lastQuarter', at(2027, 2, 1))).toEqual({
+      from: new Date(2026, 9, 1).getTime(),
+      to: new Date(2027, 0, 1).getTime(),
+    })
   })
   it('treats the upper bound as exclusive', () => {
     const r = periodRange('lastMonth', now)

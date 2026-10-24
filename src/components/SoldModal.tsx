@@ -29,9 +29,10 @@ export function SoldModal({
   const [price, setPrice] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState('')
   const [buyer, setBuyer] = useState('')
-  // Data sprzedaży — domyślnie dziś; sprzedaż wpisana rano za wczoraj musi trafić
-  // we właściwy dzień (i kwartał) ewidencji oraz limitu.
-  const [day, setDay] = useState(() => dateInputValue(Date.now()))
+  // Data sprzedaży — sprzedaż wpisana rano za wczoraj musi trafić we właściwy dzień
+  // ewidencji. null = „dziś” liczone w chwili zapisu (okno otwarte przed północą
+  // i zapisane po niej nie może cofnąć sprzedaży o dzień).
+  const [day, setDay] = useState<string | null>(null)
 
   // Seed the form only on the RISING EDGE of `open`, not on every `product` identity
   // change. In the grid, `product` comes from useLiveQuery and gets a fresh object on
@@ -43,7 +44,7 @@ export function SoldModal({
       setPrice(product.listingPrice || undefined)
       setAccountId(product.accountId ?? '')
       setBuyer('')
-      setDay(dateInputValue(Date.now()))
+      setDay(null)
     }
     prevOpen.current = open
   }, [open, product])
@@ -51,9 +52,10 @@ export function SoldModal({
   const confirm = async () => {
     const salePrice = price
     if (!salePrice || salePrice <= 0) return toast.error('Podaj cenę sprzedaży.')
+    if (day === '') return toast.error('Podaj datę sprzedaży.')
     const now = Date.now()
     // Dziś → dokładny czas; inny dzień → lokalne południe (jak w formularzu ewidencji).
-    const soldAt = day === dateInputValue(now) ? now : dateFromInput(day, now)
+    const soldAt = day == null || day === dateInputValue(now) ? now : dateFromInput(day, now)
     if (soldAt > now) return toast.error('Data sprzedaży nie może być z przyszłości.')
     await putEntity('sales', {
       id: uid(),
@@ -97,7 +99,7 @@ export function SoldModal({
         <Field label="Data sprzedaży">
           <TextInput
             type="date"
-            value={day}
+            value={day ?? dateInputValue(Date.now())}
             max={dateInputValue(Date.now())}
             onChange={(e) => setDay(e.target.value)}
           />
