@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { startOfMonth, startOfYear } from 'date-fns'
-import { ChevronDown, Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
+import { BookOpen, ChevronDown, Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Expense, Sale, SaleStatus } from '@/db/types'
@@ -12,6 +11,13 @@ import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, profitOf } from '@/lib/format'
 import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
+import {
+  SALES_PERIOD_LABELS,
+  dailySalesRecord,
+  inRange,
+  periodRange,
+  type SalesPeriod,
+} from '@/lib/salesRecord'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { useLocalStorageState } from '@/lib/hooks'
 import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
@@ -19,7 +25,10 @@ import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/p
 import { Button, EmptyState, Field, Modal, NumberInput, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import { ImportSalesModal } from '@/components/ImportSalesModal'
 
-type Period = 'all' | 'month' | 'year'
+/** Nazwa konta w nazwie pliku — bez znaków niedozwolonych w systemach plików. */
+function safeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'konto'
+}
 
 export function Sales() {
   const settings = useSettings((s) => s.settings)
@@ -29,7 +38,7 @@ export function Sales() {
   const products = useLiveQuery(() => db.products.toArray(), [])
 
   const [view, setView] = useState<string>('all') // 'all' = wspólna, lub accountId
-  const [period, setPeriod] = useState<Period>('all')
+  const [period, setPeriod] = useState<SalesPeriod>('all')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Sale | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -40,26 +49,23 @@ export function Sales() {
   // bez przewijania całej listy. Wybór użytkownika jest pamiętany per urządzenie.
   const [salesCollapsed, setSalesCollapsed] = useLocalStorageState('vinted-studio-sales-collapsed', true)
 
+  // Zakres liczony przy każdym renderze (karta otwarta przez północ / granicę miesiąca
+  // nie może zostać na starym okresie); memo kluczujemy po granicach, nie po obiekcie.
+  const range = periodRange(period, Date.now())
+  const { from: rangeFrom, to: rangeTo } = range
+
   const filtered = useMemo(() => {
     let list = sales ?? []
     if (view !== 'all') list = list.filter((s) => s.accountId === view)
-    if (period !== 'all') {
-      const from = period === 'month' ? startOfMonth(new Date()) : startOfYear(new Date())
-      list = list.filter((s) => s.soldAt >= from.getTime())
-    }
-    return list
-  }, [sales, view, period])
+    return list.filter((s) => inRange(s.soldAt, { from: rangeFrom, to: rangeTo }))
+  }, [sales, view, rangeFrom, rangeTo])
 
   // Koszty promocji w tym samym widoku (konto + okres) — wg daty poniesienia.
   const filteredExpenses = useMemo(() => {
     let list = expenses ?? []
     if (view !== 'all') list = list.filter((e) => e.accountId === view)
-    if (period !== 'all') {
-      const from = period === 'month' ? startOfMonth(new Date()) : startOfYear(new Date())
-      list = list.filter((e) => e.incurredAt >= from.getTime())
-    }
-    return list
-  }, [expenses, view, period])
+    return list.filter((e) => inRange(e.incurredAt, { from: rangeFrom, to: rangeTo }))
+  }, [expenses, view, rangeFrom, rangeTo])
 
   // Koszt magazynu liczymy NIEZALEŻNIE od okresu — to pieniądze zamrożone teraz,
   // nie przepływ z danego miesiąca. Filtrujemy tylko po koncie; stany bez konta
@@ -148,6 +154,31 @@ export function Sales() {
     toast.success('Wyeksportowano CSV.')
   }
 
+  // Uproszczona ewidencja sprzedaży (art. 109 ust. 1 ustawy o VAT) — prowadzi ją OSOBA,
+  // więc tylko dla jednego konta. Sumy narastające liczone ze wszystkich sprzedaży konta,
+  // wiersze zawężone do wybranego okresu.
+  const exportRecord = () => {
+    // Na telefonie nie ma podpowiedzi po najechaniu — zamiast wyszarzać, mówimy co zrobić.
+    if (view === 'all') return toast.info('Ewidencję prowadzi każda osoba osobno — wybierz konto powyżej.')
+    const accountSales = (sales ?? []).filter((s) => s.accountId === view)
+    const rows = dailySalesRecord(accountSales, range)
+    if (rows.length === 0) return toast.error('Brak sprzedaży w tym okresie.')
+    const zl = (n: number) => n.toFixed(2).replace('.', ',')
+    const csv = toCsv(
+      rows.map((r, i) => ({
+        'Lp.': i + 1,
+        'Data sprzedaży': r.date,
+        'Kwota sprzedaży (zł)': zl(r.amount),
+        'Narastająco od początku roku (zł)': zl(r.cumulativeYear),
+      })),
+    )
+    downloadText(
+      `ewidencja-sprzedazy-${safeFileName(accName(view))}-${dateInputValue(Date.now())}.csv`,
+      csv,
+    )
+    toast.success('Wyeksportowano ewidencję sprzedaży.')
+  }
+
   return (
     <div>
       <SectionTitle
@@ -160,6 +191,14 @@ export function Sales() {
             </Button>
             <Button variant="ghost" onClick={exportCsv} disabled={filtered.length === 0}>
               <Download size={16} /> CSV
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={exportRecord}
+              disabled={filtered.length === 0}
+              title="Dzienna ewidencja sprzedaży (art. 109 ustawy o VAT)"
+            >
+              <BookOpen size={16} /> Ewidencja
             </Button>
             <Button onClick={startNew}>
               <Plus size={16} /> Dodaj sprzedaż
@@ -180,10 +219,12 @@ export function Sales() {
             color={a.color}
           />
         ))}
-        <Select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="ml-auto w-40">
-          <option value="all">Cały okres</option>
-          <option value="month">Ten miesiąc</option>
-          <option value="year">Ten rok</option>
+        <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="ml-auto w-44">
+          {(Object.keys(SALES_PERIOD_LABELS) as SalesPeriod[]).map((p) => (
+            <option key={p} value={p}>
+              {SALES_PERIOD_LABELS[p]}
+            </option>
+          ))}
         </Select>
       </div>
 

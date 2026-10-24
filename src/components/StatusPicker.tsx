@@ -75,8 +75,8 @@ export function StatusPicker({ product, className }: { product: Product; classNa
           open
           onClose={() => setSoldOpen(false)}
           product={product}
-          onSold={() => {
-            void patchEntity('products', product.id, { status: 'sold', soldAt: Date.now() })
+          onSold={(soldAt) => {
+            void patchEntity('products', product.id, { status: 'sold', soldAt })
             setSoldOpen(false)
           }}
         />
