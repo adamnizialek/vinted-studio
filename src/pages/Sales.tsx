@@ -9,7 +9,7 @@ import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, pluralPl, profitOf } from '@/lib/format'
-import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
+import { deleteSaleAndRestock, restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
 import { saleExtras } from '@/lib/extraFields'
 import {
@@ -102,8 +102,8 @@ export function Sales() {
 
   const remove = async (id: string) => {
     if (!window.confirm('Usunąć ten wpis sprzedaży?')) return
-    await deleteEntity('sales', id)
-    toast.success('Usunięto wpis.')
+    const restocked = await deleteSaleAndRestock(id)
+    toast.success(restocked ? 'Usunięto wpis — przedmiot wrócił do magazynu 📦' : 'Usunięto wpis.')
   }
 
   const startNewExpense = () => {

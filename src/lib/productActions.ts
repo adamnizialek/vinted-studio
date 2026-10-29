@@ -1,4 +1,4 @@
-import { db, patchEntity } from '@/db/db'
+import { db, deleteEntity, patchEntity } from '@/db/db'
 import type { ID, Product, ProductStatus, SaleStatus } from '@/db/types'
 
 /**
@@ -74,4 +74,22 @@ export async function restockOnRefund(productId: ID): Promise<boolean> {
   if (!product || product.status !== 'sold') return false
   await patchEntity('products', productId, { status: 'in_stock' })
   return true
+}
+
+/**
+ * Usuwa wpis sprzedaży i cofa powiązany przedmiot do magazynu — sprzedaż, której
+ * nie ma, nie może trzymać przedmiotu jako 'sold'. Nie cofa, gdy przedmiot ma
+ * jeszcze inną aktywną sprzedaż (nie zwróconą/anulowaną). Zwraca, czy cofnięto.
+ */
+export async function deleteSaleAndRestock(saleId: ID): Promise<boolean> {
+  const sale = await db.sales.get(saleId)
+  await deleteEntity('sales', saleId)
+  if (!sale?.productId) return false
+  const stillSold = await db.sales
+    .where('productId')
+    .equals(sale.productId)
+    .filter((s) => s.status !== 'returned' && s.status !== 'cancelled')
+    .count()
+  if (stillSold > 0) return false
+  return restockOnRefund(sale.productId)
 }

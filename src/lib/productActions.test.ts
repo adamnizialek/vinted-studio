@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { db, putEntity } from '@/db/db'
-import { requiresSaleModal, applyStatusChange, assignAccount, shouldRestockOnSave, restockOnRefund, listedAtOnTransition, statusChangePatch } from './productActions'
-import type { Product } from '@/db/types'
+import { requiresSaleModal, applyStatusChange, assignAccount, shouldRestockOnSave, restockOnRefund, deleteSaleAndRestock, listedAtOnTransition, statusChangePatch } from './productActions'
+import type { Product, Sale } from '@/db/types'
 
 const sampleProduct = (id = 'p1'): Product => ({
   id,
@@ -156,5 +156,52 @@ describe('restockOnRefund', () => {
   it('is a no-op returning false when the product does not exist', async () => {
     const did = await restockOnRefund('missing')
     expect(did).toBe(false)
+  })
+})
+
+describe('deleteSaleAndRestock', () => {
+  const sale = (id: string, over: Partial<Sale> = {}): Sale => ({
+    id,
+    productId: 'p1',
+    productName: 'P',
+    salePrice: 10,
+    currency: 'PLN',
+    quantity: 1,
+    status: 'completed',
+    soldAt: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  })
+
+  beforeEach(async () => {
+    await db.sales.clear()
+  })
+
+  it('deletes the sale and moves its sold product back to in_stock', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'sold' })
+    await putEntity('sales', sale('s1'))
+    const did = await deleteSaleAndRestock('s1')
+    expect(did).toBe(true)
+    expect(await db.sales.get('s1')).toBeUndefined()
+    expect((await db.products.get('p1'))?.status).toBe('in_stock')
+  })
+  it('deletes a sale without a linked product and returns false', async () => {
+    await putEntity('sales', sale('s1', { productId: undefined }))
+    expect(await deleteSaleAndRestock('s1')).toBe(false)
+    expect(await db.sales.get('s1')).toBeUndefined()
+  })
+  it('keeps the product sold when another active sale still references it', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'sold' })
+    await putEntity('sales', sale('s1', { status: 'returned' }))
+    await putEntity('sales', sale('s2'))
+    expect(await deleteSaleAndRestock('s1')).toBe(false)
+    expect((await db.products.get('p1'))?.status).toBe('sold')
+  })
+  it('does not touch a product the user already moved elsewhere', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed' })
+    await putEntity('sales', sale('s1'))
+    expect(await deleteSaleAndRestock('s1')).toBe(false)
+    expect((await db.products.get('p1'))?.status).toBe('listed')
   })
 })
