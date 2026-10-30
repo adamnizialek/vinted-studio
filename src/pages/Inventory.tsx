@@ -6,7 +6,7 @@ import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
 import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
-import { STATUS_OPTIONS } from '@/lib/constants'
+import { DEFAULT_CONDITION, STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { coverImageIdOf } from '@/lib/listing'
 import { money } from '@/lib/format'
@@ -150,7 +150,7 @@ export function Inventory() {
     const p: Product = {
       id: uid(),
       name: '',
-      condition: 'dobry',
+      condition: DEFAULT_CONDITION,
       currency: settings?.currency ?? 'PLN',
       quantity: 1,
       status: 'draft',

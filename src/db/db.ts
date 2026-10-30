@@ -11,6 +11,7 @@ import type {
   SavedDescription,
 } from './types'
 import {
+  DEFAULT_CONDITION,
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_RESOLUTION,
   DEFAULT_TEXT_MODEL,
@@ -696,7 +697,7 @@ export async function importStock(
       brand: draft.brand,
       color: draft.color,
       sizeLabel: draft.sizeLabel,
-      condition: 'dobry',
+      condition: DEFAULT_CONDITION,
       purchasePrice: draft.purchaseCost,
       currency: 'PLN',
       quantity: 1,
@@ -998,7 +999,7 @@ export async function addSizeToDesign(
     id: uid(),
     designId,
     name: '',
-    condition: seed.condition ?? 'dobry',
+    condition: seed.condition ?? DEFAULT_CONDITION,
     currency: seed.currency ?? 'PLN',
     quantity: seed.quantity ?? 1,
     status: 'draft',

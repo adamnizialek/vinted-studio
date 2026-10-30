@@ -228,6 +228,8 @@ describe('addSizeToDesign', () => {
     expect(row?.sizeLabel).toBe('L')
     expect(row?.listingPrice).toBe(95)
     expect(row?.name).toBe('')
+    // Towar przychodzi nowy — nowy rozmiar startuje jako „Nowy bez metki”.
+    expect(row?.condition).toBe('nowy_bez_metki')
     expect((await db.outbox.get(['products', p.id]))?.deleted).toBe(0)
   })
 })

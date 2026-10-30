@@ -32,7 +32,7 @@ describe('importStock end-to-end (fake-indexeddb)', () => {
     const bluza = all.find((p) => p.name === 'Bluza zebra AX10247937')!
     expect(bluza.accountId).toBe('acc-main')
     expect(bluza.status).toBe('in_stock')
-    expect(bluza.condition).toBe('dobry')
+    expect(bluza.condition).toBe('nowy_bez_metki')
     expect(bluza.currency).toBe('PLN')
     expect(bluza.quantity).toBe(1)
     expect(bluza.purchasePrice).toBe(42.92)
