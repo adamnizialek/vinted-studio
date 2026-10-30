@@ -1,6 +1,6 @@
 // Podsumowania pól schowanych w zwijanej sekcji „Więcej szczegółów”.
 // Formularze pokazują na wierzchu tylko to, czego właściciel faktycznie używa
-// (rozmiar, stan, ceny, konto); reszta jest zwinięta. Żeby nic nie było ukryte po
+// (rozmiar, ceny, konto); reszta jest zwinięta. Żeby nic nie było ukryte po
 // cichu, nagłówek sekcji wypisuje pola, które mają już wartość — np. kolor
 // wpisany przez import ze zrzutu ekranu.
 

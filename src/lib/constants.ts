@@ -8,13 +8,10 @@ export const CONDITION_LABELS: Record<Condition, string> = {
   zadowalajacy: 'Zadowalający',
 }
 
-/** Stan nowych przedmiotów (import, nowy rozmiar, „Dodaj produkt”). Towar przychodzi nowy
- *  z AliExpress, zwykle bez metki — decyzja właściciela z 2026-10-30; istniejących nie ruszamy. */
+/** Stan towaru. Pola „Stan” nie ma w formularzu (decyzja właściciela z 2026-10-30: cały towar
+ *  przychodzi nowy z AliExpress, zwykle bez metki), więc ta wartość jest zapisywana w nowych
+ *  przedmiotach i używana przez kalkulator ceny i opisy AI zamiast zapisanego `condition`. */
 export const DEFAULT_CONDITION: Condition = 'nowy_bez_metki'
-
-export const CONDITION_OPTIONS = Object.entries(CONDITION_LABELS).map(
-  ([value, label]) => ({ value: value as Condition, label }),
-)
 
 export const STATUS_LABELS: Record<ProductStatus, string> = {
   draft: 'Szkic',

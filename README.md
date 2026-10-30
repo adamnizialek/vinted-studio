@@ -15,10 +15,10 @@ Cztery filary z briefu + funkcje dołożone na podstawie researchu:
 |------|------|
 | 📸 **Studio zdjęć AI** | Wirtualna przymierzalnia — ubiera produkt na **wcześniej stworzonej modelce AI** (Gemini „Nano Banana”). Tryb „na modelce” (try-on) oraz „czyść tło” (retusz zdjęcia produktu). Scenerie: studio / ulica / lustro / dom / detal. |
 | 🧍 **Modelki AI** | Twórz i zapisuj spójne modelki — z wgranych zdjęć **lub** wygenerowane z opisu. Wielokrotnego użytku przy każdym produkcie. |
-| 📦 **Magazyn (stan magazynowy)** | Pełna kartoteka produktów: marka, rozmiar, stan, materiał, wymiary, ceny, ilości, statusy (szkic → w magazynie → wystawione → sprzedane), tagi, zdjęcia. |
+| 📦 **Magazyn (stan magazynowy)** | Pełna kartoteka produktów: marka, rozmiar, materiał, wymiary, ceny, ilości, statusy (szkic → w magazynie → wystawione → sprzedane), tagi, zdjęcia. |
 | 💸 **Ewidencja sprzedaży** | Osobno **dla każdego konta** oraz jeden widok **wspólny**. Przychód, koszty, zysk, marża, eksport CSV, ręczne wpisy i automatyczne „oznacz jako sprzedane”. |
 | ✍️ **Generator opisów** | Kilka stylów (zwięzły, luźny z emoji, szczegółowy, sprzedażowy, minimalistyczny, z historią, z hashtagami) — **z zachowaniem amatorskiego tonu Vinted**. Każdy opis **zapisujesz przy produkcie**, jeden ustawiasz jako aktywny. |
-| 🏷️ **Kalkulator ceny** | Sugeruje przedział wg stanu (% ceny detalicznej) + cenę „z miejscem na rabat” i próg minimalnej oferty (do negocjacji). |
+| 🏷️ **Kalkulator ceny** | Sugeruje przedział dla rzeczy nowej bez metki (% ceny detalicznej) + cenę „z miejscem na rabat” i próg minimalnej oferty (do negocjacji). |
 | 🔎 **Tytuł SEO** | Buduje uporządkowany tytuł (marka → nazwa → kolor → materiał → rozmiar) zwiększający wyszukiwalność. |
 | 💰 **Kontrola kosztów AI** | Licznik wygenerowanych obrazów + szacowany koszt (generowanie obrazów przez API jest **płatne**, brak darmowego limitu). |
 | 📊 **Pulpit** | Wartość magazynu, sprzedaż/zysk miesięczny, wykres 6 miesięcy, podział na konta, „do wystawienia”. |
@@ -82,7 +82,7 @@ Otwórz zbudowaną aplikację w Chrome/Edge → ikona „Zainstaluj” w pasku a
 
 ## 🧠 Wskazówki sprzedażowe (z researchu)
 
-- **Ceny wg stanu:** dobry ~60–70% ceny detalicznej, bardzo dobry ~70–85%, nowy z metką ~85–95%. Wystawiaj z lekkim zapasem na rabat, miej w głowie próg minimalnej oferty (kalkulator robi to za Ciebie).
+- **Ceny:** rzecz nowa bez metki ~75–90% ceny detalicznej (tyle zakłada kalkulator). Wystawiaj z lekkim zapasem na rabat, miej w głowie próg minimalnej oferty (kalkulator robi to za Ciebie).
 - **Czas:** najwięcej kupujących wieczorem — **18:00–22:00**.
 - **Tytuł:** marka + model + kolor + materiał + rozmiar (generator tytułu SEO).
 - **Opis:** podaj wymiary i uczciwie wady — buduje zaufanie.

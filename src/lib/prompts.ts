@@ -1,5 +1,5 @@
 import type { AiModel, AppSettings, Product } from '@/db/types'
-import { CONDITION_LABELS } from './constants'
+import { CONDITION_LABELS, DEFAULT_CONDITION } from './constants'
 
 // ─────────────────────────────────────────────────────────────────────────
 //  OPISY PRODUKTOW
@@ -105,7 +105,9 @@ export function buildProductFacts(p: Product): string {
   add('Rozmiar', p.sizeLabel)
   add('Kolor', p.color)
   add('Materiał', p.material)
-  add('Stan', CONDITION_LABELS[p.condition])
+  // Stanu nie ma w formularzu (cały towar jest nowy), więc opis dostaje stały stan,
+  // a nie zapisany — starsze rzeczy mają tam domyślne „Dobry”, którego nikt nie wybrał.
+  add('Stan', CONDITION_LABELS[DEFAULT_CONDITION])
   if (p.measurements) {
     const m = p.measurements
     const parts: string[] = []

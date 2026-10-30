@@ -139,6 +139,7 @@ export interface Product {
   sizeLabel?: string
   color?: string
   material?: string
+  /** Nieedytowalne (bez pola w formularzu) — czytaj DEFAULT_CONDITION; zostaje dla zgodności synchronizacji. */
   condition: Condition
   measurements?: Measurements
   /** Cena zakupu (koszt) — do liczenia marzy. */
