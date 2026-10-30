@@ -63,8 +63,13 @@ export const EXTRACTION_SCHEMA = {
             description:
               'Concise product name in its ORIGINAL language (do not translate). Strip SEO keyword spam, year tags and marketing adjectives; keep the essential item description (e.g. garment type). Do NOT invent brand/material not visible.',
           },
-          brand: { type: 'STRING', nullable: true, description: 'Brand if clearly visible, else null. Do not guess.' },
-          color: { type: 'STRING', nullable: true, description: 'Color from the variant/spec line if visible, else null.' },
+          brand: { type: 'STRING', nullable: true, description: 'Product brand if clearly visible, else null. Never the shop/seller/store name. Do not guess.' },
+          color: {
+            type: 'STRING',
+            nullable: true,
+            description:
+              'Only the colour word from the variant/spec line, in Polish, lowercase (e.g. "czarny", "granatowy", "khaki"). Drop style words, sizes and codes ("Black Men Boots" -> "czarny"). null if the variant names no colour (e.g. "2", "5051", "as picture").',
+          },
           size: { type: 'STRING', nullable: true, description: 'Size from the variant/spec line if visible, else null.' },
           quantity: { type: 'INTEGER', description: 'Number of units for this line item (the "x2" qty). Default 1.' },
           unitPrice: {
@@ -119,7 +124,9 @@ export const EXTRACTION_PROMPT = `You extract purchased clothing/items from one 
 Rules:
 - Output exactly ONE object per distinct product line item. Never merge two products into one row; never split one product across rows.
 - Put the variant (color, size) into the color/size fields — NOT as separate rows.
-- name: copy a concise version of the product title in its ORIGINAL language. Do NOT translate. Remove SEO keyword spam, year tags ("2024 New Arrival"), and marketing words. Do not invent a brand, material, or size that is not shown.
+- color: ONLY the colour itself as one Polish word, lowercase ("Black Men Boots" → "czarny", "Black heel 4.5cm" → "czarny", "Navy Blue" → "granatowy"). If the variant is a number, code or "as picture", return null.
+- brand: a real product brand only — never the AliExpress shop/seller name (e.g. "XYZ Trading company Store").
+- name: copy a concise version of the product title in its ORIGINAL language. Do NOT translate. Remove SEO keyword spam, year tags ("2024 New Arrival"), and marketing words, but ALWAYS keep the garment type word (e.g. "buty", "kowbojki", "botki", "kurtka", "bluza") — it is the only place the item type is stored. Do not invent a brand, material, or size that is not shown.
 - unitPrice: the price ACTUALLY CHARGED per single unit. Ignore struck-through / original (pre-discount) prices. If only a line total and quantity are shown, divide to get the per-unit price.
 - priceText: copy the price exactly as it appears on screen (with its currency symbol). currency: the detected currency code (PLN, USD, EUR…). Do NOT convert between currencies.
 - quantity: the number of units of this item ("x2" → 2). Default to 1 if not shown.

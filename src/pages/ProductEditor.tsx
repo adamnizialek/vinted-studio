@@ -41,6 +41,7 @@ import type {
   SavedDescription,
 } from '@/db/types'
 import { removeCandidate, upsertCandidate } from '@/lib/descriptions'
+import { productExtras } from '@/lib/extraFields'
 import { resolveProduct, SHARED_FIELDS, visibleSizes } from '@/lib/designs'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
@@ -66,7 +67,7 @@ import {
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { downloadBlob } from '@/lib/csv'
-import { Button, Field, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
+import { Button, Field, MoreFields, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
 import { SoldModal } from '@/components/SoldModal'
@@ -420,7 +421,7 @@ function DesignEditor({ designId }: { designId: string }) {
 
       <div className="py-5">
         {draft && tab === 'detale' && (
-          <DetailsTab draft={draft} update={update} accounts={accounts ?? []} />
+          <DetailsTab draft={draft} update={update} accounts={accounts ?? []} inDesign />
         )}
         {draft && tab === 'zdjecia' && <PhotosTab draft={draft} update={update} imageLink={{ designId }} />}
         {draft && tab === 'opisy' && <DescriptionsTab draft={draft} update={update} />}
@@ -454,44 +455,101 @@ function DesignEditor({ designId }: { designId: string }) {
 }
 
 // ── Szczegóły ───────────────────────────────────────────────────────────────
+// Na wierzchu tylko to, czego właściciel faktycznie używa (rozmiar, stan, ceny, konto).
+// Rzadko wypełniane pola (marka, kategoria, materiał, tagi, wymiary…) są zwinięte
+// w „Więcej szczegółów” — dane i podpowiedzi AI zostają, nic nie jest usuwane.
 function DetailsTab({
   draft,
   update,
   accounts,
+  inDesign = false,
 }: {
   draft: Product
   update: UpdateFn
   accounts: { id: string; name: string }[]
+  /** Edytor modelu: część zwiniętych pól jest wspólna dla wszystkich rozmiarów. */
+  inDesign?: boolean
 }) {
   const suggestion = useMemo(
     () => suggestPrice(draft.retailPrice ?? 0, draft.condition),
     [draft.retailPrice, draft.condition],
   )
   const seoTitle = useMemo(() => buildSeoTitle(draft), [draft])
+  const extras = useMemo(() => productExtras(draft), [draft])
 
   const setM = (key: keyof Measurements, v: number | undefined) =>
     update({ measurements: { ...draft.measurements, [key]: v } })
+
+  // Pola wspólne dla modelu (SHARED_FIELDS) — w edytorze modelu zmieniają wszystkie rozmiary.
+  const sharedFields = (
+    <>
+      <Field label="Kolor">
+        <TextInput value={draft.color ?? ''} onChange={(e) => update({ color: e.target.value })} placeholder="np. czarny" />
+      </Field>
+      <Field label="Marka">
+        <TextInput value={draft.brand ?? ''} onChange={(e) => update({ brand: e.target.value })} placeholder="np. Zara" />
+      </Field>
+      <Field label="Kategoria">
+        <TextInput
+          list="cat-list"
+          value={draft.category ?? ''}
+          onChange={(e) => update({ category: e.target.value })}
+          placeholder="np. Kobiety / Ubrania"
+        />
+        <datalist id="cat-list">
+          {CATEGORY_SUGGESTIONS.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </Field>
+      <Field label="Materiał">
+        <TextInput value={draft.material ?? ''} onChange={(e) => update({ material: e.target.value })} placeholder="np. 100% bawełna" />
+      </Field>
+      <Field label="Tagi / słowa kluczowe" className="sm:col-span-2">
+        <TextInput
+          value={draft.tags.join(', ')}
+          onChange={(e) =>
+            update({ tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })
+          }
+          placeholder="oddziel przecinkami: oversize, vintage, lato"
+        />
+      </Field>
+    </>
+  )
+
+  const ownFields = (
+    <>
+      <Field label="Notatki (w tym wady)" className="sm:col-span-2">
+        <TextArea
+          rows={2}
+          value={draft.notes ?? ''}
+          onChange={(e) => update({ notes: e.target.value })}
+          placeholder="np. drobna plamka na rękawie, lekko sprane"
+        />
+      </Field>
+      <Field label="Ilość">
+        <NumberInput
+          integer
+          value={draft.quantity}
+          onValueChange={(n) => update({ quantity: Math.max(1, n ?? 1) })}
+        />
+      </Field>
+      <Field label="Waluta">
+        <Select value={draft.currency} onChange={(e) => update({ currency: e.target.value })}>
+          {CURRENCY_OPTIONS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </>
+  )
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         <div className="card grid gap-4 p-5 sm:grid-cols-2">
-          <Field label="Marka">
-            <TextInput value={draft.brand ?? ''} onChange={(e) => update({ brand: e.target.value })} placeholder="np. Zara" />
-          </Field>
-          <Field label="Kategoria">
-            <TextInput
-              list="cat-list"
-              value={draft.category ?? ''}
-              onChange={(e) => update({ category: e.target.value })}
-              placeholder="np. Kobiety / Ubrania"
-            />
-            <datalist id="cat-list">
-              {CATEGORY_SUGGESTIONS.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
           <Field label="Rozmiar">
             <TextInput
               list="size-list"
@@ -505,12 +563,6 @@ function DetailsTab({
               ))}
             </datalist>
           </Field>
-          <Field label="Kolor">
-            <TextInput value={draft.color ?? ''} onChange={(e) => update({ color: e.target.value })} placeholder="np. czarny" />
-          </Field>
-          <Field label="Materiał">
-            <TextInput value={draft.material ?? ''} onChange={(e) => update({ material: e.target.value })} placeholder="np. 100% bawełna" />
-          </Field>
           <Field label="Stan">
             <Select
               value={draft.condition}
@@ -523,71 +575,12 @@ function DetailsTab({
               ))}
             </Select>
           </Field>
-          <Field label="Tagi / słowa kluczowe" className="sm:col-span-2">
-            <TextInput
-              value={draft.tags.join(', ')}
-              onChange={(e) =>
-                update({ tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })
-              }
-              placeholder="oddziel przecinkami: oversize, vintage, lato"
+          <Field label={`Cena wystawienia (${draft.currency})`}>
+            <NumberInput
+              value={draft.listingPrice}
+              onValueChange={(n) => update({ listingPrice: n })}
+              placeholder="0"
             />
-          </Field>
-          <Field label="Notatki (w tym wady)" className="sm:col-span-2">
-            <TextArea
-              rows={2}
-              value={draft.notes ?? ''}
-              onChange={(e) => update({ notes: e.target.value })}
-              placeholder="np. drobna plamka na rękawie, lekko sprane"
-            />
-          </Field>
-        </div>
-
-        {/* Wymiary */}
-        <div className="card p-5">
-          <p className="label">Wymiary (cm) — kupujący często o nie pytają</p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {(
-              [
-                ['chest', 'Szer./klatka'],
-                ['length', 'Długość'],
-                ['sleeve', 'Rękaw'],
-                ['waist', 'Pas'],
-                ['hips', 'Biodra'],
-                ['inseam', 'Nogawka wewn.'],
-                ['shoulders', 'Ramiona'],
-                ['footLength', 'Wkładka'],
-              ] as const
-            ).map(([key, label]) => (
-              <Field key={key} label={label}>
-                <NumberInput value={draft.measurements?.[key]} onValueChange={(n) => setM(key, n)} />
-              </Field>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Boczna kolumna: ceny + kalkulator + tytuł SEO */}
-      <div className="space-y-4">
-        <div className="card space-y-4 p-5">
-          <Field label="Cena wystawienia">
-            <div className="flex gap-2">
-              <NumberInput
-                value={draft.listingPrice}
-                onValueChange={(n) => update({ listingPrice: n })}
-                placeholder="0"
-              />
-              <Select
-                value={draft.currency}
-                onChange={(e) => update({ currency: e.target.value })}
-                className="w-24"
-              >
-                {CURRENCY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
-            </div>
           </Field>
           <Field label="Cena zakupu (koszt)">
             <NumberInput
@@ -596,61 +589,103 @@ function DetailsTab({
               placeholder="0"
             />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Ilość">
-              <NumberInput
-                integer
-                value={draft.quantity}
-                onValueChange={(n) => update({ quantity: Math.max(1, n ?? 1) })}
-              />
-            </Field>
-            <Field label="Konto">
-              <Select value={draft.accountId ?? ''} onChange={(e) => update({ accountId: e.target.value || undefined })}>
-                <option value="">— brak —</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
+          <Field label="Konto">
+            <Select value={draft.accountId ?? ''} onChange={(e) => update({ accountId: e.target.value || undefined })}>
+              <option value="">— brak —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
-        {/* Kalkulator ceny */}
-        <div className="card space-y-3 p-5">
-          <div className="flex items-center gap-2">
-            <Tag size={16} className="text-brand-500" />
-            <p className="font-bold text-ink-900">Kalkulator ceny</p>
-          </div>
-          <Field label="Cena detaliczna (nowa)" hint="Wyliczy sugerowany przedział wg stanu.">
-            <NumberInput
-              value={draft.retailPrice}
-              onValueChange={(n) => update({ retailPrice: n })}
-              placeholder="np. 199"
-            />
-          </Field>
-          {suggestion && (
-            <div className="space-y-2 rounded-xl bg-ink-50 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-ink-500">Sugerowany przedział</span>
-                <span className="font-semibold">
-                  {money(suggestion.low, draft.currency)} – {money(suggestion.high, draft.currency)}
-                </span>
+        <div className="card p-5">
+          <MoreFields filled={extras}>
+            <div className="space-y-5">
+              {inDesign ? (
+                <>
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-ink-800">Wspólne dla wszystkich rozmiarów</p>
+                    <div className="grid gap-4 sm:grid-cols-2">{sharedFields}</div>
+                  </div>
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-ink-800">Tylko ten rozmiar</p>
+                    <div className="grid gap-4 sm:grid-cols-2">{ownFields}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {sharedFields}
+                  {ownFields}
+                </div>
+              )}
+
+              {/* Wymiary */}
+              <div>
+                <p className="label">Wymiary (cm) — kupujący często o nie pytają</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {(
+                    [
+                      ['chest', 'Szer./klatka'],
+                      ['length', 'Długość'],
+                      ['sleeve', 'Rękaw'],
+                      ['waist', 'Pas'],
+                      ['hips', 'Biodra'],
+                      ['inseam', 'Nogawka wewn.'],
+                      ['shoulders', 'Ramiona'],
+                      ['footLength', 'Wkładka'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Field key={key} label={label}>
+                      <NumberInput value={draft.measurements?.[key]} onValueChange={(n) => setM(key, n)} />
+                    </Field>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-500">Cena z miejscem na rabat</span>
-                <button className="chip hover:bg-brand-100" onClick={() => update({ listingPrice: suggestion.anchor })}>
-                  {money(suggestion.anchor, draft.currency)} → użyj
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-500">Próg ofert (min.)</span>
-                <span className="font-semibold text-amber-600">{money(suggestion.floor, draft.currency)}</span>
+
+              {/* Kalkulator ceny */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Tag size={16} className="text-brand-500" />
+                  <p className="font-bold text-ink-900">Kalkulator ceny</p>
+                </div>
+                <Field label="Cena detaliczna (nowa)" hint="Wyliczy sugerowany przedział wg stanu.">
+                  <NumberInput
+                    value={draft.retailPrice}
+                    onValueChange={(n) => update({ retailPrice: n })}
+                    placeholder="np. 199"
+                  />
+                </Field>
+                {suggestion && (
+                  <div className="space-y-2 rounded-xl bg-ink-50 p-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-ink-500">Sugerowany przedział</span>
+                      <span className="font-semibold">
+                        {money(suggestion.low, draft.currency)} – {money(suggestion.high, draft.currency)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-ink-500">Cena z miejscem na rabat</span>
+                      <button className="chip hover:bg-brand-100" onClick={() => update({ listingPrice: suggestion.anchor })}>
+                        {money(suggestion.anchor, draft.currency)} → użyj
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-ink-500">Próg ofert (min.)</span>
+                      <span className="font-semibold text-amber-600">{money(suggestion.floor, draft.currency)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          </MoreFields>
         </div>
+      </div>
+
+      {/* Boczna kolumna: tytuł SEO + ogłoszenie + Studio */}
+      <div className="space-y-4">
 
         {/* Tytuł SEO */}
         <div className="card space-y-2 p-5">
