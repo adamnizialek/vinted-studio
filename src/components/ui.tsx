@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2, X } from 'lucide-react'
+import { ChevronRight, Loader2, X } from 'lucide-react'
 import clsx from 'clsx'
 import { parseDecimal } from '@/lib/format'
 
@@ -84,12 +84,13 @@ function seedText(value: number | undefined | null): string {
  * `value` było sterowane wprost liczbą, wpisanie „12," zaokrąglałoby się od razu
  * do „12" i nie dało się dopisać groszy. Bufor synchronizujemy z propsem `value`
  * tylko gdy pole NIE jest edytowane (np. seed formularza, przycisk „użyj ceny").
+ * „Edytowane” = użytkownik coś wpisał od fokusu — sam fokus (np. autoFocus w oknie
+ * „Sprzedane”) nie blokuje seeda, inaczej cena wystawienia nie trafiała do pola.
  */
 export function NumberInput({
   value,
   onValueChange,
   integer = false,
-  onFocus,
   onBlur,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
@@ -119,11 +120,8 @@ export function NumberInput({
       type="text"
       inputMode={integer ? 'numeric' : 'decimal'}
       value={text}
-      onFocus={(e) => {
-        setEditing(true)
-        onFocus?.(e)
-      }}
       onChange={(e) => {
+        setEditing(true)
         setText(e.target.value)
         onValueChange(parseDecimal(e.target.value, integer))
       }}
@@ -141,6 +139,35 @@ export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={clsx('input', props.className)} />
+}
+
+/**
+ * Zwijana sekcja na rzadko używane pola: domyślnie zamknięta, ale nic nie znika po cichu —
+ * `filled` wypisuje w nagłówku pola, które mają już wartość (np. „Kolor: czarny”).
+ */
+export function MoreFields({
+  title = 'Więcej szczegółów',
+  filled = [],
+  children,
+  className,
+}: {
+  title?: string
+  filled?: string[]
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <details className={clsx('group', className)}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+        <ChevronRight size={16} className="shrink-0 text-ink-400 transition group-open:rotate-90" />
+        <span className="shrink-0 text-sm font-semibold text-ink-700">{title}</span>
+        {filled.length > 0 && (
+          <span className="min-w-0 truncate text-xs text-ink-400">{filled.join(' · ')}</span>
+        )}
+      </summary>
+      <div className="mt-4">{children}</div>
+    </details>
+  )
 }
 
 export function EmptyState({

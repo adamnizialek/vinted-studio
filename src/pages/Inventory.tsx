@@ -6,7 +6,7 @@ import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
 import type { Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
-import { STATUS_OPTIONS } from '@/lib/constants'
+import { DEFAULT_CONDITION, STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { coverImageIdOf } from '@/lib/listing'
 import { money } from '@/lib/format'
@@ -150,7 +150,7 @@ export function Inventory() {
     const p: Product = {
       id: uid(),
       name: '',
-      condition: 'dobry',
+      condition: DEFAULT_CONDITION,
       currency: settings?.currency ?? 'PLN',
       quantity: 1,
       status: 'draft',
@@ -326,7 +326,9 @@ export function Inventory() {
                       <div className="p-3">
                         <p className="truncate font-semibold text-ink-900">{p.name || 'Bez nazwy'}</p>
                         <div className="mt-0.5 flex items-center justify-between">
-                          <p className="truncate text-xs text-ink-400">{p.brand || '—'}</p>
+                          <p className="truncate text-xs text-ink-400">
+                            {[p.sizeLabel, p.brand].filter(Boolean).join(' · ') || '—'}
+                          </p>
                           <p className="shrink-0 text-sm font-bold text-brand-600">
                             {p.listingPrice ? money(p.listingPrice, p.currency) : '—'}
                           </p>
@@ -495,7 +497,7 @@ function DesignCard({ design, members, cover, onOpen, selecting, selected, onTog
         <div className="p-3">
           <p className="truncate font-semibold text-ink-900">{design.name || 'Bez nazwy'}</p>
           <div className="mt-0.5 flex items-center justify-between">
-            <p className="truncate text-xs text-ink-400">{design.brand || '—'}</p>
+            <p className="truncate text-xs text-ink-400">{design.brand}</p>
             <p className="shrink-0 text-sm font-bold text-brand-600">{priceText}</p>
           </div>
           <p className="mt-2 truncate text-xs text-ink-400">

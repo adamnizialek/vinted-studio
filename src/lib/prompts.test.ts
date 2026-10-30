@@ -193,6 +193,37 @@ describe('buildPhotoPrompt — footwear true-to-size scale', () => {
     expect(tryOn({ name: 'kozaki', category: 'Boots' })).toContain('footwear scale')
   })
 
+  it('falls back to the name and variant colour when the category is empty', () => {
+    // Import ze zrzutu nie ustawia kategorii — realne nazwy z magazynu właściciela.
+    expect(tryOn({ name: 'Damskie botki, prawdziwa skóra', sizeLabel: '37' })).toContain('size 37')
+    expect(tryOn({ name: 'Plisowane kowbojki damskie do połowy łydki' })).toContain('footwear scale')
+    expect(tryOn({ name: 'Japońskie buty Tabi Ninja damskie' })).toContain('footwear scale')
+    expect(tryOn({ name: 'Tabi1', sizeLabel: '39' })).toContain('footwear scale')
+    expect(tryOn({ name: 'Ręcznie robione', color: 'Black Men Boots' })).toContain('footwear scale')
+    expect(tryOn({ name: 'Klapki basenowe' })).toContain('footwear scale')
+    expect(tryOn({ name: 'Sneakersy białe' })).toContain('footwear scale')
+  })
+
+  it('does NOT read clothing names as footwear in the name fallback', () => {
+    for (const name of [
+      'Bluza Adidas',
+      'Kapelusz kowbojski',
+      'Spodnie bootcut',
+      'Kurtka NY M',
+      'Szare spodnie narciarskie XXL',
+      'Czapka z czaszką',
+      'Waist Trainer gorset',
+      'Torebka listonoszka z klapką',
+      'Skarpetki do sneakersów',
+    ]) {
+      expect(tryOn({ name }), name).not.toContain('footwear scale')
+    }
+  })
+
+  it('lets a filled non-footwear category win over a shoe word in the name', () => {
+    expect(tryOn({ name: 'Torba na buty', category: 'Torby' })).not.toContain('footwear scale')
+  })
+
   it('detects standalone Polish footwear leaf categories (kozaczki, klapki, adidasy)', () => {
     expect(tryOn({ name: 'kozaczki', category: 'Kozaczki' })).toContain('footwear scale')
     expect(tryOn({ name: 'klapki', category: 'Klapki' })).toContain('footwear scale')

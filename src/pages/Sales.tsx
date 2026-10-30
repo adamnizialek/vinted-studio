@@ -11,6 +11,7 @@ import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, pluralPl, profitOf } from '@/lib/format'
 import { restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
+import { saleExtras } from '@/lib/extraFields'
 import {
   SALES_PERIOD_LABELS,
   dailySalesRecord,
@@ -22,7 +23,7 @@ import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { useLocalStorageState } from '@/lib/hooks'
 import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
 import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/promotionScreenshot'
-import { Button, EmptyState, Field, Modal, NumberInput, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
+import { Button, EmptyState, Field, Modal, MoreFields, NumberInput, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
 import { ImportSalesModal } from '@/components/ImportSalesModal'
 
 /** Nazwa konta w nazwie pliku — bez znaków niedozwolonych w systemach plików. */
@@ -468,9 +469,6 @@ function SaleModal({
         <Field label="Produkt" className="sm:col-span-2">
           <TextInput value={form.productName} onChange={(e) => set('productName', e.target.value)} autoFocus />
         </Field>
-        <Field label="Marka">
-          <TextInput value={form.brand ?? ''} onChange={(e) => set('brand', e.target.value)} />
-        </Field>
         <Field label="Konto">
           <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
             <option value="">— brak —</option>
@@ -482,20 +480,8 @@ function SaleModal({
         <Field label={`Cena sprzedaży (${form.currency})`}>
           <NumberInput value={form.salePrice} onValueChange={(n) => set('salePrice', n ?? 0)} />
         </Field>
-        <Field label="Ilość">
-          <NumberInput integer value={form.quantity} onValueChange={(n) => set('quantity', Math.max(1, n ?? 1))} />
-        </Field>
         <Field label="Koszt zakupu">
           <NumberInput value={form.purchaseCost} onValueChange={(n) => set('purchaseCost', n)} />
-        </Field>
-        <Field label="Koszt wysyłki (Twój)">
-          <NumberInput value={form.shippingCost} onValueChange={(n) => set('shippingCost', n)} />
-        </Field>
-        <Field label="Prowizja / opłaty">
-          <NumberInput value={form.platformFee} onValueChange={(n) => set('platformFee', n)} />
-        </Field>
-        <Field label="Inne koszty">
-          <NumberInput value={form.otherCosts} onValueChange={(n) => set('otherCosts', n)} />
         </Field>
         <Field label="Data sprzedaży">
           <TextInput
@@ -521,12 +507,32 @@ function SaleModal({
             ))}
           </Select>
         </Field>
-        <Field label="Kupujący">
-          <TextInput value={form.buyer ?? ''} onChange={(e) => set('buyer', e.target.value)} />
-        </Field>
-        <Field label="Notatki" className="sm:col-span-2">
-          <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
-        </Field>
+        {/* Rzadko używane — zwinięte, ale nagłówek pokazuje, co jest wypełnione. */}
+        <MoreFields filled={saleExtras(form)} className="sm:col-span-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Marka">
+              <TextInput value={form.brand ?? ''} onChange={(e) => set('brand', e.target.value)} />
+            </Field>
+            <Field label="Ilość">
+              <NumberInput integer value={form.quantity} onValueChange={(n) => set('quantity', Math.max(1, n ?? 1))} />
+            </Field>
+            <Field label="Koszt wysyłki (Twój)">
+              <NumberInput value={form.shippingCost} onValueChange={(n) => set('shippingCost', n)} />
+            </Field>
+            <Field label="Prowizja / opłaty">
+              <NumberInput value={form.platformFee} onValueChange={(n) => set('platformFee', n)} />
+            </Field>
+            <Field label="Inne koszty">
+              <NumberInput value={form.otherCosts} onValueChange={(n) => set('otherCosts', n)} />
+            </Field>
+            <Field label="Kupujący">
+              <TextInput value={form.buyer ?? ''} onChange={(e) => set('buyer', e.target.value)} />
+            </Field>
+            <Field label="Notatki" className="sm:col-span-2">
+              <TextArea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+            </Field>
+          </div>
+        </MoreFields>
       </div>
     </Modal>
   )

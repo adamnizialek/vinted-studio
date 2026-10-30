@@ -28,7 +28,6 @@ export function SoldModal({
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
   const [price, setPrice] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState('')
-  const [buyer, setBuyer] = useState('')
   // Data sprzedaży — sprzedaż wpisana rano za wczoraj musi trafić we właściwy dzień
   // ewidencji. null = „dziś” liczone w chwili zapisu (okno otwarte przed północą
   // i zapisane po niej nie może cofnąć sprzedaży o dzień).
@@ -37,13 +36,12 @@ export function SoldModal({
   // Seed the form only on the RISING EDGE of `open`, not on every `product` identity
   // change. In the grid, `product` comes from useLiveQuery and gets a fresh object on
   // any products-table write or sync pull — keying on it would wipe the user's typed
-  // price/buyer mid-entry (e.g. when a sync fires on window.focus).
+  // price/date mid-entry (e.g. when a sync fires on window.focus).
   const prevOpen = useRef(false)
   useEffect(() => {
     if (open && !prevOpen.current) {
       setPrice(product.listingPrice || undefined)
       setAccountId(product.accountId ?? '')
-      setBuyer('')
       setDay(null)
     }
     prevOpen.current = open
@@ -67,7 +65,6 @@ export function SoldModal({
       currency: product.currency,
       purchaseCost: product.purchasePrice,
       quantity: 1,
-      buyer: buyer || undefined,
       status: 'completed',
       soldAt,
       createdAt: now,
@@ -113,9 +110,6 @@ export function SoldModal({
               </option>
             ))}
           </Select>
-        </Field>
-        <Field label="Kupujący (opcjonalnie)">
-          <TextInput value={buyer} onChange={(e) => setBuyer(e.target.value)} placeholder="nick z Vinted" />
         </Field>
       </div>
     </Modal>

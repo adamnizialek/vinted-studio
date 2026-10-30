@@ -8,6 +8,10 @@ export const CONDITION_LABELS: Record<Condition, string> = {
   zadowalajacy: 'Zadowalający',
 }
 
+/** Stan nowych przedmiotów (import, nowy rozmiar, „Dodaj produkt”). Towar przychodzi nowy
+ *  z AliExpress, zwykle bez metki — decyzja właściciela z 2026-10-30; istniejących nie ruszamy. */
+export const DEFAULT_CONDITION: Condition = 'nowy_bez_metki'
+
 export const CONDITION_OPTIONS = Object.entries(CONDITION_LABELS).map(
   ([value, label]) => ({ value: value as Condition, label }),
 )

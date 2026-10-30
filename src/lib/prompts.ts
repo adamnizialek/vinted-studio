@@ -344,15 +344,55 @@ const FOOTWEAR_STEMS = [
 // (spodnie) wpadlyby jako obuwie i zepsuly prompt ubraniowy.
 const BOOT_TOKENS = new Set(['boot', 'boots', 'bootie', 'booties'])
 
-/** Czy produkt to obuwie — po wymiarze wkladki (footLength) lub kategorii. */
-function isFootwear(p: Product): boolean {
-  if (p.measurements?.footLength != null) return true
-  const tokens = (p.category ?? '')
+// Fallback po NAZWIE i kolorze wariantu, gdy kategoria jest pusta — a jest pusta
+// prawie zawsze, bo import ze zrzutu jej nie ustawia. Nazwy sa dluzsze i bardziej
+// wieloznaczne niz kategoria, wiec rdzenie dwuznaczne w nazwie ("bluza Adidas",
+// "waist trainer", "torebka z klapką", "skarpetki do sneakersów") licza sie tylko
+// jako cale slowa; dochodza typowe nazwy z AliExpress: botki, kowbojki
+// ("kapelusz kowbojski" — nie), tabi.
+const NAME_AMBIGUOUS_STEMS = ['adidas', 'trainer', 'sneaker', 'klapk']
+const NAME_FOOTWEAR_STEMS = [
+  ...FOOTWEAR_STEMS.filter((stem) => !NAME_AMBIGUOUS_STEMS.includes(stem)),
+  'botk',
+  'botek',
+  'kowbojk',
+  'oficerk',
+  'tenisówk',
+  'espadryl',
+]
+const NAME_FOOTWEAR_TOKENS = new Set([
+  ...BOOT_TOKENS,
+  'tabi',
+  'glany',
+  'adidasy',
+  'trainers',
+  'sneakers',
+  'sneakersy',
+  'klapki',
+])
+
+function tokensOf(text?: string): string[] {
+  return (text ?? '')
     .toLowerCase()
     .split(/[^\p{L}]+/u)
     .filter(Boolean)
-  return tokens.some(
-    (tok) => BOOT_TOKENS.has(tok) || FOOTWEAR_STEMS.some((stem) => tok.startsWith(stem)),
+}
+
+/**
+ * Czy produkt to obuwie — po wymiarze wkladki (footLength), kategorii, a gdy
+ * kategorii brak: po nazwie i kolorze wariantu ("Black Men Boots").
+ * Wypelniona kategoria rozstrzyga — "torba na buty" w kategorii "Torby" to nie but.
+ */
+function isFootwear(p: Product): boolean {
+  if (p.measurements?.footLength != null) return true
+  if (p.category?.trim()) {
+    return tokensOf(p.category).some(
+      (tok) => BOOT_TOKENS.has(tok) || FOOTWEAR_STEMS.some((stem) => tok.startsWith(stem)),
+    )
+  }
+  return [...tokensOf(p.name), ...tokensOf(p.color)].some(
+    (tok) =>
+      NAME_FOOTWEAR_TOKENS.has(tok) || NAME_FOOTWEAR_STEMS.some((stem) => tok.startsWith(stem)),
   )
 }
 
