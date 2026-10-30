@@ -32,7 +32,6 @@ import {
 } from '@/db/db'
 import type {
   AppSettings,
-  Condition,
   DescriptionCandidate,
   Design,
   Measurements,
@@ -48,8 +47,8 @@ import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import {
   CATEGORY_SUGGESTIONS,
-  CONDITION_OPTIONS,
   CURRENCY_OPTIONS,
+  DEFAULT_CONDITION,
   SIZE_SUGGESTIONS,
   STATUS_OPTIONS,
 } from '@/lib/constants'
@@ -471,8 +470,8 @@ function DetailsTab({
   inDesign?: boolean
 }) {
   const suggestion = useMemo(
-    () => suggestPrice(draft.retailPrice ?? 0, draft.condition),
-    [draft.retailPrice, draft.condition],
+    () => suggestPrice(draft.retailPrice ?? 0, DEFAULT_CONDITION),
+    [draft.retailPrice],
   )
   const seoTitle = useMemo(() => buildSeoTitle(draft), [draft])
   const extras = useMemo(() => productExtras(draft), [draft])
@@ -563,18 +562,6 @@ function DetailsTab({
               ))}
             </datalist>
           </Field>
-          <Field label="Stan">
-            <Select
-              value={draft.condition}
-              onChange={(e) => update({ condition: e.target.value as Condition })}
-            >
-              {CONDITION_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
           <Field label={`Cena wystawienia (${draft.currency})`}>
             <NumberInput
               value={draft.listingPrice}
@@ -651,7 +638,7 @@ function DetailsTab({
                   <Tag size={16} className="text-brand-500" />
                   <p className="font-bold text-ink-900">Kalkulator ceny</p>
                 </div>
-                <Field label="Cena detaliczna (nowa)" hint="Wyliczy sugerowany przedział wg stanu.">
+                <Field label="Cena detaliczna (nowa)" hint="Wyliczy sugerowany przedział dla rzeczy nowej bez metki.">
                   <NumberInput
                     value={draft.retailPrice}
                     onValueChange={(n) => update({ retailPrice: n })}

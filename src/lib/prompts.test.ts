@@ -144,6 +144,12 @@ describe('buildProductFacts', () => {
     expect(facts).toMatch(/Wymiary:.*pas 38 cm/)
     expect(facts).toMatch(/Wymiary:.*długość 60 cm/)
   })
+
+  it('always describes the item as new, ignoring the stored (no longer editable) condition', () => {
+    const facts = buildProductFacts(product({ name: 'kowbojki', condition: 'dobry' }))
+    expect(facts).toContain('Stan: Nowy bez metki')
+    expect(facts).not.toContain('Stan: Dobry')
+  })
 })
 
 describe('buildPhotoPrompt — footwear true-to-size scale', () => {
