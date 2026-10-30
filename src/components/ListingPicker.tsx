@@ -145,7 +145,7 @@ export function ProductListingPicker({
                         onClick={() =>
                           selected
                             ? close()
-                            : run(close, () => listProductOn(product.id, a.id, sinceFrom(day)))
+                            : run(close, () => listProductOn(product.id, a.id, sinceFrom(day), day != null))
                         }
                       >
                         <AccountDot account={a} />

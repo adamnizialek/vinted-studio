@@ -262,6 +262,12 @@ describe('listing fixes from review', () => {
     expect(await db.products.get('p1')).toMatchObject({ accountId: 'a2', listedAt: 100 })
   })
 
+  it('a date picked by hand wins over the stored one', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed', accountId: undefined, listedAt: 100 })
+    await listProductOn('p1', 'a2', 500, true)
+    expect(await db.products.get('p1')).toMatchObject({ accountId: 'a2', listedAt: 500 })
+  })
+
   it('first toggle on an older model keeps the dates its units already had', async () => {
     await putEntity('designs', design) // brak pola listings
     await putEntity('products', {

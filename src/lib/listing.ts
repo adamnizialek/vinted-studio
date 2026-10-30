@@ -127,10 +127,16 @@ export function daysToSellStats(products: Product[]): DaysToSellStats {
  *  zarchiwizowane zostają, jak są — to decyzje o konkretnej sztuce. */
 const FOLLOWS_DESIGN_LISTINGS: ReadonlySet<Product['status']> = new Set(['draft', 'in_stock', 'listed'])
 
+/** Najwcześniejsze ogłoszenie modelu; undefined gdy nigdzie nie jest wystawiony. */
+function firstListing(listings: DesignListing[] | undefined): DesignListing | undefined {
+  let first: DesignListing | undefined
+  for (const l of listings ?? []) if (!first || l.since < first.since) first = l
+  return first
+}
+
 /** Najwcześniejsza data wystawienia modelu; null gdy nigdzie nie jest wystawiony. */
 export function earliestListing(listings: DesignListing[] | undefined): number | null {
-  if (!listings?.length) return null
-  return Math.min(...listings.map((l) => l.since))
+  return firstListing(listings)?.since ?? null
 }
 
 /**
@@ -139,13 +145,17 @@ export function earliestListing(listings: DesignListing[] | undefined): number |
  * w model) — żeby pierwsze kliknięcie nie nadpisało prawdziwych dat dzisiejszą.
  */
 export function listingsFromProducts(products: Product[]): DesignListing[] {
-  const since = new Map<ID, number>()
-  for (const p of products) {
-    if (p.status !== 'listed' || !p.accountId || p.listedAt == null) continue
-    const prev = since.get(p.accountId)
-    if (prev == null || p.listedAt < prev) since.set(p.accountId, p.listedAt)
-  }
-  return [...since].map(([accountId, s]) => ({ accountId, since: s }))
+  return mergeListings(
+    [],
+    products
+      .filter((p) => p.status === 'listed' && p.accountId && p.listedAt != null)
+      .map((p) => ({
+        accountId: p.accountId!,
+        since: p.listedAt!,
+        // Data z backfillu zostaje przybliżona — nie może stać się „dokładną” w modelu.
+        ...(p.listedAtApprox ? { approx: true } : {}),
+      })),
+  )
 }
 
 /** Ogłoszenia modelu: zapisane, a dla starszych modeli (bez pola) — odczytane ze sztuk. */
@@ -156,14 +166,14 @@ export function effectiveListings(
   return listings ?? listingsFromProducts(members)
 }
 
-/** Łączy dwie listy ogłoszeń: per konto wcześniejsza data. */
+/** Łączy dwie listy ogłoszeń: per konto wcześniejsze (razem z jego flagą przybliżenia). */
 export function mergeListings(a: DesignListing[], b: DesignListing[]): DesignListing[] {
-  const since = new Map<ID, number>()
+  const byAccount = new Map<ID, DesignListing>()
   for (const l of [...a, ...b]) {
-    const prev = since.get(l.accountId)
-    if (prev == null || l.since < prev) since.set(l.accountId, l.since)
+    const prev = byAccount.get(l.accountId)
+    if (!prev || l.since < prev.since) byAccount.set(l.accountId, l)
   }
-  return [...since].map(([accountId, s]) => ({ accountId, since: s }))
+  return [...byAccount.values()]
 }
 
 /**
@@ -206,19 +216,20 @@ export function memberListingPatch(
   listings: DesignListing[] | undefined,
 ): Partial<Product> | null {
   if (!FOLLOWS_DESIGN_LISTINGS.has(member.status)) return null
-  const since = earliestListing(listings)
-  if (since == null) {
+  const first = firstListing(listings)
+  if (!first) {
     return member.status === 'listed' ? { status: 'in_stock', accountId: undefined } : null
   }
   const accountId = listings!.length === 1 ? listings![0].accountId : undefined
+  const approx = first.approx ? true : undefined
   if (
     member.status === 'listed' &&
-    member.listedAt === since &&
-    !member.listedAtApprox &&
+    member.listedAt === first.since &&
+    member.listedAtApprox === approx &&
     member.accountId === accountId
   )
     return null
-  return { status: 'listed', listedAt: since, listedAtApprox: undefined, accountId }
+  return { status: 'listed', listedAt: first.since, listedAtApprox: approx, accountId }
 }
 
 /** Konto podpowiadane przy sprzedaży: sztuki, a gdy go nie ma — jedynego ogłoszenia modelu. */
@@ -245,11 +256,13 @@ export function soldPatch(
   if (accountId) patch.accountId = accountId
   // Sztuka modelu ma datę najwcześniejszego ogłoszenia; sprzedaż na innym koncie liczy się
   // od ogłoszenia na tym koncie. Własnej (innej) daty sztuki nie ruszamy.
-  const earliest = earliestListing(listings)
-  if (product.listedAt == null || product.listedAt === earliest) {
-    const own = listings?.find((l) => l.accountId === accountId)?.since
-    const since = own ?? earliest
-    if (since != null && since <= soldAt && since !== product.listedAt) patch.listedAt = since
+  const first = firstListing(listings)
+  if (product.listedAt == null || product.listedAt === first?.since) {
+    const source = listings?.find((l) => l.accountId === accountId) ?? first
+    if (source && source.since <= soldAt && source.since !== product.listedAt) {
+      patch.listedAt = source.since
+      patch.listedAtApprox = source.approx ? true : undefined
+    }
   }
   return patch
 }

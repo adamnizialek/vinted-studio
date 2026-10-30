@@ -317,6 +317,24 @@ describe('isOnAccount', () => {
   })
 })
 
+describe('approximate (backfilled) dates stay approximate', () => {
+  it('listingsFromProducts and memberListingPatch carry the flag', () => {
+    const units = [base({ status: 'listed', accountId: 'main', listedAt: 100, listedAtApprox: true })]
+    const listings = listingsFromProducts(units)
+    expect(listings).toEqual([{ accountId: 'main', since: 100, approx: true }])
+    const withB = [...listings, { accountId: 'zoosia', since: 900 }]
+    expect(memberListingPatch(units[0], withB)).toEqual({
+      status: 'listed', listedAt: 100, listedAtApprox: true, accountId: undefined,
+    })
+    expect(memberListingPatch(base({ status: 'in_stock' }), withB)).toMatchObject({ listedAtApprox: true })
+  })
+  it('soldPatch keeps the flag when the date comes from an approximate listing', () => {
+    expect(soldPatch(base(), 1000, 'main', [{ accountId: 'main', since: 100, approx: true }])).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'main', listedAt: 100, listedAtApprox: true,
+    })
+  })
+})
+
 describe('soldPatch on a model listed on two accounts', () => {
   it('measures from the listing on the account that sold it', () => {
     const listings = [{ accountId: 'main', since: 100 }, { accountId: 'zoosia', since: 800 }]

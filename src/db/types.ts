@@ -210,6 +210,8 @@ export interface Design {
 export interface DesignListing {
   accountId: ID
   since: number
+  /** Data przybliżona (odczytana z backfillowanych sztuk) — czas sprzedaży jej nie liczy. */
+  approx?: boolean
 }
 
 export type SaleStatus = 'completed' | 'pending' | 'cancelled' | 'returned'

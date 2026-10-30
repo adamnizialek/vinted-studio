@@ -53,13 +53,23 @@ export async function applyStatusChange(id: ID, status: ProductStatus): Promise<
  * wybór tego samego konta niczego nie zmienia; przeniesienie na inne konto to nowe
  * ogłoszenie, więc data liczy się od nowa.
  */
-export async function listProductOn(id: ID, accountId: ID, since: number): Promise<void> {
+export async function listProductOn(
+  id: ID,
+  accountId: ID,
+  since: number,
+  /** Data wybrana ręcznie w polu „Wystawione od” — wygrywa z zapisaną. */
+  explicitDate = false,
+): Promise<void> {
   const product = await db.products.get(id)
   if (!product) return
   if (product.status === 'listed' && product.accountId === accountId) return
   // Wystawiony bez konta (stary sposób oznaczania) z dokładną datą: dopisujemy tylko konto.
   const keepDate =
-    product.status === 'listed' && !product.accountId && product.listedAt != null && !product.listedAtApprox
+    !explicitDate &&
+    product.status === 'listed' &&
+    !product.accountId &&
+    product.listedAt != null &&
+    !product.listedAtApprox
   await patchEntity('products', id, {
     status: 'listed',
     accountId,
