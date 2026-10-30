@@ -11,6 +11,15 @@ import {
   sellThrough,
   daysToSellStats,
   listingHref,
+  earliestListing,
+  toggleListing,
+  memberListingPatch,
+  suggestedSaleAccount,
+  soldPatch,
+  listingsFromProducts,
+  effectiveListings,
+  mergeListings,
+  isOnAccount,
 } from './listing'
 
 const base = (over: Partial<Product> = {}): Product => ({
@@ -120,6 +129,16 @@ describe('staleListings', () => {
     expect(staleListings([exactly], NOW, 10)).toHaveLength(1)
     expect(staleListings([exactly], NOW, 11)).toHaveLength(0)
   })
+  it('collapses stale units of one model into a single row with a unit count', () => {
+    const a = base({ id: 'a', designId: 'd1', status: 'listed', listedAt: NOW - 40 * DAY_MS })
+    const b = base({ id: 'b', designId: 'd1', status: 'listed', listedAt: NOW - 50 * DAY_MS })
+    const solo = base({ id: 's', status: 'listed', listedAt: NOW - 45 * DAY_MS })
+    const out = staleListings([a, b, solo], NOW)
+    expect(out.map((r) => [r.product.id, r.days, r.units])).toEqual([
+      ['b', 50, 2],
+      ['s', 45, 1],
+    ])
+  })
   it('uses 30 days as the default threshold', () => {
     expect(STALE_LISTING_DAYS).toBe(30)
   })
@@ -168,8 +187,145 @@ describe('daysToSellStats', () => {
     expect(out.covered).toBe(0)
     expect(out.totalSold).toBe(1)
   })
+  it('skips backfilled (approximate) listing dates', () => {
+    const out = daysToSellStats([
+      base({ id: 'a', status: 'sold', listedAt: NOW - 10 * DAY_MS, soldAt: NOW }),
+      base({ id: 'b', status: 'sold', listedAt: NOW - 90 * DAY_MS, listedAtApprox: true, soldAt: NOW }),
+    ])
+    expect(out).toEqual({ medianDays: 10, covered: 1, totalSold: 2 })
+  })
   it('reports null median with zero coverage when no sold product has listedAt', () => {
     const out = daysToSellStats([base({ status: 'sold', soldAt: NOW })])
     expect(out).toEqual({ medianDays: null, covered: 0, totalSold: 1 })
+  })
+})
+
+describe('design listings', () => {
+  const L = (accountId: string, since: number) => ({ accountId, since })
+
+  it('earliestListing is the oldest since, null when not listed anywhere', () => {
+    expect(earliestListing(undefined)).toBe(null)
+    expect(earliestListing([])).toBe(null)
+    expect(earliestListing([L('a', 300), L('b', 100)])).toBe(100)
+  })
+
+  it('toggleListing adds a missing account and removes a present one', () => {
+    const one = toggleListing(undefined, 'main', 5)
+    expect(one).toEqual([L('main', 5)])
+    const two = toggleListing(one, 'zoosia', 9)
+    expect(two).toEqual([L('main', 5), L('zoosia', 9)])
+    expect(toggleListing(two, 'main', 99)).toEqual([L('zoosia', 9)])
+  })
+
+  it('lists unsold units from the earliest listing, on the account when there is just one', () => {
+    const unit = base({ status: 'in_stock' })
+    expect(memberListingPatch(unit, [L('main', 100)])).toEqual({
+      status: 'listed', listedAt: 100, listedAtApprox: undefined, accountId: 'main',
+    })
+    // Dwa konta: konto rozstrzyga dopiero sprzedaż.
+    expect(memberListingPatch(unit, [L('main', 100), L('zoosia', 50)])).toEqual({
+      status: 'listed', listedAt: 50, listedAtApprox: undefined, accountId: undefined,
+    })
+  })
+
+  it('replaces a backfilled date and returns null when nothing changes', () => {
+    const approx = base({ status: 'listed', listedAt: 100, listedAtApprox: true, accountId: 'main' })
+    expect(memberListingPatch(approx, [L('main', 100)])).toMatchObject({ listedAtApprox: undefined })
+    const same = base({ status: 'listed', listedAt: 100, accountId: 'main' })
+    expect(memberListingPatch(same, [L('main', 100)])).toBe(null)
+  })
+
+  it('takes listed units back to stock when the model is unlisted everywhere', () => {
+    expect(memberListingPatch(base({ status: 'listed', accountId: 'main' }), [])).toEqual({
+      status: 'in_stock', accountId: undefined,
+    })
+    expect(memberListingPatch(base({ status: 'in_stock' }), [])).toBe(null)
+  })
+
+  it('leaves sold, reserved and archived units alone', () => {
+    for (const status of ['sold', 'reserved', 'archived'] as const)
+      expect(memberListingPatch(base({ status }), [L('main', 1)])).toBe(null)
+  })
+
+  it('suggests the unit account, else the only listing account', () => {
+    expect(suggestedSaleAccount(base({ accountId: 'x' }), [L('main', 1)])).toBe('x')
+    expect(suggestedSaleAccount(base(), [L('main', 1)])).toBe('main')
+    expect(suggestedSaleAccount(base(), [L('main', 1), L('zoosia', 2)])).toBe(undefined)
+  })
+
+  it('soldPatch keeps the sale account and fills the listing date from that account', () => {
+    const unit = base({ status: 'listed' })
+    expect(soldPatch(unit, 1000, 'zoosia', [L('main', 100), L('zoosia', 300)])).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'zoosia', listedAt: 300,
+    })
+    // Bez konta: najwcześniejsze ogłoszenie.
+    expect(soldPatch(unit, 1000, undefined, [L('main', 100), L('zoosia', 300)])).toEqual({
+      status: 'sold', soldAt: 1000, listedAt: 100,
+    })
+  })
+
+  it('soldPatch keeps an existing listedAt and never sets one after the sale', () => {
+    expect(soldPatch(base({ listedAt: 50 }), 1000, 'main', [L('main', 100)])).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'main',
+    })
+    expect(soldPatch(base(), 1000, 'main', [L('main', 2000)])).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'main',
+    })
+  })
+})
+
+describe('listings read from units (older models, grouping)', () => {
+  it('takes the earliest date per account from listed units with an account', () => {
+    const units = [
+      base({ id: '1', status: 'listed', accountId: 'main', listedAt: 300 }),
+      base({ id: '2', status: 'listed', accountId: 'main', listedAt: 100 }),
+      base({ id: '3', status: 'listed', accountId: 'zoosia', listedAt: 200 }),
+      base({ id: '4', status: 'listed', listedAt: 50 }), // bez konta — pominięty
+      base({ id: '5', status: 'in_stock', accountId: 'main', listedAt: 10 }), // nie wystawiony
+    ]
+    expect(listingsFromProducts(units)).toEqual([
+      { accountId: 'main', since: 100 },
+      { accountId: 'zoosia', since: 200 },
+    ])
+  })
+  it('effectiveListings prefers the stored field, even when empty', () => {
+    const units = [base({ status: 'listed', accountId: 'main', listedAt: 100 })]
+    expect(effectiveListings(undefined, units)).toEqual([{ accountId: 'main', since: 100 }])
+    expect(effectiveListings([], units)).toEqual([])
+  })
+  it('mergeListings keeps the earlier date per account', () => {
+    expect(
+      mergeListings(
+        [{ accountId: 'a', since: 5 }],
+        [{ accountId: 'a', since: 3 }, { accountId: 'b', since: 9 }],
+      ),
+    ).toEqual([{ accountId: 'a', since: 3 }, { accountId: 'b', since: 9 }])
+  })
+})
+
+describe('isOnAccount', () => {
+  const both = [{ accountId: 'main', since: 1 }, { accountId: 'zoosia', since: 2 }]
+  it('matches the unit account', () => {
+    expect(isOnAccount(base({ accountId: 'main' }), 'main', undefined)).toBe(true)
+    expect(isOnAccount(base({ accountId: 'main' }), 'zoosia', both)).toBe(false)
+  })
+  it('counts a listed unit of a model on two accounts under each of them', () => {
+    const unit = base({ status: 'listed' })
+    expect(isOnAccount(unit, 'main', both)).toBe(true)
+    expect(isOnAccount(unit, 'zoosia', both)).toBe(true)
+    expect(isOnAccount(base({ status: 'in_stock' }), 'main', both)).toBe(false)
+  })
+})
+
+describe('soldPatch on a model listed on two accounts', () => {
+  it('measures from the listing on the account that sold it', () => {
+    const listings = [{ accountId: 'main', since: 100 }, { accountId: 'zoosia', since: 800 }]
+    const unit = base({ status: 'listed', listedAt: 100 }) // data najwcześniejszego ogłoszenia
+    expect(soldPatch(unit, 1000, 'zoosia', listings)).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'zoosia', listedAt: 800,
+    })
+    expect(soldPatch(unit, 1000, 'main', listings)).toEqual({
+      status: 'sold', soldAt: 1000, accountId: 'main',
+    })
   })
 })

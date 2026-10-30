@@ -1,5 +1,6 @@
 import { db, deleteEntity, patchEntity } from '@/db/db'
-import type { ID, Product, ProductStatus, SaleStatus } from '@/db/types'
+import type { DesignListing, ID, Product, ProductStatus, SaleStatus } from '@/db/types'
+import { listingsFromProducts, memberListingPatch, toggleListing } from './listing'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -44,6 +45,61 @@ export async function applyStatusChange(id: ID, status: ProductStatus): Promise<
   const product = await db.products.get(id)
   if (!product) return
   await patchEntity('products', id, statusChangePatch(product.status, status, Date.now()))
+}
+
+/**
+ * Wystawia pojedynczy przedmiot na koncie od `since` — status, konto i data wystawienia
+ * jednym zapisem (wcześniej dwa osobne wybory, przez co daty nie powstawały). Ponowny
+ * wybór tego samego konta niczego nie zmienia; przeniesienie na inne konto to nowe
+ * ogłoszenie, więc data liczy się od nowa.
+ */
+export async function listProductOn(id: ID, accountId: ID, since: number): Promise<void> {
+  const product = await db.products.get(id)
+  if (!product) return
+  if (product.status === 'listed' && product.accountId === accountId) return
+  // Wystawiony bez konta (stary sposób oznaczania) z dokładną datą: dopisujemy tylko konto.
+  const keepDate =
+    product.status === 'listed' && !product.accountId && product.listedAt != null && !product.listedAtApprox
+  await patchEntity('products', id, {
+    status: 'listed',
+    accountId,
+    listedAt: keepDate ? product.listedAt : since,
+    listedAtApprox: undefined,
+  })
+}
+
+/** Zdejmuje przedmiot z Vinted: wraca do magazynu bez konta (konto = gdzie wystawiony). */
+export async function unlistProduct(id: ID): Promise<void> {
+  await patchEntity('products', id, { status: 'in_stock', accountId: undefined })
+}
+
+/**
+ * Zapisuje ogłoszenia modelu i przestawia za nimi jego sztuki (patrz memberListingPatch)
+ * w jednej transakcji, żeby model i sztuki nie rozjechały się przy przerwanym zapisie.
+ */
+export async function setDesignListings(
+  designId: ID,
+  next: DesignListing[] | ((current: DesignListing[]) => DesignListing[]),
+): Promise<void> {
+  await db.transaction('rw', db.designs, db.products, db.outbox, async () => {
+    const design = await db.designs.get(designId)
+    if (!design) return
+    const members = await db.products.where('designId').equals(designId).toArray()
+    // Bieżący stan czytamy w transakcji (nie z propsów) — dwa szybkie stuknięcia nie gubią
+    // się nawzajem. Starszy model bez pola: ogłoszenia odczytane ze sztuk.
+    const listings =
+      typeof next === 'function' ? next(design.listings ?? listingsFromProducts(members)) : next
+    await patchEntity('designs', designId, { listings })
+    for (const m of members) {
+      const patch = memberListingPatch(m, listings)
+      if (patch) await patchEntity('products', m.id, patch)
+    }
+  })
+}
+
+/** Włącza/zdejmuje ogłoszenie modelu na koncie (patrz setDesignListings). */
+export async function toggleDesignListing(designId: ID, accountId: ID, since: number): Promise<void> {
+  await setDesignListings(designId, (cur) => toggleListing(cur, accountId, since))
 }
 
 /** Assign or clear (undefined) the account of a product. */

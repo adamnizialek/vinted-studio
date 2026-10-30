@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { db, putEntity } from '@/db/db'
-import { requiresSaleModal, applyStatusChange, assignAccount, shouldRestockOnSave, restockOnRefund, deleteSaleAndRestock, listedAtOnTransition, statusChangePatch } from './productActions'
-import type { Product, Sale } from '@/db/types'
+import { requiresSaleModal, applyStatusChange, assignAccount, listProductOn, unlistProduct, setDesignListings, toggleDesignListing, shouldRestockOnSave, restockOnRefund, deleteSaleAndRestock, listedAtOnTransition, statusChangePatch } from './productActions'
+import type { Design, Product, Sale } from '@/db/types'
 
 const sampleProduct = (id = 'p1'): Product => ({
   id,
@@ -20,7 +20,7 @@ const sampleProduct = (id = 'p1'): Product => ({
 })
 
 beforeEach(async () => {
-  await Promise.all([db.products.clear(), db.outbox.clear()])
+  await Promise.all([db.products.clear(), db.designs.clear(), db.outbox.clear()])
 })
 
 describe('requiresSaleModal', () => {
@@ -203,5 +203,83 @@ describe('deleteSaleAndRestock', () => {
     await putEntity('sales', sale('s1'))
     expect(await deleteSaleAndRestock('s1')).toBe(false)
     expect((await db.products.get('p1'))?.status).toBe('listed')
+  })
+})
+
+describe('listProductOn / unlistProduct', () => {
+  it('writes status, account and listing date in one go', async () => {
+    await putEntity('products', { ...sampleProduct(), accountId: undefined })
+    await listProductOn('p1', 'a2', 500)
+    expect(await db.products.get('p1')).toMatchObject({ status: 'listed', accountId: 'a2', listedAt: 500 })
+  })
+  it('keeps the date when re-picking the same account, restarts it on another account', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed', accountId: 'a1', listedAt: 100 })
+    await listProductOn('p1', 'a1', 900)
+    expect((await db.products.get('p1'))?.listedAt).toBe(100)
+    await listProductOn('p1', 'a2', 900)
+    expect(await db.products.get('p1')).toMatchObject({ accountId: 'a2', listedAt: 900 })
+  })
+  it('unlisting returns the item to stock without an account', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed', accountId: 'a1', listedAt: 100 })
+    await unlistProduct('p1')
+    const p = await db.products.get('p1')
+    expect(p).toMatchObject({ status: 'in_stock', listedAt: 100 })
+    expect(p?.accountId).toBeUndefined()
+  })
+})
+
+describe('setDesignListings', () => {
+  const design: Design = {
+    id: 'd1', name: 'Bluza', tags: [], photoIds: [], generatedPhotoIds: [], descriptions: [],
+    createdAt: 1, updatedAt: 1,
+  }
+  it('saves the listings on the model and moves its unsold units along', async () => {
+    await putEntity('designs', design)
+    await putEntity('products', { ...sampleProduct('u1'), designId: 'd1', accountId: undefined })
+    await putEntity('products', { ...sampleProduct('u2'), designId: 'd1', status: 'sold', soldAt: 50 })
+    await setDesignListings('d1', [{ accountId: 'a1', since: 200 }])
+    expect((await db.designs.get('d1'))?.listings).toEqual([{ accountId: 'a1', since: 200 }])
+    expect(await db.products.get('u1')).toMatchObject({ status: 'listed', listedAt: 200, accountId: 'a1' })
+    expect(await db.products.get('u2')).toMatchObject({ status: 'sold', soldAt: 50 })
+    // Wszystko trafia do outboxu (synchronizacja).
+    const queued = (await db.outbox.toArray()).map((o) => `${o.table}:${o.id}`)
+    expect(queued).toEqual(expect.arrayContaining(['designs:d1', 'products:u1']))
+
+    await setDesignListings('d1', [])
+    expect(await db.products.get('u1')).toMatchObject({ status: 'in_stock' })
+  })
+})
+
+describe('listing fixes from review', () => {
+  const design: Design = {
+    id: 'd1', name: 'Bluza', tags: [], photoIds: [], generatedPhotoIds: [], descriptions: [],
+    createdAt: 1, updatedAt: 1,
+  }
+
+  it('adding an account to an item listed without one keeps its real date', async () => {
+    await putEntity('products', { ...sampleProduct(), status: 'listed', accountId: undefined, listedAt: 100 })
+    await listProductOn('p1', 'a2', 900)
+    expect(await db.products.get('p1')).toMatchObject({ accountId: 'a2', listedAt: 100 })
+  })
+
+  it('first toggle on an older model keeps the dates its units already had', async () => {
+    await putEntity('designs', design) // brak pola listings
+    await putEntity('products', {
+      ...sampleProduct('u1'), designId: 'd1', status: 'listed', accountId: 'a1', listedAt: 100,
+    })
+    await putEntity('products', { ...sampleProduct('u2'), designId: 'd1', accountId: undefined })
+    await toggleDesignListing('d1', 'a2', 900)
+    expect((await db.designs.get('d1'))?.listings).toEqual([
+      { accountId: 'a1', since: 100 },
+      { accountId: 'a2', since: 900 },
+    ])
+    for (const id of ['u1', 'u2'])
+      expect(await db.products.get(id)).toMatchObject({ status: 'listed', listedAt: 100, accountId: undefined })
+  })
+
+  it('two quick toggles both land (state read inside the transaction)', async () => {
+    await putEntity('designs', { ...design, listings: [] })
+    await Promise.all([toggleDesignListing('d1', 'a1', 5), toggleDesignListing('d1', 'a2', 6)])
+    expect((await db.designs.get('d1'))?.listings?.map((l) => l.accountId).sort()).toEqual(['a1', 'a2'])
   })
 })

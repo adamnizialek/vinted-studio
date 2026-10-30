@@ -67,3 +67,13 @@ describe('passesInventoryFilter — account filter', () => {
     expect(passesInventoryFilter(p({ status: 'sold', accountId: 'a1' }), { status: 'all', accountId: 'a1' })).toBe(false)
   })
 })
+
+describe('passesInventoryFilter — model listed on two accounts', () => {
+  it('shows its listed units under either account', () => {
+    const listings = [{ accountId: 'a1', since: 1 }, { accountId: 'a2', since: 1 }]
+    const unit = p({ status: 'listed', accountId: undefined })
+    expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a1' }, listings)).toBe(true)
+    expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a2' }, listings)).toBe(true)
+    expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a3' }, listings)).toBe(false)
+  })
+})

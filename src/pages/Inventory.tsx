@@ -3,12 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
 import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
-import type { Design, Product, ProductStatus } from '@/db/types'
+import type { Account, Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { DEFAULT_CONDITION, STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { coverImageIdOf } from '@/lib/listing'
+import { sizeStockSummary } from '@/lib/designs'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
 import { toast } from '@/state/toast'
@@ -16,8 +17,7 @@ import { Thumb } from '@/components/ImageView'
 import { ImportStockModal } from '@/components/ImportStockModal'
 import { ImportStockScreenshotModal } from '@/components/ImportStockScreenshotModal'
 import { ResponsivePicker, OptionRow } from '@/components/Popover'
-import { StatusPicker } from '@/components/StatusPicker'
-import { AccountPicker } from '@/components/AccountPicker'
+import { DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
 
 export function Inventory() {
   const nav = useNavigate()
@@ -34,7 +34,7 @@ export function Inventory() {
 
   type DisplayItem =
     | { kind: 'single'; product: Product }
-    | { kind: 'design'; design: Design; members: Product[]; cover?: string }
+    | { kind: 'design'; design: Design; members: Product[]; allMembers: Product[]; cover?: string }
 
   const items = useMemo<DisplayItem[]>(() => {
     const list = products ?? []
@@ -56,6 +56,7 @@ export function Inventory() {
         kind: 'design',
         design,
         members,
+        allMembers: members,
         cover: design.photoIds[0] ?? design.generatedPhotoIds[0],
       })
     }
@@ -131,7 +132,7 @@ export function Inventory() {
       // out of the default view and the card's count/price/summary reflect only
       // what's actually in the magazine. Hide the whole model if nothing remains.
       const { design, members } = it
-      const shown = members.filter((m) => passesInventoryFilter(m, f))
+      const shown = members.filter((m) => passesInventoryFilter(m, f, design.listings))
       if (shown.length === 0) continue
       if (needle) {
         const designText = [design.name, design.brand, design.category, ...design.tags]
@@ -140,7 +141,7 @@ export function Inventory() {
         const sizeText = shown.some((m) => (m.sizeLabel ?? '').toLowerCase().includes(needle))
         if (!designText && !sizeText) continue
       }
-      out.push({ ...it, members: shown })
+      out.push({ ...it, members: shown, allMembers: it.members })
     }
     return out
   }, [items, status, accountId, q])
@@ -316,7 +317,11 @@ export function Inventory() {
                     <div className="pointer-events-none relative z-10">
                       <div className="relative aspect-square w-full bg-ink-100">
                         <Thumb imageId={cover} className="h-full w-full object-cover" alt={p.name} />
-                        <StatusPicker product={p} className="pointer-events-auto absolute left-2 top-2" />
+                        <ProductListingPicker
+                          product={p}
+                          accounts={accounts ?? []}
+                          className="pointer-events-auto absolute left-2 top-2 max-w-[calc(100%-1rem)]"
+                        />
                         {p.generatedPhotoIds.length > 0 && (
                           <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
                             AI {p.generatedPhotoIds.length}
@@ -333,9 +338,6 @@ export function Inventory() {
                             {p.listingPrice ? money(p.listingPrice, p.currency) : '—'}
                           </p>
                         </div>
-                        <div className="mt-2">
-                          <AccountPicker product={p} accounts={accounts ?? []} className="pointer-events-auto" />
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -346,9 +348,11 @@ export function Inventory() {
                 key={it.design.id}
                 design={it.design}
                 members={it.members}
+                allMembers={it.allMembers}
                 cover={it.cover}
                 selecting={selecting}
                 selected={targetDesignId === it.design.id}
+                accounts={accounts ?? []}
                 onToggle={() => toggleTargetDesign(it.design.id)}
                 onOpen={() => nav(`/magazyn/model/${it.design.id}`)}
               />
@@ -378,9 +382,6 @@ export function Inventory() {
     </div>
   )
 }
-
-const statusLabel = (s: ProductStatus) =>
-  STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
 
 /** Polska odmiana: 1 rozmiar, 2-4 rozmiary, 5+ rozmiarow (z wyjatkami 12-14). */
 function rozmiarLabel(n: number): string {
@@ -452,9 +453,9 @@ function GroupModal({ products, onClose, onConfirm }: {
   )
 }
 
-function DesignCard({ design, members, cover, onOpen, selecting, selected, onToggle }: {
-  design: Design; members: Product[]; cover?: string; onOpen: () => void
-  selecting?: boolean; selected?: boolean; onToggle?: () => void
+function DesignCard({ design, members, allMembers, cover, onOpen, selecting, selected, onToggle, accounts }: {
+  design: Design; members: Product[]; allMembers: Product[]; cover?: string; onOpen: () => void
+  selecting?: boolean; selected?: boolean; onToggle?: () => void; accounts: Account[]
 }) {
   const prices = members.map((m) => m.listingPrice).filter((n): n is number => n != null)
   const currency = members[0]?.currency ?? 'PLN'
@@ -501,8 +502,19 @@ function DesignCard({ design, members, cover, onOpen, selecting, selected, onTog
             <p className="shrink-0 text-sm font-bold text-brand-600">{priceText}</p>
           </div>
           <p className="mt-2 truncate text-xs text-ink-400">
-            {members.map((m) => `${m.sizeLabel || '?'} ${statusLabel(m.status)}`).join(' · ')}
+            {/* Cały model (nie tylko przefiltrowane sztuki): ile zostało i ile sprzedano. */}
+            {sizeStockSummary(allMembers)}
           </p>
+          {!selecting && (
+            <div className="mt-2">
+              <DesignListingPicker
+                design={design}
+                members={allMembers}
+                accounts={accounts}
+                className="pointer-events-auto"
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

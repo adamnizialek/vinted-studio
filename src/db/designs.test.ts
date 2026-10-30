@@ -232,6 +232,50 @@ describe('addSizeToDesign', () => {
     expect(row?.condition).toBe('nowy_bez_metki')
     expect((await db.outbox.get(['products', p.id]))?.deleted).toBe(0)
   })
+
+  it('puts a new size of a listed model straight into its listing', async () => {
+    await putEntity('designs', { ...sampleDesign(), listings: [{ accountId: 'acc1', since: 123 }] })
+    const p = await addSizeToDesign('d1', { sizeLabel: 'L' })
+    expect(await db.products.get(p.id)).toMatchObject({ status: 'listed', listedAt: 123, accountId: 'acc1' })
+  })
+})
+
+describe('listings when grouping and attaching', () => {
+  const listed = (id: string, accountId: string, listedAt: number): Product => ({
+    id, name: id, condition: 'dobry', currency: 'PLN', quantity: 1, status: 'listed', accountId,
+    listedAt, photoIds: [], generatedPhotoIds: [], descriptions: [], tags: [], createdAt: 1, updatedAt: 1,
+  })
+
+  it('grouping listed items keeps them listed and gives the model their listings', async () => {
+    await putEntity('products', listed('x1', 'acc1', 100))
+    await putEntity('products', listed('x2', 'acc1', 50))
+    const d = await groupProducts(['x1', 'x2'], 'x1')
+    expect(d.listings).toEqual([{ accountId: 'acc1', since: 50 }])
+    expect(await db.products.get('x1')).toMatchObject({ status: 'listed', accountId: 'acc1', listedAt: 50 })
+  })
+
+  it('attaching a listed item to an unmarked model keeps it listed and lists the model', async () => {
+    await putEntity('designs', sampleDesign())
+    await putEntity('products', {
+      ...listed('m1', 'acc1', 1), status: 'in_stock', accountId: undefined, listedAt: undefined,
+      designId: 'd1', name: '',
+    })
+    await putEntity('products', listed('x1', 'acc2', 70))
+    const d = await attachProductsToDesign('d1', ['x1'])
+    expect(d.listings).toEqual([{ accountId: 'acc2', since: 70 }])
+    expect(await db.products.get('x1')).toMatchObject({ status: 'listed', accountId: 'acc2', listedAt: 70 })
+    expect(await db.products.get('m1')).toMatchObject({ status: 'listed', accountId: 'acc2', listedAt: 70 })
+  })
+
+  it('attaching an in-stock item to an unmarked model changes nothing about listings', async () => {
+    await putEntity('designs', sampleDesign())
+    await putEntity('products', {
+      ...listed('x1', 'acc2', 70), status: 'in_stock', accountId: undefined, listedAt: undefined,
+    })
+    const d = await attachProductsToDesign('d1', ['x1'])
+    expect(d.listings).toBeUndefined()
+    expect(await db.products.get('x1')).toMatchObject({ status: 'in_stock' })
+  })
 })
 
 describe('dissolveDesign', () => {
