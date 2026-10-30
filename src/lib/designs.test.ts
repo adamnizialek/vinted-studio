@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveProduct, SHARED_FIELDS, visibleSizes } from './designs'
+import { resolveProduct, SHARED_FIELDS, sizeStockSummary, visibleSizes } from './designs'
 import type { Design, Product } from '@/db/types'
 
 const design = (over: Partial<Design> = {}): Design => ({
@@ -117,5 +117,23 @@ describe('visibleSizes', () => {
     // Boundary between "filter" and "fall back": one non-sold size must NOT
     // trigger the all-sold fallback.
     expect(visibleSizes([aSold, survivor, cSold])).toEqual([survivor])
+  })
+})
+
+describe('sizeStockSummary', () => {
+  it('counts unsold units per size and sold units in total, skipping archived', () => {
+    const ms = [
+      product({ id: '1', sizeLabel: 'M' }),
+      product({ id: '2', sizeLabel: 'M', status: 'listed' }),
+      product({ id: '3', sizeLabel: 'S' }),
+      product({ id: '4', sizeLabel: 'S', status: 'sold' }),
+      product({ id: '5', sizeLabel: 'M', status: 'sold' }),
+      product({ id: '6', sizeLabel: 'L', status: 'archived' }),
+      product({ id: '7' }),
+    ]
+    expect(sizeStockSummary(ms)).toBe('M 2 · S 1 · ? 1 · sprzedane 2')
+  })
+  it('is empty for no members', () => {
+    expect(sizeStockSummary([])).toBe('')
   })
 })

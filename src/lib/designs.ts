@@ -42,3 +42,22 @@ export function visibleSizes(members: Product[]): Product[] {
   const active = members.filter((m) => m.status !== 'sold')
   return active.length ? active : members
 }
+
+/**
+ * Krótki stan modelu na karcie: ile sztuk każdego rozmiaru jest jeszcze w sprzedaży
+ * i ile sprzedano, np. „M 5 · S 4 · sprzedane 5”. Zarchiwizowane pomijamy.
+ */
+export function sizeStockSummary(members: Product[]): string {
+  const left = new Map<string, number>()
+  let sold = 0
+  for (const m of members) {
+    if (m.status === 'sold') sold++
+    else if (m.status !== 'archived') {
+      const size = m.sizeLabel?.trim() || '?'
+      left.set(size, (left.get(size) ?? 0) + 1)
+    }
+  }
+  const parts = [...left].map(([size, n]) => `${size} ${n}`)
+  if (sold) parts.push(`sprzedane ${sold}`)
+  return parts.join(' · ')
+}

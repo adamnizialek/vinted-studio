@@ -7,10 +7,12 @@ import { uid } from '@/lib/id'
 import { toast } from '@/state/toast'
 import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
 import { dateFromInput, dateInputValue } from '@/lib/format'
+import { soldPatch, suggestedSaleAccount } from '@/lib/listing'
 
 /**
- * Records a real Sale for the product, then calls onSold so the caller can flip
- * the product's status to 'sold'. Shared by ProductEditor (header button) and the
+ * Records a real Sale for the product, then hands onSold the product patch (status,
+ * soldAt, the sale's account, a listing date taken from the model's listing) for the
+ * caller to apply. Shared by ProductEditor (header button) and the
  * Magazyn grid status picker (selecting "Sprzedane").
  */
 export function SoldModal({
@@ -22,10 +24,15 @@ export function SoldModal({
   open: boolean
   onClose: () => void
   product: Product
-  /** Dostaje datę sprzedaży, by produkt dostał ten sam `soldAt` co wpis w ewidencji. */
-  onSold: (soldAt: number) => void
+  /** Patch produktu: ten sam `soldAt` co wpis w ewidencji i konto sprzedaży (patrz soldPatch). */
+  onSold: (patch: Partial<Product>) => void
 }) {
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  // Ogłoszenia modelu: podpowiadają konto i datę wystawienia sprzedawanej sztuki.
+  const listings = useLiveQuery(
+    async () => (product.designId ? (await db.designs.get(product.designId))?.listings : undefined),
+    [product.designId],
+  )
   const [price, setPrice] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState('')
   // Data sprzedaży — sprzedaż wpisana rano za wczoraj musi trafić we właściwy dzień
@@ -38,14 +45,22 @@ export function SoldModal({
   // any products-table write or sync pull — keying on it would wipe the user's typed
   // price/date mid-entry (e.g. when a sync fires on window.focus).
   const prevOpen = useRef(false)
+  const accountTouched = useRef(false)
   useEffect(() => {
     if (open && !prevOpen.current) {
       setPrice(product.listingPrice || undefined)
-      setAccountId(product.accountId ?? '')
       setDay(null)
+      accountTouched.current = false
     }
     prevOpen.current = open
   }, [open, product])
+
+  // Konto podpowiadamy także, gdy ogłoszenia modelu doczytają się po otwarciu okna —
+  // ale nigdy ponad wybór użytkownika.
+  const suggestedAccount = suggestedSaleAccount(product, listings) ?? ''
+  useEffect(() => {
+    if (open && !accountTouched.current) setAccountId(suggestedAccount)
+  }, [open, suggestedAccount])
 
   const confirm = async () => {
     const salePrice = price
@@ -70,7 +85,7 @@ export function SoldModal({
       createdAt: now,
     })
     toast.success('Dodano do ewidencji sprzedaży 💸')
-    onSold(soldAt)
+    onSold(soldPatch(product, soldAt, accountId || undefined, listings))
   }
 
   return (
@@ -102,7 +117,13 @@ export function SoldModal({
           />
         </Field>
         <Field label="Konto">
-          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <Select
+            value={accountId}
+            onChange={(e) => {
+              accountTouched.current = true
+              setAccountId(e.target.value)
+            }}
+          >
             <option value="">— brak —</option>
             {accounts?.map((a) => (
               <option key={a.id} value={a.id}>

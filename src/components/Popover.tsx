@@ -172,15 +172,18 @@ export function OptionRow({
   selected,
   onClick,
   children,
+  role = 'menuitemradio',
 }: {
   selected?: boolean
   onClick: () => void
   children: ReactNode
+  /** `menuitemcheckbox` dla wyboru wielokrotnego (np. konta z ogłoszeniem modelu). */
+  role?: 'menuitemradio' | 'menuitemcheckbox'
 }) {
   return (
     <button
       type="button"
-      role="menuitemradio"
+      role={role}
       aria-checked={selected}
       onClick={onClick}
       className={clsx(

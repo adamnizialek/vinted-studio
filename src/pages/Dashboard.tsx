@@ -227,13 +227,16 @@ export function Dashboard() {
               <p className="py-6 text-center text-sm text-ink-400">Nic nie zalega — świetnie! 🎉</p>
             ) : (
               <div className="mt-3 space-y-1">
-                {lifecycle.stale.slice(0, STALE_VISIBLE).map(({ product, days }) => {
+                {lifecycle.stale.slice(0, STALE_VISIBLE).map(({ product, days, units }) => {
                   const href = listingHref(product.listingUrl)
                   // Rozmiary modelu trzymają nazwę na Design — rozwiąż przez resolveProduct
                   // (spójnie z edytorem) i dopnij rozmiar, by nie pokazać „Bez nazwy”.
                   const resolved = resolveProduct(product, designsById)
+                  // Kilka zalegających sztuk modelu to jedno ogłoszenie: bez rozmiaru, z licznikiem.
                   const name = product.designId
-                    ? [resolved.name, product.sizeLabel].filter(Boolean).join(' — ') || 'Model'
+                    ? units > 1
+                      ? `${resolved.name || 'Model'} · ${units} szt.`
+                      : [resolved.name, product.sizeLabel].filter(Boolean).join(' — ') || 'Model'
                     : resolved.name || 'Bez nazwy'
                   const to = product.designId
                     ? `/magazyn/model/${product.designId}`

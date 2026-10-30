@@ -66,6 +66,7 @@ import {
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { downloadBlob } from '@/lib/csv'
+import { DesignListingPicker } from '@/components/ListingPicker'
 import { Button, Field, MoreFields, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
@@ -216,8 +217,8 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
         open={soldOpen}
         onClose={() => setSoldOpen(false)}
         product={draft}
-        onSold={(soldAt) => {
-          update({ status: 'sold', soldAt })
+        onSold={(patch) => {
+          update(patch)
           setSoldOpen(false)
         }}
       />
@@ -265,6 +266,25 @@ function DesignEditor({ designId }: { designId: string }) {
     if (m) setDraft(resolveProduct(m, designsById))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, design?.id, members?.length])
+
+  // Pola cyklu życia sztuki zmienia też wybór ogłoszeń modelu (poza draftem) — dociągnij
+  // je z bazy, żeby status, konto i okno sprzedaży nie pokazywały starego stanu.
+  const live = members?.find((x) => x.id === activeId)
+  useEffect(() => {
+    if (!live) return
+    setDraft((d) =>
+      d && d.id === live.id
+        ? {
+            ...d,
+            status: live.status,
+            accountId: live.accountId,
+            listedAt: live.listedAt,
+            listedAtApprox: live.listedAtApprox,
+            soldAt: live.soldAt,
+          }
+        : d,
+    )
+  }, [live?.id, live?.status, live?.accountId, live?.listedAt, live?.listedAtApprox, live?.soldAt])
 
   if (design === undefined && members === undefined) {
     return <div className="py-20 text-center text-ink-400">Wczytywanie…</div>
@@ -331,6 +351,7 @@ function DesignEditor({ designId }: { designId: string }) {
           <ArrowLeft size={15} /> Magazyn
         </button>
         <div className="flex flex-wrap items-center gap-2">
+          <DesignListingPicker design={design} members={members ?? []} accounts={accounts ?? []} />
           {draft && (
             <Select
               value={draft.status}
@@ -389,8 +410,8 @@ function DesignEditor({ designId }: { designId: string }) {
         className="w-full bg-transparent text-2xl font-extrabold text-ink-900 placeholder:text-ink-300 focus:outline-none"
       />
       <p className="mt-1 text-xs text-ink-400">
-        Nazwa, marka, kolor, materiał, zdjęcia i opisy są wspólne dla wszystkich rozmiarów.
-        Rozmiar, stan, cena, ilość i konto ustawiasz osobno dla każdego rozmiaru.
+        Nazwa, marka, kolor, materiał, zdjęcia, opisy i ogłoszenia są wspólne dla wszystkich
+        rozmiarów. Rozmiar, cena i sprzedaż ustawiasz osobno dla każdego rozmiaru.
       </p>
 
       {/* Taby */}
@@ -434,8 +455,8 @@ function DesignEditor({ designId }: { designId: string }) {
             ...draft,
             name: `${design.name}${draft.sizeLabel ? ` — ${draft.sizeLabel}` : ''}`.trim(),
           }}
-          onSold={(soldAt) => {
-            update({ status: 'sold', soldAt })
+          onSold={(patch) => {
+            update(patch)
             setSoldOpen(false)
           }}
         />

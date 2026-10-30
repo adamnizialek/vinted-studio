@@ -1,4 +1,5 @@
-import type { Product, ProductStatus } from '@/db/types'
+import type { DesignListing, Product, ProductStatus } from '@/db/types'
+import { isOnAccount } from './listing'
 
 export interface InventoryFilter {
   status: ProductStatus | 'all'
@@ -17,12 +18,17 @@ export interface InventoryFilter {
  * Pure — no Dexie/React — so it can be unit-tested and reused for both standalone
  * cards and per-size members of a model.
  */
-export function passesInventoryFilter(p: Product, f: InventoryFilter): boolean {
+export function passesInventoryFilter(
+  p: Product,
+  f: InventoryFilter,
+  /** Ogłoszenia modelu sztuki: model na dwóch kontach pokazuje się pod każdym z nich. */
+  listings?: DesignListing[],
+): boolean {
   if (f.status === 'all') {
     if (p.status === 'sold') return false
   } else if (p.status !== f.status) {
     return false
   }
-  if (f.accountId !== 'all' && p.accountId !== f.accountId) return false
+  if (f.accountId !== 'all' && !isOnAccount(p, f.accountId, listings)) return false
   return true
 }

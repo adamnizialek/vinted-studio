@@ -199,8 +199,19 @@ export interface Design {
   generatedPhotoIds: ID[]
   /** Zapisane opisy (jeden active) — wspoldzielone. */
   descriptions: SavedDescription[]
+  /** Gdzie model jest wystawiony: jedno ogłoszenie na konto, niezależnie od liczby
+   *  sztuk za nim (5× „M” to jedno ogłoszenie). Puste/brak = nigdzie. */
+  listings?: DesignListing[]
   createdAt: number
   updatedAt: number
+}
+
+/** Model wystawiony na koncie Vinted od `since` (ms). */
+export interface DesignListing {
+  accountId: ID
+  since: number
+  /** Data przybliżona (odczytana z backfillowanych sztuk) — czas sprzedaży jej nie liczy. */
+  approx?: boolean
 }
 
 export type SaleStatus = 'completed' | 'pending' | 'cancelled' | 'returned'

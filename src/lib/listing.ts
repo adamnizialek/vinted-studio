@@ -1,6 +1,6 @@
 // Czyste funkcje cyklu życia oferty (wystawienie → sprzedaż). Bez Dexie/React,
 // w pełni testowalne. Czas wszędzie jako epoch-ms (spójnie z resztą bazy).
-import type { ID, Product } from '@/db/types'
+import type { DesignListing, ID, Product } from '@/db/types'
 
 export const DAY_MS = 86_400_000
 
@@ -43,18 +43,34 @@ export function daysListed(product: Product, now: number): number | null {
 export interface StaleListing {
   product: Product
   days: number
+  /** Ile zalegających sztuk reprezentuje wiersz (sztuki jednego modelu to jedno ogłoszenie). */
+  units: number
 }
 
-/** Wystawione przedmioty starsze niż próg (włącznie), od najstarszych. */
+/**
+ * Wystawione przedmioty starsze niż próg (włącznie), od najstarszych. Sztuki jednego
+ * modelu zwija w jeden wiersz (najstarsza sztuka + licznik) — model jest wystawiany jednym
+ * ogłoszeniem, więc 5 sztuk „M” to jedna zaległa oferta, nie pięć.
+ */
 export function staleListings(
   products: Product[],
   now: number,
   thresholdDays: number = STALE_LISTING_DAYS,
 ): StaleListing[] {
   const out: StaleListing[] = []
+  const byDesign = new Map<ID, StaleListing>()
   for (const product of products) {
     const days = daysListed(product, now)
-    if (days != null && days >= thresholdDays) out.push({ product, days })
+    if (days == null || days < thresholdDays) continue
+    const prev = product.designId ? byDesign.get(product.designId) : undefined
+    if (prev) {
+      prev.units++
+      if (days > prev.days) Object.assign(prev, { product, days })
+      continue
+    }
+    const row = { product, days, units: 1 }
+    out.push(row)
+    if (product.designId) byDesign.set(product.designId, row)
   }
   return out.sort((a, b) => b.days - a.days)
 }
@@ -90,15 +106,163 @@ export interface DaysToSellStats {
 /**
  * Mediana czasu sprzedaży liczona z Product.listedAt → Product.soldAt. Pokrycie
  * jest częściowe: importowane sprzedaże nie mają productId, a przedmioty
- * sprzedane przed wdrożeniem nie mają listedAt — stąd osobne `covered`/`totalSold`.
+ * sprzedane przed wdrożeniem nie mają listedAt (albo mają przybliżony z backfillu,
+ * pomijany) — stąd osobne `covered`/`totalSold`.
  */
 export function daysToSellStats(products: Product[]): DaysToSellStats {
   const sold = products.filter((p) => p.status === 'sold')
   const durations: number[] = []
   for (const p of sold) {
-    if (p.listedAt != null && p.soldAt != null && p.soldAt >= p.listedAt) {
+    // Daty z backfillu (listedAtApprox) to tylko ostatnia edycja — zafałszowałyby medianę.
+    if (p.listedAt != null && !p.listedAtApprox && p.soldAt != null && p.soldAt >= p.listedAt) {
       durations.push(daysBetween(p.listedAt, p.soldAt))
     }
   }
   return { medianDays: median(durations), covered: durations.length, totalSold: sold.length }
+}
+
+// ── Ogłoszenia modelu (Design.listings) ─────────────────────────────────────
+
+/** Statusy sztuki, które idą za ogłoszeniami modelu. Sprzedane, zarezerwowane i
+ *  zarchiwizowane zostają, jak są — to decyzje o konkretnej sztuce. */
+const FOLLOWS_DESIGN_LISTINGS: ReadonlySet<Product['status']> = new Set(['draft', 'in_stock', 'listed'])
+
+/** Najwcześniejsze ogłoszenie modelu; undefined gdy nigdzie nie jest wystawiony. */
+function firstListing(listings: DesignListing[] | undefined): DesignListing | undefined {
+  let first: DesignListing | undefined
+  for (const l of listings ?? []) if (!first || l.since < first.since) first = l
+  return first
+}
+
+/** Najwcześniejsza data wystawienia modelu; null gdy nigdzie nie jest wystawiony. */
+export function earliestListing(listings: DesignListing[] | undefined): number | null {
+  return firstListing(listings)?.since ?? null
+}
+
+/**
+ * Ogłoszenia odczytane z samych sztuk: wystawione sztuki z kontem, per konto najwcześniejsza
+ * data. Dla modeli sprzed `Design.listings` (i przy łączeniu wystawionych przedmiotów
+ * w model) — żeby pierwsze kliknięcie nie nadpisało prawdziwych dat dzisiejszą.
+ */
+export function listingsFromProducts(products: Product[]): DesignListing[] {
+  return mergeListings(
+    [],
+    products
+      .filter((p) => p.status === 'listed' && p.accountId && p.listedAt != null)
+      .map((p) => ({
+        accountId: p.accountId!,
+        since: p.listedAt!,
+        // Data z backfillu zostaje przybliżona — nie może stać się „dokładną” w modelu.
+        ...(p.listedAtApprox ? { approx: true } : {}),
+      })),
+  )
+}
+
+/** Ogłoszenia modelu: zapisane, a dla starszych modeli (bez pola) — odczytane ze sztuk. */
+export function effectiveListings(
+  listings: DesignListing[] | undefined,
+  members: Product[],
+): DesignListing[] {
+  return listings ?? listingsFromProducts(members)
+}
+
+/** Łączy dwie listy ogłoszeń: per konto wcześniejsze (razem z jego flagą przybliżenia). */
+export function mergeListings(a: DesignListing[], b: DesignListing[]): DesignListing[] {
+  const byAccount = new Map<ID, DesignListing>()
+  for (const l of [...a, ...b]) {
+    const prev = byAccount.get(l.accountId)
+    if (!prev || l.since < prev.since) byAccount.set(l.accountId, l)
+  }
+  return [...byAccount.values()]
+}
+
+/**
+ * Czy przedmiot należy do konta (filtr Magazynu, licznik na stronie Kont). Sztuka modelu
+ * wystawionego na dwóch kontach nie ma własnego konta, więc liczy się ogłoszenie modelu.
+ */
+export function isOnAccount(
+  product: Product,
+  accountId: ID,
+  listings: DesignListing[] | undefined,
+): boolean {
+  if (product.accountId === accountId) return true
+  return (
+    !product.accountId &&
+    product.status === 'listed' &&
+    !!listings?.some((l) => l.accountId === accountId)
+  )
+}
+
+/** Włącza ogłoszenie na koncie (z datą `since`) albo je zdejmuje, gdy już jest. */
+export function toggleListing(
+  listings: DesignListing[] | undefined,
+  accountId: ID,
+  since: number,
+): DesignListing[] {
+  const cur = listings ?? []
+  return cur.some((l) => l.accountId === accountId)
+    ? cur.filter((l) => l.accountId !== accountId)
+    : [...cur, { accountId, since }]
+}
+
+/**
+ * Patch sztuki modelu po zmianie jego ogłoszeń (null = bez zmian). Wystawiony model →
+ * niesprzedane sztuki są 'listed' od najwcześniejszego ogłoszenia (z tego liczy się czas
+ * sprzedaży) i na koncie ogłoszenia, gdy jest jedno; przy dwóch konto rozstrzyga sprzedaż.
+ * Model zdjęty wszędzie → sztuki wracają do magazynu bez konta.
+ */
+export function memberListingPatch(
+  member: Product,
+  listings: DesignListing[] | undefined,
+): Partial<Product> | null {
+  if (!FOLLOWS_DESIGN_LISTINGS.has(member.status)) return null
+  const first = firstListing(listings)
+  if (!first) {
+    return member.status === 'listed' ? { status: 'in_stock', accountId: undefined } : null
+  }
+  const accountId = listings!.length === 1 ? listings![0].accountId : undefined
+  const approx = first.approx ? true : undefined
+  if (
+    member.status === 'listed' &&
+    member.listedAt === first.since &&
+    member.listedAtApprox === approx &&
+    member.accountId === accountId
+  )
+    return null
+  return { status: 'listed', listedAt: first.since, listedAtApprox: approx, accountId }
+}
+
+/** Konto podpowiadane przy sprzedaży: sztuki, a gdy go nie ma — jedynego ogłoszenia modelu. */
+export function suggestedSaleAccount(
+  product: Product,
+  listings: DesignListing[] | undefined,
+): ID | undefined {
+  if (product.accountId) return product.accountId
+  return listings?.length === 1 ? listings[0].accountId : undefined
+}
+
+/**
+ * Patch sprzedanej sztuki: konto ze sprzedaży zostaje na sztuce (dane per konto), a gdy
+ * sztuka nie ma daty wystawienia, bierze ją z ogłoszenia modelu na tym koncie (albo
+ * najwcześniejszego) — inaczej sprzedaż z modelu nie zasiliłaby czasu sprzedaży.
+ */
+export function soldPatch(
+  product: Product,
+  soldAt: number,
+  accountId: ID | undefined,
+  listings: DesignListing[] | undefined,
+): Partial<Product> {
+  const patch: Partial<Product> = { status: 'sold', soldAt }
+  if (accountId) patch.accountId = accountId
+  // Sztuka modelu ma datę najwcześniejszego ogłoszenia; sprzedaż na innym koncie liczy się
+  // od ogłoszenia na tym koncie. Własnej (innej) daty sztuki nie ruszamy.
+  const first = firstListing(listings)
+  if (product.listedAt == null || product.listedAt === first?.since) {
+    const source = listings?.find((l) => l.accountId === accountId) ?? first
+    if (source && source.since <= soldAt && source.since !== product.listedAt) {
+      patch.listedAt = source.since
+      patch.listedAtApprox = source.approx ? true : undefined
+    }
+  }
+  return patch
 }

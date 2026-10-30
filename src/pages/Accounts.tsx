@@ -7,6 +7,7 @@ import type { Account } from '@/db/types'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
 import { aggregateProfit, money } from '@/lib/format'
+import { isOnAccount } from '@/lib/listing'
 import { toast } from '@/state/toast'
 import { Button, EmptyState, Field, Modal, SectionTitle, TextArea, TextInput } from '@/components/ui'
 
@@ -14,6 +15,8 @@ export function Accounts() {
   const accounts = useLiveQuery(() => db.accounts.orderBy('createdAt').toArray(), [])
   const sales = useLiveQuery(() => db.sales.toArray(), [])
   const products = useLiveQuery(() => db.products.toArray(), [])
+  const designs = useLiveQuery(() => db.designs.toArray(), [])
+  const listingsByDesign = new Map((designs ?? []).map((d) => [d.id, d.listings]))
   const [editing, setEditing] = useState<Account | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -75,8 +78,12 @@ export function Accounts() {
           const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
           // Spójnie z Pulpitem i Ewidencją — jedna reguła przychodu (aggregateProfit).
           const revenue = aggregateProfit(accSales).revenue
+          // Sztuka modelu wystawionego na dwóch kontach liczy się na każdym z nich.
           const stock = (products ?? []).filter(
-            (p) => p.accountId === a.id && p.status !== 'sold' && p.status !== 'archived',
+            (p) =>
+              isOnAccount(p, a.id, p.designId ? listingsByDesign.get(p.designId) : undefined) &&
+              p.status !== 'sold' &&
+              p.status !== 'archived',
           ).length
           return (
             <div key={a.id} className="card p-4">
