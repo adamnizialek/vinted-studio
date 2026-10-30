@@ -84,12 +84,13 @@ function seedText(value: number | undefined | null): string {
  * `value` było sterowane wprost liczbą, wpisanie „12," zaokrąglałoby się od razu
  * do „12" i nie dało się dopisać groszy. Bufor synchronizujemy z propsem `value`
  * tylko gdy pole NIE jest edytowane (np. seed formularza, przycisk „użyj ceny").
+ * „Edytowane” = użytkownik coś wpisał od fokusu — sam fokus (np. autoFocus w oknie
+ * „Sprzedane”) nie blokuje seeda, inaczej cena wystawienia nie trafiała do pola.
  */
 export function NumberInput({
   value,
   onValueChange,
   integer = false,
-  onFocus,
   onBlur,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'inputMode'> & {
@@ -119,11 +120,8 @@ export function NumberInput({
       type="text"
       inputMode={integer ? 'numeric' : 'decimal'}
       value={text}
-      onFocus={(e) => {
-        setEditing(true)
-        onFocus?.(e)
-      }}
       onChange={(e) => {
+        setEditing(true)
         setText(e.target.value)
         onValueChange(parseDecimal(e.target.value, integer))
       }}
