@@ -1,6 +1,6 @@
 import { db, deleteEntity, patchEntity } from '@/db/db'
 import type { DesignListing, ID, Product, ProductStatus, SaleStatus } from '@/db/types'
-import { listingsFromProducts, memberListingPatch, sizeKey, toggleListing } from './listing'
+import { listingsFromProducts, memberListingPatch, toggleListing } from './listing'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -110,18 +110,20 @@ export async function setDesignListings(
 }
 
 /**
- * Włącza/zdejmuje ogłoszenie na koncie: jednego rozmiaru (`size`) albo, bez niego, całego
+ * Włącza/zdejmuje ogłoszenie na koncie: jednej sztuki (`unitId`) albo, bez niej, całego
  * modelu (patrz setDesignListings).
  */
 export async function toggleDesignListing(
   designId: ID,
   accountId: ID,
   since: number,
-  size?: string,
+  unitId?: ID,
 ): Promise<void> {
-  await setDesignListings(designId, (cur, members) =>
-    toggleListing(cur, accountId, since, size, members.map(sizeKey)),
-  )
+  await setDesignListings(designId, (cur, members) => {
+    const unit = unitId ? members.find((m) => m.id === unitId) : undefined
+    if (unitId && !unit) return cur
+    return toggleListing(cur, accountId, since, unit, members)
+  })
 }
 
 /** Assign or clear (undefined) the account of a product. */

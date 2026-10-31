@@ -199,18 +199,21 @@ export interface Design {
   generatedPhotoIds: ID[]
   /** Zapisane opisy (jeden active) — wspoldzielone. */
   descriptions: SavedDescription[]
-  /** Gdzie model jest wystawiony: jedno ogłoszenie na rozmiar i konto, niezależnie od
-   *  liczby sztuk za nim (5× „M” to jedno ogłoszenie). Puste/brak = nigdzie. */
+  /** Gdzie sztuki modelu są wystawione: ogłoszenie na koncie dla jednej sztuki
+   *  (`productId`), rozmiaru albo całego modelu. Puste/brak = nigdzie. */
   listings?: DesignListing[]
   createdAt: number
   updatedAt: number
 }
 
-/** Rozmiar modelu wystawiony na koncie Vinted od `since` (ms). */
+/** Sztuka (albo rozmiar / cały model) wystawiona na koncie Vinted od `since` (ms). */
 export interface DesignListing {
   accountId: ID
   since: number
-  /** Rozmiar (sizeLabel sztuk) z tym ogłoszeniem; brak = cały model (zapisy sprzed rozmiarów). */
+  /** Jedna sztuka z tym ogłoszeniem — na Vinted każda sztuka to osobne ogłoszenie. */
+  productId?: ID
+  /** Bez `productId`: wszystkie sztuki rozmiaru (sizeLabel); bez obu — cały model.
+   *  Zapisy sprzed ogłoszeń per sztuka. */
   size?: string
   /** Data przybliżona (odczytana z backfillowanych sztuk) — czas sprzedaży jej nie liczy. */
   approx?: boolean

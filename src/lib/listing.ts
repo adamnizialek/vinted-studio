@@ -123,20 +123,26 @@ export function daysToSellStats(products: Product[]): DaysToSellStats {
 }
 
 // ── Ogłoszenia modelu (Design.listings) ─────────────────────────────────────
-// Na Vinted każdy rozmiar to osobne ogłoszenie, więc ogłoszenie dotyczy rozmiaru modelu
-// (`size` = sizeLabel jego sztuk). Zapisy bez `size` (sprzed rozmiarów) obejmują cały model.
+// Na Vinted każda sztuka to osobne ogłoszenie, więc ogłoszenie dotyczy jednej sztuki
+// (`productId`). Starsze zapisy obejmują rozmiar (`size` = sizeLabel) albo cały model.
 
-/** Klucz rozmiaru sztuki — sztuki o tym samym rozmiarze dzielą ogłoszenie. */
+/** Klucz rozmiaru sztuki (zapisy ogłoszeń na rozmiar). */
 export function sizeKey(product: Pick<Product, 'sizeLabel'>): string {
   return (product.sizeLabel ?? '').trim()
 }
 
-/** Ogłoszenia, które obejmują dany rozmiar (jego własne + te na cały model). */
-export function listingsForSize(
+/** Czy ogłoszenie obejmuje sztukę: jej własne, jej rozmiaru albo całego modelu. */
+function covers(l: DesignListing, product: Pick<Product, 'id' | 'sizeLabel'>): boolean {
+  if (l.productId != null) return l.productId === product.id
+  return l.size == null || l.size === sizeKey(product)
+}
+
+/** Ogłoszenia, które obejmują sztukę (patrz covers). */
+export function listingsFor(
   listings: DesignListing[] | undefined,
-  size: string,
+  product: Pick<Product, 'id' | 'sizeLabel'>,
 ): DesignListing[] {
-  return (listings ?? []).filter((l) => l.size == null || l.size === size)
+  return (listings ?? []).filter((l) => covers(l, product))
 }
 
 /** Konta (bez powtórzeń), na których wisi któreś z ogłoszeń. */
@@ -161,8 +167,8 @@ export function earliestListing(listings: DesignListing[] | undefined): number |
 }
 
 /**
- * Ogłoszenia odczytane z samych sztuk: wystawione sztuki z kontem, per rozmiar i konto
- * najwcześniejsza data. Dla modeli sprzed `Design.listings` (i przy łączeniu wystawionych przedmiotów
+ * Ogłoszenia odczytane z samych sztuk: każda wystawiona sztuka z kontem to jej własne
+ * ogłoszenie. Dla modeli sprzed `Design.listings` (i przy łączeniu wystawionych przedmiotów
  * w model) — żeby pierwsze kliknięcie nie nadpisało prawdziwych dat dzisiejszą.
  */
 export function listingsFromProducts(products: Product[]): DesignListing[] {
@@ -173,7 +179,7 @@ export function listingsFromProducts(products: Product[]): DesignListing[] {
       .map((p) => ({
         accountId: p.accountId!,
         since: p.listedAt!,
-        size: sizeKey(p),
+        productId: p.id,
         // Data z backfillu zostaje przybliżona — nie może stać się „dokładną” w modelu.
         ...(p.listedAtApprox ? { approx: true } : {}),
       })),
@@ -188,11 +194,11 @@ export function effectiveListings(
   return listings ?? listingsFromProducts(members)
 }
 
-/** Łączy dwie listy ogłoszeń: per rozmiar i konto wcześniejsze (razem z flagą przybliżenia). */
+/** Łączy dwie listy ogłoszeń: per zakres (sztuka / rozmiar / model) i konto wcześniejsze. */
 export function mergeListings(a: DesignListing[], b: DesignListing[]): DesignListing[] {
   const byKey = new Map<string, DesignListing>()
   for (const l of [...a, ...b]) {
-    const key = `${l.size ?? '*'}|${l.accountId}`
+    const key = `${l.productId ?? `size:${l.size ?? '*'}`}|${l.accountId}`
     const prev = byKey.get(key)
     if (!prev || l.since < prev.since) byKey.set(key, l)
   }
@@ -200,8 +206,8 @@ export function mergeListings(a: DesignListing[], b: DesignListing[]): DesignLis
 }
 
 /**
- * Czy przedmiot należy do konta (filtr Magazynu, licznik wystawionych na stronie Kont). Sztuka rozmiaru
- * wystawionego na dwóch kontach nie ma własnego konta, więc liczy się ogłoszenie rozmiaru.
+ * Czy przedmiot należy do konta (filtr Magazynu, licznik wystawionych na stronie Kont). Sztuka
+ * wystawiona na dwóch kontach nie ma własnego konta, więc liczą się jej ogłoszenia.
  */
 export function isOnAccount(
   product: Product,
@@ -212,59 +218,62 @@ export function isOnAccount(
   return (
     !product.accountId &&
     product.status === 'listed' &&
-    listingsForSize(listings, sizeKey(product)).some((l) => l.accountId === accountId)
+    listingsFor(listings, product).some((l) => l.accountId === accountId)
   )
 }
 
 /**
  * Konta, na których sztuka jest wystawiona (kropki kont w Magazynie i w edytorze): jej
- * własne konto, a gdy go nie ma — konta ogłoszeń jej rozmiaru. Niewystawiona → [].
+ * własne konto, a gdy go nie ma — konta jej ogłoszeń. Niewystawiona → [].
  */
 export function listedAccountIds(product: Product, listings: DesignListing[] | undefined): ID[] {
   if (product.status !== 'listed') return []
   if (product.accountId) return [product.accountId]
-  return accountsOf(listingsForSize(listings, sizeKey(product)))
+  return accountsOf(listingsFor(listings, product))
 }
 
 /**
- * Włącza ogłoszenie na koncie (z datą `since`) albo je zdejmuje, gdy już jest. Bez `size`
- * dotyczy całego modelu (wszystkich rozmiarów naraz). Z `size` — tylko tego rozmiaru;
- * ogłoszenie konta na cały model rozbija się wtedy na rozmiary (`sizes`), żeby zdjęcie
- * jednego rozmiaru zostawiło pozostałe wystawione.
+ * Włącza ogłoszenie na koncie (z datą `since`) albo je zdejmuje, gdy już jest. Bez `unit`
+ * dotyczy całego modelu (wszystkich sztuk naraz). Z `unit` — tylko tej sztuki; ogłoszenie
+ * konta na rozmiar albo cały model, które ją obejmuje, rozbija się wtedy na ogłoszenia
+ * pojedynczych sztuk (`members`), żeby zdjęcie jednej zostawiło pozostałe wystawione.
  */
 export function toggleListing(
   listings: DesignListing[] | undefined,
   accountId: ID,
   since: number,
-  size?: string,
-  sizes: string[] = [],
+  unit?: Pick<Product, 'id' | 'sizeLabel'>,
+  members: Pick<Product, 'id' | 'sizeLabel'>[] = [],
 ): DesignListing[] {
   const cur = listings ?? []
-  if (size == null) {
+  if (unit == null) {
     const rest = cur.filter((l) => l.accountId !== accountId)
     return rest.length < cur.length ? rest : [...cur, { accountId, since }]
   }
-  const split = cur.flatMap((l) =>
-    l.accountId === accountId && l.size == null
-      ? [...new Set([...sizes, size])].map((s) => ({ ...l, size: s }))
-      : [l],
-  )
-  const isThis = (l: DesignListing) => l.accountId === accountId && l.size === size
-  return split.some(isThis) ? split.filter((l) => !isThis(l)) : [...split, { accountId, since, size }]
+  const split = cur.flatMap((l) => {
+    if (l.accountId !== accountId || l.productId != null || !covers(l, unit)) return [l]
+    const ids = new Set([unit.id, ...members.filter((m) => covers(l, m)).map((m) => m.id)])
+    const { size: _size, ...rest } = l
+    return [...ids].map((productId) => ({ ...rest, productId }))
+  })
+  const isThis = (l: DesignListing) => l.accountId === accountId && l.productId === unit.id
+  return split.some(isThis)
+    ? split.filter((l) => !isThis(l))
+    : [...split, { accountId, since, productId: unit.id }]
 }
 
 /**
- * Patch sztuki modelu po zmianie jego ogłoszeń (null = bez zmian). Wystawiony rozmiar →
- * jego niesprzedane sztuki są 'listed' od najwcześniejszego ogłoszenia (z tego liczy się
- * czas sprzedaży) i na koncie ogłoszenia, gdy jest jedno; przy dwóch konto rozstrzyga
- * sprzedaż. Rozmiar zdjęty wszędzie → jego sztuki wracają do magazynu bez konta.
+ * Patch sztuki modelu po zmianie jego ogłoszeń (null = bez zmian). Wystawiona sztuka jest
+ * 'listed' od swojego najwcześniejszego ogłoszenia (z tego liczy się czas sprzedaży) i na
+ * koncie ogłoszenia, gdy jest jedno; przy dwóch konto rozstrzyga sprzedaż. Sztuka zdjęta
+ * wszędzie wraca do magazynu bez konta.
  */
 export function memberListingPatch(
   member: Product,
   listings: DesignListing[] | undefined,
 ): Partial<Product> | null {
   if (!FOLLOWS_DESIGN_LISTINGS.has(member.status)) return null
-  const own = listingsForSize(listings, sizeKey(member))
+  const own = listingsFor(listings, member)
   const first = firstListing(own)
   if (!first) {
     return member.status === 'listed' ? { status: 'in_stock', accountId: undefined } : null
@@ -282,19 +291,19 @@ export function memberListingPatch(
   return { status: 'listed', listedAt: first.since, listedAtApprox: approx, accountId }
 }
 
-/** Konto podpowiadane przy sprzedaży: sztuki, a gdy go nie ma — jedynego ogłoszenia rozmiaru. */
+/** Konto podpowiadane przy sprzedaży: sztuki, a gdy go nie ma — jej jedynego ogłoszenia. */
 export function suggestedSaleAccount(
   product: Product,
   listings: DesignListing[] | undefined,
 ): ID | undefined {
   if (product.accountId) return product.accountId
-  const accounts = accountsOf(listingsForSize(listings, sizeKey(product)))
+  const accounts = accountsOf(listingsFor(listings, product))
   return accounts.length === 1 ? accounts[0] : undefined
 }
 
 /**
  * Patch sprzedanej sztuki: konto ze sprzedaży zostaje na sztuce (dane per konto), a gdy
- * sztuka nie ma daty wystawienia, bierze ją z ogłoszenia jej rozmiaru na tym koncie (albo
+ * sztuka nie ma daty wystawienia, bierze ją z jej ogłoszenia na tym koncie (albo
  * najwcześniejszego) — inaczej sprzedaż z modelu nie zasiliłaby czasu sprzedaży.
  */
 export function soldPatch(
@@ -307,7 +316,7 @@ export function soldPatch(
   if (accountId) patch.accountId = accountId
   // Sztuka modelu ma datę najwcześniejszego ogłoszenia; sprzedaż na innym koncie liczy się
   // od ogłoszenia na tym koncie. Własnej (innej) daty sztuki nie ruszamy.
-  const own = listingsForSize(listings, sizeKey(product))
+  const own = listingsFor(listings, product)
   const first = firstListing(own)
   if (product.listedAt == null || product.listedAt === first?.since) {
     const source = own.find((l) => l.accountId === accountId) ?? first

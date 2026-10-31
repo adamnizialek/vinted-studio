@@ -58,7 +58,6 @@ import {
   effectiveListings,
   listedAccountIds,
   listingHref,
-  sizeKey,
 } from '@/lib/listing'
 import { requiresSaleModal, statusChangePatch } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
@@ -377,13 +376,13 @@ function DesignEditor({ designId }: { designId: string }) {
           <ArrowLeft size={15} /> Magazyn
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Na Vinted każdy rozmiar to osobne ogłoszenie — chip dotyczy wybranego rozmiaru. */}
+          {/* Na Vinted każda sztuka to osobne ogłoszenie — chip dotyczy wybranej sztuki. */}
           {draft && (
             <DesignListingPicker
               design={design}
               members={members ?? []}
               accounts={accounts ?? []}
-              size={sizeKey(draft)}
+              unit={draft}
             />
           )}
           {draft && (
