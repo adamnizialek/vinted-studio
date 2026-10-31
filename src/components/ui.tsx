@@ -264,11 +264,11 @@ export function Modal({
   // Portal to body so the overlay is never affected by an ancestor's overflow,
   // transform, or pointer-events (e.g. the Magazyn card's pointer-events-none layer).
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-4">
       <div className="absolute inset-0" onClick={onClose} />
       <div
         className={clsx(
-          'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-pop sm:rounded-2xl',
+          'glass-thick relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[28px] sm:rounded-[28px]',
           widths[size],
         )}
       >

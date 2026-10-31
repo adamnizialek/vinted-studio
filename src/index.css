@@ -25,8 +25,17 @@
     --ink-950: 12 12 13;
     --surface: 255 255 255;
     --checker: 236 236 239;
-    /* Polprzezroczysty panel bocznego menu (backdrop-blur). */
-    --glass: rgba(255, 255, 255, 0.6);
+    /* „Liquid Glass”: polprzezroczyste panele z rozmyciem, jasna krawedzia
+       u gory (odblask) i delikatnym obrysem. --glass-thick dla okien/popoverow. */
+    --glass: rgba(255, 255, 255, 0.58);
+    --glass-thick: rgba(250, 250, 252, 0.82);
+    --glass-edge: rgba(255, 255, 255, 0.9);
+    --glass-stroke: rgba(0, 0, 0, 0.06);
+    --card-alpha: 0.68;
+    /* Kolorowe, rozmyte tlo pod szklem — bez niego szklo wyglada jak szara plyta. */
+    --ambient-1: rgba(47, 143, 122, 0.22);
+    --ambient-2: rgba(139, 125, 255, 0.16);
+    --ambient-3: rgba(255, 170, 120, 0.16);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -46,7 +55,14 @@
       --ink-950: 250 250 252;
       --surface: 30 30 33;
       --checker: 44 44 48;
-      --glass: rgba(36, 36, 40, 0.6);
+      --glass: rgba(40, 40, 46, 0.55);
+      --glass-thick: rgba(34, 34, 38, 0.86);
+      --glass-edge: rgba(255, 255, 255, 0.14);
+      --glass-stroke: rgba(255, 255, 255, 0.07);
+      --card-alpha: 0.62;
+      --ambient-1: rgba(47, 143, 122, 0.22);
+      --ambient-2: rgba(110, 90, 255, 0.16);
+      --ambient-3: rgba(255, 140, 90, 0.08);
     }
   }
   html,
@@ -57,6 +73,18 @@
   body {
     @apply bg-ink-50 text-ink-900 antialiased;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  /* Tlo przypiete do ekranu (background-attachment: fixed nie dziala w iOS Safari). */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60vmax 45vmax at 0% 0%, var(--ambient-1), transparent 70%),
+      radial-gradient(50vmax 40vmax at 100% 20%, var(--ambient-2), transparent 70%),
+      radial-gradient(60vmax 45vmax at 70% 110%, var(--ambient-3), transparent 70%);
   }
   * {
     -webkit-tap-highlight-color: transparent;
@@ -76,15 +104,14 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-4 py-2 text-sm font-medium
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium
       transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-brand-500 text-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:bg-brand-700;
+    @apply btn bg-brand-500 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_8px_rgba(47,143,122,0.3)] hover:bg-brand-600;
   }
   .btn-ghost {
-    @apply btn bg-surface text-ink-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)] ring-1 ring-inset ring-ink-950/[0.04]
-      hover:bg-ink-50;
+    @apply btn glass-tint text-ink-900 hover:bg-surface;
   }
   .btn-soft {
     @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100
@@ -102,16 +129,25 @@
     @apply max-sm:px-3;
   }
   .btn-sm {
-    @apply rounded-[9px] px-3 py-1.5 text-[13px];
+    @apply px-3 py-1.5 text-[13px];
   }
+  /* Karta: przezroczysta tafla bez rozmycia (tlo pod nia i tak jest gladkie,
+     a blur na dziesiatkach kart obciazalby telefon). */
   .card {
-    @apply rounded-2xl bg-surface shadow-card ring-1 ring-ink-950/[0.03];
+    @apply glass-tint rounded-[22px];
+  }
+  .glass-tint {
+    background: rgb(var(--surface) / var(--card-alpha));
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge),
+      inset 0 0 0 1px var(--glass-stroke),
+      0 6px 20px rgba(0, 0, 0, 0.04);
   }
   .label {
     @apply mb-1.5 block text-[13px] font-medium text-ink-500;
   }
   .input {
-    @apply w-full rounded-[10px] border-0 bg-ink-50 px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-950/[0.06]
+    @apply w-full rounded-xl border-0 bg-ink-950/[0.04] px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-950/[0.06]
       placeholder:text-ink-400 focus:bg-surface focus:ring-2 focus:ring-brand-400 focus:outline-none;
   }
   textarea.input {
@@ -132,28 +168,41 @@
   }
   /* Kontrolka segmentowa: szara szyna z "wycietymi" pigulkami. */
   .seg {
-    @apply inline-flex gap-0.5 rounded-[11px] bg-ink-950/[0.07] p-[3px];
+    @apply inline-flex gap-0.5 rounded-full bg-ink-950/[0.06] p-[3px];
   }
   .seg-item {
-    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium text-ink-700
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium text-ink-700
       transition hover:text-ink-900;
   }
   .seg-item-active {
     @apply bg-surface text-ink-900 shadow-seg;
   }
-  .glass {
+  .glass,
+  .glass-thick {
     background: var(--glass);
-    @apply shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)] backdrop-blur-xl dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)];
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge),
+      inset 0 0 0 1px var(--glass-stroke),
+      0 10px 30px rgba(0, 0, 0, 0.08);
+  }
+  .glass-thick {
+    background: var(--glass-thick);
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge),
+      inset 0 0 0 1px var(--glass-stroke),
+      0 20px 50px rgba(0, 0, 0, 0.18);
   }
   .nav-link {
-    @apply flex items-center gap-3 rounded-[9px] px-2.5 py-2 text-sm font-medium text-ink-700
+    @apply flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-ink-700
       transition hover:bg-ink-950/[0.04] hover:text-ink-900;
   }
   .nav-link > svg {
     @apply text-ink-400 transition;
   }
   .nav-link-active {
-    @apply bg-surface text-ink-900 shadow-seg hover:bg-surface;
+    @apply glass-tint text-ink-900 hover:bg-surface;
   }
   .nav-link-active > svg {
     @apply text-brand-500;

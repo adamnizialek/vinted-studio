@@ -95,7 +95,7 @@ function PopoverPanel({
         left: pos?.left ?? -9999,
         visibility: pos ? 'visible' : 'hidden',
       }}
-      className="z-[70] max-h-[calc(100vh-16px)] min-w-[11rem] max-w-[80vw] overflow-y-auto overscroll-contain rounded-xl bg-surface p-1 shadow-pop ring-1 ring-ink-100"
+      className="z-[70] max-h-[calc(100vh-16px)] min-w-[11rem] max-w-[80vw] overflow-y-auto overscroll-contain glass-thick rounded-2xl p-1"
     >
       {children}
     </div>,
