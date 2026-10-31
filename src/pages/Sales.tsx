@@ -208,11 +208,11 @@ export function Sales() {
         title="Ewidencja sprzedaży"
         right={
           <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={() => setImportOpen(true)}>
-              <Upload size={16} /> Import
+            <Button variant="ghost" onClick={() => setImportOpen(true)} title="Import">
+              <Upload size={16} /> <span className="btn-label">Import</span>
             </Button>
-            <Button variant="ghost" onClick={exportCsv} disabled={filtered.length === 0}>
-              <Download size={16} /> CSV
+            <Button variant="ghost" onClick={exportCsv} disabled={filtered.length === 0} title="Eksport CSV">
+              <Download size={16} /> <span className="btn-label">CSV</span>
             </Button>
             <Button
               variant="ghost"
@@ -220,7 +220,7 @@ export function Sales() {
               disabled={filtered.length === 0}
               title="Dzienna ewidencja sprzedaży (art. 109 ustawy o VAT)"
             >
-              <BookOpen size={16} /> Ewidencja
+              <BookOpen size={16} /> <span className="btn-label">Ewidencja</span>
             </Button>
             <Button onClick={startNew}>
               <Plus size={16} /> Dodaj sprzedaż
@@ -230,8 +230,9 @@ export function Sales() {
       />
 
       {/* Przełącznik widoku konta */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="seg max-w-full overflow-x-auto">
+      {/* Na telefonie: przełącznik kont na całą szerokość, a pod nim okres — równe krawędzie. */}
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="seg no-scrollbar max-w-full overflow-x-auto max-sm:w-full max-sm:[&>*]:flex-1 max-sm:[&>*]:justify-center">
           <ViewChip active={view === 'all'} onClick={() => setView('all')} label="Wspólna" />
           {accounts?.map((a) => (
             <ViewChip
@@ -243,7 +244,7 @@ export function Sales() {
             />
           ))}
         </div>
-        <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="ml-auto w-44 bg-surface shadow-card">
+        <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="bg-surface shadow-card sm:ml-auto sm:w-44">
           {(Object.keys(SALES_PERIOD_LABELS) as SalesPeriod[]).map((p) => (
             <option key={p} value={p}>
               {SALES_PERIOD_LABELS[p]}

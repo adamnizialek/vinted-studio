@@ -199,8 +199,8 @@ export function Inventory() {
             <ResponsivePicker
               title="Importuj stan"
               trigger={({ ref, toggle, aria }) => (
-                <button ref={ref} type="button" onClick={toggle} className="btn-ghost" {...aria}>
-                  <Upload size={16} /> Importuj stan
+                <button ref={ref} type="button" onClick={toggle} className="btn-ghost" title="Importuj stan" {...aria}>
+                  <Upload size={16} /> <span className="btn-label">Importuj stan</span>
                 </button>
               )}
             >

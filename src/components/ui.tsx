@@ -32,9 +32,9 @@ export function SectionTitle({
         <h2 className="text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ink-900 sm:text-[34px]">{title}</h2>
       </div>
       {right && (
-        // Na telefonie przyciski strony tworza jeden przewijany rzad z akcja glowna na poczatku,
-        // zamiast zawijac sie w 2–3 wiersze.
-        <div className="no-scrollbar -mx-4 -my-1 overflow-x-auto px-4 py-1 sm:mx-0 sm:my-0 sm:overflow-visible sm:p-0 max-sm:[&>div]:flex-nowrap max-sm:[&_.btn-primary]:order-first">
+        // Na telefonie przyciski strony tworza jeden rzad: akcja glowna na poczatku i rozciagnieta,
+        // pozostale jako kompaktowe ikony (etykieta w .btn-label chowa sie < sm).
+        <div className="no-scrollbar -mx-4 -my-1 overflow-x-auto px-4 py-1 sm:mx-0 sm:my-0 sm:overflow-visible sm:p-0 max-sm:[&>div]:flex-nowrap max-sm:[&_.btn-primary]:order-first max-sm:[&_.btn-primary]:flex-1">
           {right}
         </div>
       )}
