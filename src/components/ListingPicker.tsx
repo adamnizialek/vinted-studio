@@ -12,10 +12,10 @@ import {
   sizeKey,
 } from '@/lib/listing'
 import {
-  applyStatusChange,
-  listProductOn,
+  listOnPatch,
+  statusChangePatch,
   toggleDesignListing,
-  unlistProduct,
+  UNLIST_PATCH,
 } from '@/lib/productActions'
 import { patchEntity } from '@/db/db'
 import { toast } from '@/state/toast'
@@ -64,10 +64,14 @@ export const AccountDot = ({ account }: { account: Account }) => (
 export function ProductListingPicker({
   product,
   accounts,
+  onPatch,
   className,
 }: {
   product: Product
   accounts: Account[]
+  /** Edytor z własnym szkicem zapisuje zmianę sam (zapis prosto do bazy nadpisałby go
+   *  przy następnej edycji). Bez tego — zapis do bazy. */
+  onPatch?: (patch: Partial<Product>) => void
   className?: string
 }) {
   const [soldOpen, setSoldOpen] = useState(false)
@@ -75,10 +79,12 @@ export function ProductListingPicker({
   const listedOn =
     product.status === 'listed' ? accounts.find((a) => a.id === product.accountId) : undefined
 
-  const run = async (close: () => void, action: () => Promise<void>) => {
+  const apply = async (close: () => void, patch: Partial<Product> | null) => {
     close()
+    if (!patch) return
+    if (onPatch) return onPatch(patch)
     try {
-      await action()
+      await patchEntity('products', product.id, patch)
     } catch {
       toast.error('Nie udało się zapisać.')
     }
@@ -91,8 +97,8 @@ export function ProductListingPicker({
       setSoldOpen(true)
       return
     }
-    if (status === 'in_stock') return run(close, () => unlistProduct(product.id))
-    void run(close, () => applyStatusChange(product.id, status))
+    if (status === 'in_stock') return void apply(close, UNLIST_PATCH)
+    void apply(close, statusChangePatch(product.status, status, Date.now()))
   }
 
   return (
@@ -151,7 +157,7 @@ export function ProductListingPicker({
                         onClick={() =>
                           selected
                             ? close()
-                            : run(close, () => listProductOn(product.id, a.id, sinceFrom(day), day != null))
+                            : apply(close, listOnPatch(product, a.id, sinceFrom(day), day != null))
                         }
                       >
                         <AccountDot account={a} />
@@ -188,7 +194,8 @@ export function ProductListingPicker({
           onClose={() => setSoldOpen(false)}
           product={product}
           onSold={(patch) => {
-            void patchEntity('products', product.id, patch)
+            if (onPatch) onPatch(patch)
+            else void patchEntity('products', product.id, patch)
             setSoldOpen(false)
           }}
         />

@@ -52,7 +52,7 @@ import {
   SIZE_SUGGESTIONS,
   STATUS_OPTIONS,
 } from '@/lib/constants'
-import { money, relative } from '@/lib/format'
+import { dateFromInput, dateInputValue, money, relative } from '@/lib/format'
 import {
   coverImageIdOf,
   effectiveListings,
@@ -71,7 +71,7 @@ import {
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
 import { downloadBlob } from '@/lib/csv'
-import { DesignListingPicker } from '@/components/ListingPicker'
+import { DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
 import { Button, Field, MoreFields, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { FileDrop } from '@/components/FileDrop'
@@ -159,17 +159,13 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
           <ArrowLeft size={15} /> Magazyn
         </button>
         <div className="flex items-center gap-2">
-          <Select
-            value={draft.status}
-            onChange={(e) => changeStatus(draft, e.target.value as ProductStatus, update)}
-            className="w-40"
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+          {/* Status, konto i data wystawienia w jednym wyborze (jak w siatce Magazynu). */}
+          <ProductListingPicker
+            product={draft}
+            accounts={accounts ?? []}
+            onPatch={update}
+            className="!px-3 !py-1.5 !text-sm"
+          />
           {!requiresSaleModal(draft.status) && (
             <Button variant="soft" onClick={() => setSoldOpen(true)}>
               <Check size={16} /> Sprzedane
@@ -748,7 +744,7 @@ function DetailsTab({
         </div>
 
         {/* Ogłoszenie: capture „Wystawiono” + link */}
-        <ListingCard draft={draft} update={update} />
+        <ListingCard draft={draft} update={update} editableDate={!inDesign} />
 
         <Link to={`/studio/${draft.id}`} className="btn-primary w-full">
           <Camera size={16} /> Zdjęcia na modelce (Studio)
@@ -759,8 +755,19 @@ function DetailsTab({
 }
 
 // ── Ogłoszenie (capture „Wystawiono” + link) ─────────────────────────────────
-function ListingCard({ draft, update }: { draft: Product; update: UpdateFn }) {
+function ListingCard({
+  draft,
+  update,
+  editableDate,
+}: {
+  draft: Product
+  update: UpdateFn
+  /** Samodzielny produkt: datę wystawienia poprawia się tutaj. W modelu idzie za jego
+   *  ogłoszeniami (chip u góry), więc tu tylko ją pokazujemy. */
+  editableDate: boolean
+}) {
   const href = listingHref(draft.listingUrl)
+  const today = dateInputValue(Date.now())
   const canMarkListed =
     draft.status !== 'listed' && draft.status !== 'sold' && draft.status !== 'archived'
 
@@ -778,6 +785,24 @@ function ListingCard({ draft, update }: { draft: Product; update: UpdateFn }) {
           </span>
         )}
       </div>
+
+      {draft.status === 'listed' && editableDate && (
+        <Field label="Wystawione od">
+          <TextInput
+            type="date"
+            value={draft.listedAt != null ? dateInputValue(draft.listedAt) : ''}
+            max={today}
+            onChange={(e) => {
+              if (!e.target.value) return
+              const now = Date.now()
+              update({
+                listedAt: Math.min(dateFromInput(e.target.value, now), now),
+                listedAtApprox: undefined,
+              })
+            }}
+          />
+        </Field>
+      )}
 
       <Field label="Link do ogłoszenia">
         <div className="flex gap-2">

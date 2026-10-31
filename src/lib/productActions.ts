@@ -62,7 +62,18 @@ export async function listProductOn(
 ): Promise<void> {
   const product = await db.products.get(id)
   if (!product) return
-  if (product.status === 'listed' && product.accountId === accountId) return
+  const patch = listOnPatch(product, accountId, since, explicitDate)
+  if (patch) await patchEntity('products', id, patch)
+}
+
+/** Czysty patch dla listProductOn (null = bez zmian) — także dla edytora z własnym szkicem. */
+export function listOnPatch(
+  product: Product,
+  accountId: ID,
+  since: number,
+  explicitDate = false,
+): Partial<Product> | null {
+  if (product.status === 'listed' && product.accountId === accountId) return null
   // Wystawiony bez konta (stary sposób oznaczania) z dokładną datą: dopisujemy tylko konto.
   const keepDate =
     !explicitDate &&
@@ -70,17 +81,20 @@ export async function listProductOn(
     !product.accountId &&
     product.listedAt != null &&
     !product.listedAtApprox
-  await patchEntity('products', id, {
+  return {
     status: 'listed',
     accountId,
     listedAt: keepDate ? product.listedAt : since,
     listedAtApprox: undefined,
-  })
+  }
 }
 
-/** Zdejmuje przedmiot z Vinted: wraca do magazynu bez konta (konto = gdzie wystawiony). */
+/** Patch zdjęcia z Vinted: przedmiot wraca do magazynu bez konta (konto = gdzie wystawiony). */
+export const UNLIST_PATCH: Partial<Product> = { status: 'in_stock', accountId: undefined }
+
+/** Zdejmuje przedmiot z Vinted (patrz UNLIST_PATCH). */
 export async function unlistProduct(id: ID): Promise<void> {
-  await patchEntity('products', id, { status: 'in_stock', accountId: undefined })
+  await patchEntity('products', id, UNLIST_PATCH)
 }
 
 /**
