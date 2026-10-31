@@ -110,7 +110,7 @@ export function Layout() {
       )}
 
       {/* Content */}
-      <main className="min-w-0 flex-1">
+      <main className="mx-auto min-w-0 max-w-[1680px] flex-1">
         {needsKey && (
           <Link
             to="/ustawienia"
@@ -120,7 +120,7 @@ export function Layout() {
             Dodaj klucz API Gemini w Ustawieniach, aby włączyć generowanie zdjęć i opisów.
           </Link>
         )}
-        <div className="max-w-[1240px] px-4 py-6 sm:px-6 lg:pb-16 lg:pl-8 lg:pr-11 lg:pt-9">
+        <div className="px-4 py-6 sm:px-6 lg:pb-16 lg:pl-8 lg:pr-11 lg:pt-9">
           <Outlet />
         </div>
       </main>
