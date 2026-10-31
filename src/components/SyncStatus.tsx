@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { AlertTriangle, Cloud, CloudOff, Loader2, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { db } from '@/db/db'
 import { useSync } from '@/state/sync'
@@ -48,33 +47,33 @@ export function useSyncTriggers() {
   }, [pending])
 }
 
-export function SyncBadge({ className }: { className?: string }) {
+/** Status synchronizacji jako kropka; szczegoly w podpowiedzi, klikniecie synchronizuje od razu. */
+export function SyncDot({ className }: { className?: string }) {
   const { status, pending, lastSyncedAt, syncNow } = useSync()
   if (status === 'disabled') return null
 
   const map = {
-    syncing: { icon: <Loader2 size={14} className="animate-spin" />, text: 'Synchronizacja…', tone: 'text-brand-600' },
-    idle: { icon: <Cloud size={14} />, text: lastSyncedAt ? `Zsynchronizowano ${relativeTime(lastSyncedAt)}` : 'Połączono', tone: 'text-emerald-600' },
-    offline: { icon: <CloudOff size={14} />, text: 'Offline — zsynchronizuje się później', tone: 'text-ink-400' },
-    error: { icon: <AlertTriangle size={14} />, text: 'Błąd synchronizacji', tone: 'text-red-600' },
+    syncing: { text: 'Synchronizacja…', tone: 'bg-brand-500 animate-pulse' },
+    idle: {
+      text: lastSyncedAt ? `Zsynchronizowano ${relativeTime(lastSyncedAt)}` : 'Połączono',
+      tone: 'bg-emerald-500',
+    },
+    offline: { text: 'Offline — zsynchronizuje się później', tone: 'bg-ink-400' },
+    error: { text: 'Błąd synchronizacji', tone: 'bg-red-500' },
   } as const
   const s = map[status as keyof typeof map] ?? map.idle
+  const title = pending > 0 ? `${s.text} · do wysłania: ${pending}` : s.text
 
   return (
-    <div className={clsx('flex items-center justify-between gap-2 rounded-xl bg-ink-50 px-3 py-2 text-xs', className)}>
-      <span className={clsx('flex min-w-0 items-center gap-1.5 font-medium', s.tone)}>
-        {s.icon}
-        <span className="truncate">{s.text}</span>
-      </span>
-      <button
-        onClick={() => void syncNow()}
-        disabled={status === 'syncing'}
-        title="Synchronizuj teraz"
-        className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-ink-500 hover:bg-ink-100 hover:text-ink-800 disabled:opacity-40"
-      >
-        <RefreshCw size={13} />
-        {pending > 0 && <span className="font-semibold">{pending}</span>}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={() => void syncNow()}
+      disabled={status === 'syncing'}
+      title={`${title} — kliknij, aby zsynchronizować`}
+      aria-label={title}
+      className={clsx('tap-target relative grid h-5 w-5 shrink-0 place-items-center rounded-full', className)}
+    >
+      <span className={clsx('h-2.5 w-2.5 rounded-full', s.tone)} />
+    </button>
   )
 }
