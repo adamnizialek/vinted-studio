@@ -1,15 +1,14 @@
-import { useState } from 'react'
-import { NavLink, Outlet, Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
 import {
   Camera,
   LayoutDashboard,
-  Menu,
+  MoreHorizontal,
   Package,
   Settings,
   Shirt,
   Users,
   Wallet,
-  X,
   AlertTriangle,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -26,6 +25,17 @@ const NAV = [
   { to: '/ustawienia', label: 'Ustawienia', icon: Settings },
 ]
 
+// Dolny pasek kart na telefonie: cztery najczesciej uzywane ekrany, reszta w „Więcej”.
+const TABS = [
+  { to: '/', label: 'Pulpit', icon: LayoutDashboard, end: true },
+  { to: '/magazyn', label: 'Magazyn', icon: Package },
+  { to: '/studio', label: 'Studio', icon: Camera },
+  { to: '/sprzedaz', label: 'Sprzedaż', icon: Wallet },
+]
+const MORE = NAV.filter((n) => !TABS.some((t) => t.to === n.to))
+
+const KEY_NOTE = 'Klucz API nie opuszcza tego urządzenia. Synchronizację między urządzeniami włączysz w Ustawieniach.'
+
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2.5 px-2 py-1">
@@ -40,15 +50,14 @@ function Brand() {
   )
 }
 
-function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+function NavItems({ items = NAV }: { items?: typeof NAV }) {
   return (
     <nav className="flex flex-col gap-0.5">
-      {NAV.map(({ to, label, icon: Icon, end }) => (
+      {items.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}
           to={to}
           end={end}
-          onClick={onNavigate}
           className={({ isActive }) => clsx('nav-link', isActive && 'nav-link-active')}
         >
           <Icon size={18} />
@@ -59,11 +68,46 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+function TabBar({ moreOpen, onMore }: { moreOpen: boolean; onMore: () => void }) {
+  const { pathname } = useLocation()
+  const inMore = MORE.some((m) => pathname.startsWith(m.to))
+  const tabCls = 'flex flex-1 flex-col items-center gap-0.5 pb-1 pt-2 text-[10.5px] font-medium transition'
+  return (
+    <nav className="glass fixed inset-x-0 bottom-0 z-40 flex px-2 pb-[env(safe-area-inset-bottom)] lg:hidden">
+      {TABS.map(({ to, label, icon: Icon, end }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          className={({ isActive }) =>
+            clsx(tabCls, isActive && !moreOpen ? 'text-brand-500' : 'text-ink-500 active:text-ink-700')
+          }
+        >
+          <Icon size={22} strokeWidth={1.8} />
+          {label}
+        </NavLink>
+      ))}
+      <button
+        type="button"
+        onClick={onMore}
+        aria-expanded={moreOpen}
+        className={clsx(tabCls, inMore || moreOpen ? 'text-brand-500' : 'text-ink-500 active:text-ink-700')}
+      >
+        <MoreHorizontal size={22} strokeWidth={1.8} />
+        Więcej
+      </button>
+    </nav>
+  )
+}
+
 export function Layout() {
-  const [open, setOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const { pathname } = useLocation()
   const settings = useSettings((s) => s.settings)
   const needsKey = settings && !settings.geminiApiKey
   useSyncTriggers()
+
+  useEffect(() => setMoreOpen(false), [pathname])
 
   return (
     <div className="min-h-full lg:flex">
@@ -74,37 +118,22 @@ export function Layout() {
           <NavItems />
         </div>
         <SyncBadge className="mb-2" />
-        <p className="px-2 text-[11.5px] leading-relaxed text-ink-400">
-          Klucz API nie opuszcza tego urządzenia. Synchronizację między urządzeniami włączysz w Ustawieniach.
-        </p>
+        <p className="px-2 text-[11.5px] leading-relaxed text-ink-400">{KEY_NOTE}</p>
       </aside>
 
       {/* Mobile header */}
-      <header className="glass sticky top-0 z-40 flex items-center justify-between px-4 py-3 lg:hidden">
+      <header className="glass sticky top-0 z-40 flex items-center px-2 pb-1.5 pt-[calc(env(safe-area-inset-top)+0.375rem)] lg:hidden">
         <Brand />
-        <button
-          onClick={() => setOpen(true)}
-          className="rounded-lg p-2 text-ink-600 hover:bg-ink-100"
-          aria-label="Menu"
-        >
-          <Menu />
-        </button>
       </header>
 
-      {/* Mobile drawer */}
-      {open && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-72 bg-ink-50 p-3 shadow-pop">
-            <div className="flex items-center justify-between">
-              <Brand />
-              <button onClick={() => setOpen(false)} className="rounded-lg p-2 text-ink-500 hover:bg-ink-100">
-                <X />
-              </button>
-            </div>
-            <div className="mt-6">
-              <NavItems onNavigate={() => setOpen(false)} />
-            </div>
+      {/* Mobile „Więcej” sheet — nad paskiem kart */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-30 lg:hidden">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setMoreOpen(false)} />
+          <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.25rem)] flex flex-col gap-3 rounded-2xl bg-ink-50 p-3 shadow-pop">
+            <NavItems items={MORE} />
+            <SyncBadge className="bg-surface" />
+            <p className="px-2 text-[11.5px] leading-relaxed text-ink-400">{KEY_NOTE}</p>
           </div>
         </div>
       )}
@@ -120,10 +149,12 @@ export function Layout() {
             Dodaj klucz API Gemini w Ustawieniach, aby włączyć generowanie zdjęć i opisów.
           </Link>
         )}
-        <div className="px-4 py-6 sm:px-6 lg:pb-16 lg:pl-8 lg:pr-11 lg:pt-9">
+        <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+6rem)] pt-5 sm:px-6 lg:pb-16 lg:pl-8 lg:pr-11 lg:pt-9">
           <Outlet />
         </div>
       </main>
+
+      <TabBar moreOpen={moreOpen} onMore={() => setMoreOpen((o) => !o)} />
     </div>
   )
 }

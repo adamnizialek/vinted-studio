@@ -5,7 +5,7 @@ import { useToasts } from '@/state/toast'
 export function Toasts() {
   const { toasts, dismiss } = useToasts()
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-[60] lg:bottom-4 flex flex-col items-center gap-2 px-4">
       {toasts.map((t) => {
         const Icon = t.type === 'success' ? CheckCircle2 : t.type === 'error' ? XCircle : Info
         const tone =
