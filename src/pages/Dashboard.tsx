@@ -159,10 +159,6 @@ export function Dashboard() {
               <h3 className="font-bold">Do wystawienia</h3>
             </div>
             <p className="mt-2 text-5xl font-semibold leading-none tracking-[-0.04em] text-ink-900">{toList}</p>
-            <p className="text-sm text-ink-500">przedmiotów gotowych / szkiców</p>
-            <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-xs text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">
-              💡 Najwięcej kupujących jest wieczorem — wystawiaj między 18:00 a 22:00.
-            </p>
             <Link to="/magazyn" className="btn-ghost btn-sm mt-3 w-full">
               Przejdź do magazynu
             </Link>
