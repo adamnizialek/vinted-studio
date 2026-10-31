@@ -56,7 +56,7 @@ function sinceFrom(day: string | null): number {
   return day == null ? now : Math.min(dateFromInput(day, now), now)
 }
 
-const AccountDot = ({ account }: { account: Account }) => (
+export const AccountDot = ({ account }: { account: Account }) => (
   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: account.color }} />
 )
 

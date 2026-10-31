@@ -8,7 +8,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { DEFAULT_CONDITION, STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
-import { coverImageIdOf } from '@/lib/listing'
+import { coverImageIdOf, effectiveListings, listedAccountIds } from '@/lib/listing'
 import { sizeStockSummary } from '@/lib/designs'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
@@ -17,7 +17,7 @@ import { Thumb } from '@/components/ImageView'
 import { ImportStockModal } from '@/components/ImportStockModal'
 import { ImportStockScreenshotModal } from '@/components/ImportStockScreenshotModal'
 import { ResponsivePicker, OptionRow } from '@/components/Popover'
-import { DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
+import { AccountDot, DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
 
 export function Inventory() {
   const nav = useNavigate()
@@ -383,15 +383,6 @@ export function Inventory() {
   )
 }
 
-/** Polska odmiana: 1 rozmiar, 2-4 rozmiary, 5+ rozmiarow (z wyjatkami 12-14). */
-function rozmiarLabel(n: number): string {
-  if (n === 1) return 'rozmiar'
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return 'rozmiary'
-  return 'rozmiarów'
-}
-
 function GroupModal({ products, onClose, onConfirm }: {
   products: Product[]
   onClose: () => void
@@ -465,6 +456,10 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
       : Math.min(...prices) === Math.max(...prices)
         ? money(Math.min(...prices), currency)
         : `${money(Math.min(...prices), currency)} – ${money(Math.max(...prices), currency)}`
+  // Konta, na których wisi którykolwiek rozmiar modelu (liczba rozmiarów jest w linii pod nazwą).
+  const listings = effectiveListings(design.listings, allMembers)
+  const listedIds = new Set(allMembers.flatMap((m) => listedAccountIds(m, listings)))
+  const listedOn = accounts.filter((a) => listedIds.has(a.id))
   return (
     <div className="card group relative overflow-hidden transition hover:shadow-pop">
       <button
@@ -486,9 +481,19 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
       <div className="pointer-events-none relative z-10">
         <div className="relative aspect-square w-full bg-ink-100">
           <Thumb imageId={cover} className="h-full w-full object-cover" alt={design.name} />
-          <span className="badge absolute left-2 top-2 bg-ink-900/80 text-white">
-            {members.length} {rozmiarLabel(members.length)}
-          </span>
+          {listedOn.length > 0 && (
+            <div
+              className="absolute left-2 top-2 flex max-w-[calc(100%-4rem)] flex-wrap gap-1"
+              aria-label={`Wystawiony na: ${listedOn.map((a) => a.name).join(', ')}`}
+            >
+              {listedOn.map((a) => (
+                <span key={a.id} className="badge max-w-full bg-black/70 text-white shadow-sm backdrop-blur-sm">
+                  <AccountDot account={a} />
+                  <span className="truncate">{a.name}</span>
+                </span>
+              ))}
+            </div>
+          )}
           {!selecting && design.generatedPhotoIds.length > 0 && (
             <span className="badge absolute right-2 top-2 bg-brand-500 text-white shadow-sm">
               AI {design.generatedPhotoIds.length}

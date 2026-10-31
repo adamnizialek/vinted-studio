@@ -20,6 +20,7 @@ import {
   effectiveListings,
   mergeListings,
   isOnAccount,
+  listedAccountIds,
 } from './listing'
 
 const base = (over: Partial<Product> = {}): Product => ({
@@ -350,6 +351,18 @@ describe('listings per size', () => {
     expect(soldPatch(base({ sizeLabel: '38' }), 1000, undefined, listings)).toEqual({
       status: 'sold', soldAt: 1000, listedAt: 300,
     })
+  })
+})
+
+describe('listedAccountIds', () => {
+  const listings = [{ accountId: 'main', since: 1, size: '37' }, { accountId: 'zoosia', since: 2 }]
+  it('uses the unit account, else the accounts of its size listings', () => {
+    expect(listedAccountIds(base({ status: 'listed', accountId: 'x' }), listings)).toEqual(['x'])
+    expect(listedAccountIds(base({ status: 'listed', sizeLabel: '37' }), listings)).toEqual(['main', 'zoosia'])
+    expect(listedAccountIds(base({ status: 'listed', sizeLabel: '38' }), listings)).toEqual(['zoosia'])
+  })
+  it('is empty for units that are not listed', () => {
+    expect(listedAccountIds(base({ status: 'in_stock', accountId: 'x' }), listings)).toEqual([])
   })
 })
 

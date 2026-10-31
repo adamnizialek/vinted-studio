@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
@@ -53,7 +53,13 @@ import {
   STATUS_OPTIONS,
 } from '@/lib/constants'
 import { money, relative } from '@/lib/format'
-import { coverImageIdOf, listingHref, sizeKey } from '@/lib/listing'
+import {
+  coverImageIdOf,
+  effectiveListings,
+  listedAccountIds,
+  listingHref,
+  sizeKey,
+} from '@/lib/listing'
 import { requiresSaleModal, statusChangePatch } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
 import {
@@ -226,6 +232,22 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
   )
 }
 
+/**
+ * Tło zakładki wystawionego rozmiaru w kolorach kont: aktywna pełnym kolorem, pozostałe
+ * przygaszonym odcieniem z obwódką. Kilka kont dzieli zakładkę na równe pasy.
+ */
+function sizeTabStyle(colors: string[], active: boolean): CSSProperties {
+  const fill = (c: string) => (active ? c : `color-mix(in srgb, ${c} 28%, transparent)`)
+  const stops = colors.flatMap((c, i) => [
+    `${fill(c)} ${(i / colors.length) * 100}%`,
+    `${fill(c)} ${((i + 1) / colors.length) * 100}%`,
+  ])
+  return {
+    background: colors.length === 1 ? fill(colors[0]) : `linear-gradient(90deg, ${stops.join(', ')})`,
+    boxShadow: active ? undefined : `inset 0 0 0 1px ${colors[0]}`,
+  }
+}
+
 // ── Tryb modelu (wspolny blok + przelacznik rozmiarow) ───────────────────────
 function DesignEditor({ designId }: { designId: string }) {
   const nav = useNavigate()
@@ -242,6 +264,10 @@ function DesignEditor({ designId }: { designId: string }) {
   const [draft, setDraft] = useState<Product | null>(null)
   const [tab, setTab] = useState<'detale' | 'zdjecia' | 'opisy'>('detale')
   const [soldOpen, setSoldOpen] = useState(false)
+
+  // Wystawiony rozmiar świeci kolorem konta (kilka kont — pasy kolorów).
+  const listedIds = (m: Product) =>
+    listedAccountIds(m, design ? effectiveListings(design.listings, members ?? []) : undefined)
 
   const designsById = useMemo(
     () => (design ? new Map([[design.id, design]]) : new Map<string, Design>()),
@@ -389,20 +415,30 @@ function DesignEditor({ designId }: { designId: string }) {
 
       {/* Pasek rozmiarów */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {shownSizes.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setActiveId(m.id)}
-            className={clsx(
-              'rounded-full px-3 py-1.5 text-sm font-medium transition',
-              m.id === activeId
-                ? 'bg-brand-500 text-white'
-                : 'bg-ink-100 text-ink-600 hover:bg-ink-200',
-            )}
-          >
-            {m.sizeLabel || 'rozmiar'}
-          </button>
-        ))}
+        {shownSizes.map((m) => {
+          const active = m.id === activeId
+          const on = (accounts ?? []).filter((a) => listedIds(m).includes(a.id))
+          return (
+            <button
+              key={m.id}
+              onClick={() => setActiveId(m.id)}
+              title={on.length ? `Wystawiony na: ${on.map((a) => a.name).join(', ')}` : undefined}
+              style={on.length ? sizeTabStyle(on.map((a) => a.color), active) : undefined}
+              className={clsx(
+                'rounded-full px-3 py-1.5 text-sm font-medium transition',
+                on.length
+                  ? active
+                    ? 'text-white shadow-sm'
+                    : 'text-ink-800 hover:brightness-110'
+                  : active
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-ink-100 text-ink-600 hover:bg-ink-200',
+              )}
+            >
+              {m.sizeLabel || 'rozmiar'}
+            </button>
+          )
+        })}
         <button
           onClick={addSize}
           className="rounded-full bg-ink-100 px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-ink-200"

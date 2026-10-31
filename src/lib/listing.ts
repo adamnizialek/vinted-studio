@@ -217,6 +217,16 @@ export function isOnAccount(
 }
 
 /**
+ * Konta, na których sztuka jest wystawiona (kropki kont w Magazynie i w edytorze): jej
+ * własne konto, a gdy go nie ma — konta ogłoszeń jej rozmiaru. Niewystawiona → [].
+ */
+export function listedAccountIds(product: Product, listings: DesignListing[] | undefined): ID[] {
+  if (product.status !== 'listed') return []
+  if (product.accountId) return [product.accountId]
+  return accountsOf(listingsForSize(listings, sizeKey(product)))
+}
+
+/**
  * Włącza ogłoszenie na koncie (z datą `since`) albo je zdejmuje, gdy już jest. Bez `size`
  * dotyczy całego modelu (wszystkich rozmiarów naraz). Z `size` — tylko tego rozmiaru;
  * ogłoszenie konta na cały model rozbija się wtedy na rozmiary (`sizes`), żeby zdjęcie
