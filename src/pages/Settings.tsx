@@ -172,7 +172,6 @@ export function SettingsPage() {
     <div className="space-y-5">
       <SectionTitle
         title="Ustawienia"
-        subtitle="Klucz API i dane zapisane są wyłącznie lokalnie w tej przeglądarce."
         right={
           <Button onClick={save}>
             <Wand2 size={16} /> Zapisz

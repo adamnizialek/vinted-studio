@@ -205,7 +205,6 @@ export function Sales() {
     <div>
       <SectionTitle
         title="Ewidencja sprzedaży"
-        subtitle="Przełączaj między ewidencją wspólną a poszczególnymi kontami."
         right={
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
@@ -360,7 +359,6 @@ export function Sales() {
       <div className="mt-8">
         <SectionTitle
           title="Koszty promocji"
-          subtitle="Podbicia i ekspozycje — pomniejszają zysk netto."
           right={
             <Button variant="ghost" onClick={startNewExpense}>
               <Plus size={16} /> Dodaj koszt

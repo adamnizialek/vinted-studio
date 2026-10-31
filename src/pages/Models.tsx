@@ -183,7 +183,6 @@ export function Models() {
     <div>
       <SectionTitle
         title="Modelki AI"
-        subtitle="Stwórz spójną postać (z wgranych zdjęć lub wygenerowaną), na której ubierzesz produkty w Studio."
         right={
           tab === 'models' ? (
             <Button onClick={startNew}>

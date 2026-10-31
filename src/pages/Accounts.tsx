@@ -52,7 +52,6 @@ export function Accounts() {
     <div>
       <SectionTitle
         title="Konta sprzedażowe"
-        subtitle="Każde konto ma osobną ewidencję; widok wspólny sumuje wszystkie."
         right={
           <Button onClick={startNew}>
             <Plus size={16} /> Dodaj konto

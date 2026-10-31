@@ -94,10 +94,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[13px] font-medium text-ink-500">Przegląd magazynu i sprzedaży.</p>
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ink-900 sm:text-[34px]">Pulpit</h1>
-        </div>
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ink-900 sm:text-[34px]">Pulpit</h1>
         <div className="flex flex-wrap gap-2">
           <Link to="/magazyn" className="btn-primary">
             <Plus size={16} /> Dodaj produkt

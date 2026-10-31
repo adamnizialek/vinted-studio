@@ -34,18 +34,13 @@ const TABS = [
 ]
 const MORE = NAV.filter((n) => !TABS.some((t) => t.to === n.to))
 
-const KEY_NOTE = 'Klucz API nie opuszcza tego urządzenia. Synchronizację między urządzeniami włączysz w Ustawieniach.'
-
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2.5 px-2 py-1">
       <div className="grid h-7 w-7 place-items-center rounded-lg bg-brand-500 text-white">
         <Shirt size={15} />
       </div>
-      <div className="leading-tight">
-        <p className="text-sm font-semibold text-ink-900">Vinted Studio</p>
-        <p className="text-[11.5px] text-ink-500">Asystent sprzedaży</p>
-      </div>
+      <p className="text-sm font-semibold leading-tight text-ink-900">Vinted Studio</p>
     </Link>
   )
 }
@@ -117,8 +112,7 @@ export function Layout() {
         <div className="mt-6 flex-1">
           <NavItems />
         </div>
-        <SyncBadge className="mb-2" />
-        <p className="px-2 text-[11.5px] leading-relaxed text-ink-400">{KEY_NOTE}</p>
+        <SyncBadge />
       </aside>
 
       {/* Mobile header */}
@@ -133,7 +127,6 @@ export function Layout() {
           <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+4.25rem)] flex flex-col gap-3 rounded-2xl bg-ink-50 p-3 shadow-pop">
             <NavItems items={MORE} />
             <SyncBadge className="bg-surface" />
-            <p className="px-2 text-[11.5px] leading-relaxed text-ink-400">{KEY_NOTE}</p>
           </div>
         </div>
       )}

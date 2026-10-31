@@ -272,7 +272,6 @@ export function PhotoStudio() {
     <div>
       <SectionTitle
         title="Studio zdjęć AI"
-        subtitle="Ubierz produkt na modelce AI (wirtualna przymierzalnia) lub wyczyść tło zdjęcia."
       />
 
       {noModels && mode === 'tryOn' && (
