@@ -78,12 +78,12 @@ export function Accounts() {
           const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
           // Spójnie z Pulpitem i Ewidencją — jedna reguła przychodu (aggregateProfit).
           const revenue = aggregateProfit(accSales).revenue
-          // Sztuka modelu wystawionego na dwóch kontach liczy się na każdym z nich.
-          const stock = (products ?? []).filter(
+          // Magazyn nie należy do konta — konto ma tylko to, co na nim wystawione. Sztuka
+          // modelu wystawionego na dwóch kontach liczy się na każdym z nich.
+          const listed = (products ?? []).filter(
             (p) =>
-              isOnAccount(p, a.id, p.designId ? listingsByDesign.get(p.designId) : undefined) &&
-              p.status !== 'sold' &&
-              p.status !== 'archived',
+              p.status === 'listed' &&
+              isOnAccount(p, a.id, p.designId ? listingsByDesign.get(p.designId) : undefined),
           ).length
           return (
             <div key={a.id} className="card p-4">
@@ -119,8 +119,8 @@ export function Accounts() {
                   <p className="font-bold text-emerald-600">{money(revenue)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-ink-400">W magazynie</p>
-                  <p className="font-bold text-ink-900">{stock}</p>
+                  <p className="text-xs text-ink-400">Wystawione</p>
+                  <p className="font-bold text-ink-900">{listed}</p>
                 </div>
               </div>
               {a.notes && <p className="mt-3 text-xs text-ink-500">{a.notes}</p>}
