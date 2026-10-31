@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BookOpen, ChevronDown, Download, Loader2, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react'
+import { BookOpen, ChevronDown, Download, Loader2, Pencil, Plus, Trash2, TrendingUp, Upload, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Expense, Sale, SaleStatus } from '@/db/types'
@@ -20,7 +20,7 @@ import {
   type SalesPeriod,
 } from '@/lib/salesRecord'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
-import { useLocalStorageState } from '@/lib/hooks'
+import { topProducts, type TopProduct as TopProductRow } from '@/lib/topProducts'
 import { PromotionScreenshotField, type PromotionReadResult } from '@/components/PromotionScreenshotField'
 import { normalizeDuration, PROMO_DURATIONS, type PromotionFlags } from '@/lib/promotionScreenshot'
 import { Button, EmptyState, Field, Modal, MoreFields, NumberInput, Select, StatCard, TextArea, TextInput, SectionTitle } from '@/components/ui'
@@ -46,9 +46,11 @@ export function Sales() {
   const [expOpen, setExpOpen] = useState(false)
   const [editingExp, setEditingExp] = useState<Expense | null>(null)
   const [expIsNew, setExpIsNew] = useState(false) // nowy wpis → pokaż wczytywanie ze zrzutu
-  // Zwinięcie tabeli sprzedaży — domyślnie zwinięta, by od razu mieć dostęp do kosztów
-  // bez przewijania całej listy. Wybór użytkownika jest pamiętany per urządzenie.
-  const [salesCollapsed, setSalesCollapsed] = useLocalStorageState('vinted-studio-sales-collapsed', true)
+  // Surowe listy sprzedaży i kosztów są zwinięte przy każdym wejściu — na górze ma być
+  // podsumowanie i ranking produktów, a pełną ewidencję rozwija się na żądanie.
+  const [salesCollapsed, setSalesCollapsed] = useState(true)
+  const [expensesCollapsed, setExpensesCollapsed] = useState(true)
+  const [showAllTop, setShowAllTop] = useState(false)
 
   // Zakres liczony przy każdym renderze (karta otwarta przez północ / granicę miesiąca
   // nie może zostać na starym okresie); memo kluczujemy po granicach, nie po obiekcie.
@@ -81,6 +83,7 @@ export function Sales() {
     () => aggregateProfit(filtered, filteredExpenses, filteredProducts),
     [filtered, filteredExpenses, filteredProducts],
   )
+  const top = useMemo(() => topProducts(filtered), [filtered])
   const accName = (id?: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
   const currency = settings?.currency ?? 'PLN'
 
@@ -256,6 +259,16 @@ export function Sales() {
         <StatCard label="Marża" value={percent(stats.margin)} sub={`${filtered.length} transakcji`} />
       </div>
 
+      {top.length > 0 && (
+        <TopProducts
+          items={showAllTop ? top.slice(0, 15) : top.slice(0, 5)}
+          total={top.length}
+          expanded={showAllTop}
+          onToggle={() => setShowAllTop((v) => !v)}
+          currency={currency}
+        />
+      )}
+
       {filtered.length === 0 ? (
         <EmptyState
           icon={<Wallet size={40} />}
@@ -269,25 +282,13 @@ export function Sales() {
         />
       ) : (
         <div className="card overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setSalesCollapsed((v) => !v)}
-            aria-expanded={!salesCollapsed}
-            aria-controls="sales-table-panel"
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-ink-50/50"
-          >
-            <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
-              <ChevronDown
-                size={16}
-                className={clsx('text-ink-400 transition-transform', salesCollapsed && '-rotate-90')}
-              />
-              Sprzedaże
-              <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs font-medium tabular-nums text-ink-500">
-                {filtered.length}
-              </span>
-            </span>
-            <span className="text-xs font-medium text-ink-400">{salesCollapsed ? 'Pokaż' : 'Ukryj'}</span>
-          </button>
+          <CollapseHeader
+            label="Sprzedaże"
+            count={filtered.length}
+            collapsed={salesCollapsed}
+            onToggle={() => setSalesCollapsed((v) => !v)}
+            controls="sales-table-panel"
+          />
           <div
             id="sales-table-panel"
             hidden={salesCollapsed}
@@ -358,7 +359,14 @@ export function Sales() {
           </p>
         ) : (
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
+            <CollapseHeader
+              label="Koszty"
+              count={filteredExpenses.length}
+              collapsed={expensesCollapsed}
+              onToggle={() => setExpensesCollapsed((v) => !v)}
+              controls="expenses-table-panel"
+            />
+            <div id="expenses-table-panel" hidden={expensesCollapsed} className="overflow-x-auto border-t border-ink-100">
               <table className="w-full text-sm">
                 <tbody>
                   {filteredExpenses.map((e) => (
@@ -394,6 +402,103 @@ export function Sales() {
       <SaleModal open={open} onClose={() => setOpen(false)} sale={editing} accounts={accounts ?? []} />
       <ExpenseModal open={expOpen} onClose={() => setExpOpen(false)} expense={editingExp} accounts={accounts ?? []} allowScreenshot={expIsNew} />
       <ImportSalesModal open={importOpen} onClose={() => setImportOpen(false)} />
+    </div>
+  )
+}
+
+function CollapseHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+  controls,
+}: {
+  label: string
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+  controls: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-ink-50/50"
+    >
+      <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+        <ChevronDown size={16} className={clsx('text-ink-400 transition-transform', collapsed && '-rotate-90')} />
+        {label}
+        <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs font-medium tabular-nums text-ink-500">{count}</span>
+      </span>
+      <span className="text-xs font-medium text-ink-400">{collapsed ? 'Pokaż' : 'Ukryj'}</span>
+    </button>
+  )
+}
+
+/** Ranking modeli: łączny zysk, sprzedane sztuki i rozmiary, które schodzą. */
+function TopProducts({
+  items,
+  total,
+  expanded,
+  onToggle,
+  currency,
+}: {
+  items: TopProductRow[]
+  total: number
+  expanded: boolean
+  onToggle: () => void
+  currency: string
+}) {
+  const maxProfit = Math.max(...items.map((i) => i.profit), 1)
+  return (
+    <div className="card mb-5 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-4 py-3">
+        <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+          <TrendingUp size={16} className="text-emerald-600" />
+          Najlepiej prosperujące
+        </span>
+        <span className="text-xs text-ink-400">wg łącznego zysku</span>
+      </div>
+      <ol>
+        {items.map((t, i) => (
+          <li key={t.key} className="flex items-center gap-3 border-b border-ink-50 px-4 py-3 last:border-0">
+            <span className="w-5 shrink-0 text-center text-sm font-semibold tabular-nums text-ink-400">{i + 1}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-ink-900" title={t.name}>{t.name}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+                <span className="tabular-nums">
+                  {t.units} {pluralPl(t.units, 'sztuka', 'sztuki', 'sztuk')}
+                </span>
+                <span className="tabular-nums">śr. {money(t.profit / t.units, currency)} / szt.</span>
+                {t.sizes.length > 0 && <span>rozm. {t.sizes.join(', ')}</span>}
+              </div>
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink-100">
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.max(0, (t.profit / maxProfit) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className={clsx('font-semibold tabular-nums', t.profit >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                {money(t.profit, currency)}
+              </p>
+              <p className="text-xs tabular-nums text-ink-400">{money(t.revenue, currency)}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      {total > 5 && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full border-t border-ink-100 px-4 py-2.5 text-xs font-medium text-ink-500 transition hover:bg-ink-50/50"
+        >
+          {expanded ? 'Pokaż mniej' : `Pokaż więcej (${Math.min(total, 15) - 5})`}
+        </button>
+      )}
     </div>
   )
 }
