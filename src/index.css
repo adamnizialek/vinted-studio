@@ -11,38 +11,42 @@
    */
   :root {
     color-scheme: light;
-    --ink-50: 246 247 249;
-    --ink-100: 236 238 242;
-    --ink-200: 212 217 225;
-    --ink-300: 174 183 198;
-    --ink-400: 130 144 165;
-    --ink-500: 99 113 137;
-    --ink-600: 78 90 112;
-    --ink-700: 64 73 91;
-    --ink-800: 55 62 77;
-    --ink-900: 31 36 46;
-    --ink-950: 19 22 28;
+    /* Neutralne, "jablkowe" szarosci stylu Frosted (bez niebieskiego odcienia). */
+    --ink-50: 241 241 243;
+    --ink-100: 232 232 236;
+    --ink-200: 220 220 224;
+    --ink-300: 199 199 204;
+    --ink-400: 161 161 166;
+    --ink-500: 142 142 147;
+    --ink-600: 110 110 115;
+    --ink-700: 85 85 90;
+    --ink-800: 58 58 60;
+    --ink-900: 28 28 30;
+    --ink-950: 12 12 13;
     --surface: 255 255 255;
-    --checker: 236 238 242;
+    --checker: 236 236 239;
+    /* Polprzezroczysty panel bocznego menu (backdrop-blur). */
+    --glass: rgba(255, 255, 255, 0.6);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
       /* Odwrocenie rol: tla ciemnieja, tekst jasnieje, a tony srodkowe
          (przyciszony tekst ink-400/500) pozostaja czytelne. */
-      --ink-50: 19 22 28;
-      --ink-100: 27 31 39;
-      --ink-200: 38 43 53;
-      --ink-300: 51 58 70;
-      --ink-400: 138 151 171;
-      --ink-500: 164 175 193;
-      --ink-600: 184 193 208;
-      --ink-700: 204 211 222;
-      --ink-800: 221 226 234;
-      --ink-900: 238 241 245;
-      --ink-950: 246 247 249;
-      --surface: 30 35 44;
-      --checker: 38 43 53;
+      --ink-50: 18 18 20;
+      --ink-100: 38 38 42;
+      --ink-200: 52 52 56;
+      --ink-300: 72 72 77;
+      --ink-400: 142 142 147;
+      --ink-500: 158 158 164;
+      --ink-600: 178 178 184;
+      --ink-700: 202 202 207;
+      --ink-800: 222 222 226;
+      --ink-900: 242 242 247;
+      --ink-950: 250 250 252;
+      --surface: 30 30 33;
+      --checker: 44 44 48;
+      --glass: rgba(36, 36, 40, 0.6);
     }
   }
   html,
@@ -72,34 +76,35 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-4 py-2 text-sm font-medium
       transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-brand-500 text-white shadow-sm hover:bg-brand-600;
+    @apply btn bg-brand-500 text-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:bg-brand-700;
   }
   .btn-ghost {
-    @apply btn bg-surface text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50;
+    @apply btn bg-surface text-ink-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)] ring-1 ring-inset ring-ink-950/[0.04]
+      hover:bg-ink-50;
   }
   .btn-soft {
     @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100
-      dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-950/60;
+      dark:bg-brand-950/50 dark:text-brand-300 dark:hover:bg-brand-950/70;
   }
   .btn-danger {
-    @apply btn bg-red-50 text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-100
-      dark:bg-red-950/40 dark:text-red-400 dark:ring-red-900 dark:hover:bg-red-950/60;
+    @apply btn bg-red-50 text-red-700 hover:bg-red-100
+      dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60;
   }
   .btn-sm {
-    @apply px-2.5 py-1.5 text-xs;
+    @apply rounded-[9px] px-3 py-1.5 text-[13px];
   }
   .card {
-    @apply rounded-2xl bg-surface shadow-card ring-1 ring-ink-100;
+    @apply rounded-2xl bg-surface shadow-card ring-1 ring-ink-950/[0.03];
   }
   .label {
-    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-500;
+    @apply mb-1.5 block text-[13px] font-medium text-ink-500;
   }
   .input {
-    @apply w-full rounded-xl border-0 bg-ink-50 px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-200
+    @apply w-full rounded-[10px] border-0 bg-ink-50 px-3 py-2 text-sm text-ink-900 ring-1 ring-inset ring-ink-950/[0.06]
       placeholder:text-ink-400 focus:bg-surface focus:ring-2 focus:ring-brand-400 focus:outline-none;
   }
   textarea.input {
@@ -113,18 +118,38 @@
     }
   }
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold;
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700;
+  }
+  /* Kontrolka segmentowa: szara szyna z "wycietymi" pigulkami. */
+  .seg {
+    @apply inline-flex gap-0.5 rounded-[11px] bg-ink-950/[0.07] p-[3px];
+  }
+  .seg-item {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium text-ink-700
+      transition hover:text-ink-900;
+  }
+  .seg-item-active {
+    @apply bg-surface text-ink-900 shadow-seg;
+  }
+  .glass {
+    background: var(--glass);
+    @apply shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)] backdrop-blur-xl dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)];
   }
   .nav-link {
-    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-600
-      transition hover:bg-ink-100 hover:text-ink-900;
+    @apply flex items-center gap-3 rounded-[9px] px-2.5 py-2 text-sm font-medium text-ink-700
+      transition hover:bg-ink-950/[0.04] hover:text-ink-900;
+  }
+  .nav-link > svg {
+    @apply text-ink-400 transition;
   }
   .nav-link-active {
-    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700
-      dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-950/40 dark:hover:text-brand-300;
+    @apply bg-surface text-ink-900 shadow-seg hover:bg-surface;
+  }
+  .nav-link-active > svg {
+    @apply text-brand-500;
   }
 }
 

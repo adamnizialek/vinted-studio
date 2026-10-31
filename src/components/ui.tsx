@@ -26,10 +26,10 @@ export function SectionTitle({
   right?: ReactNode
 }) {
   return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-      <div className="min-w-0">
-        <h2 className="text-lg font-bold text-ink-900">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-sm text-ink-500">{subtitle}</p>}
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+      <div className="flex min-w-0 flex-col gap-0.5 sm:flex-[1_1_320px]">
+        {subtitle && <p className="text-[13px] font-medium text-ink-500 [text-wrap:pretty]">{subtitle}</p>}
+        <h2 className="text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ink-900 sm:text-[34px]">{title}</h2>
       </div>
       {right}
     </div>
@@ -182,9 +182,9 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-ink-200 bg-surface/50 px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl px-6 py-14 text-center shadow-[inset_0_0_0_1.5px_rgb(var(--ink-200))]">
       {icon && <div className="mb-3 text-ink-300">{icon}</div>}
-      <h3 className="text-base font-semibold text-ink-800">{title}</h3>
+      <h3 className="text-[15px] font-semibold text-ink-900">{title}</h3>
       {description && <p className="mt-1 max-w-sm text-sm text-ink-500">{description}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -206,19 +206,19 @@ export function StatCard({
 }) {
   const toneCls = {
     default: 'text-ink-900',
-    good: 'text-emerald-600',
+    good: 'text-brand-500',
     warn: 'text-amber-600',
-    brand: 'text-brand-600',
+    brand: 'text-ink-900',
     bad: 'text-red-500',
   }[tone]
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</p>
+    <div className="card flex flex-col gap-1.5 px-5 py-[18px]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[13px] font-medium text-ink-500">{label}</p>
         {icon && <span className="text-ink-300">{icon}</span>}
       </div>
-      <p className={clsx('mt-2 text-2xl font-extrabold tabular-nums', toneCls)}>{value}</p>
-      {sub && <p className="mt-1 text-xs text-ink-400">{sub}</p>}
+      <p className={clsx('text-2xl font-semibold tracking-[-0.025em] tabular-nums sm:text-[28px]', toneCls)}>{value}</p>
+      {sub && <p className="text-[12.5px] text-ink-500">{sub}</p>}
     </div>
   )
 }
@@ -264,7 +264,7 @@ export function Modal({
       >
         {title && (
           <div className="flex items-center justify-between border-b border-ink-100 px-5 py-3.5">
-            <h3 className="text-base font-bold text-ink-900">{title}</h3>
+            <h3 className="text-base font-semibold text-ink-900">{title}</h3>
             <button onClick={onClose} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
               <X size={18} />
             </button>

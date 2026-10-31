@@ -222,18 +222,20 @@ export function Sales() {
       />
 
       {/* Przełącznik widoku konta */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        <ViewChip active={view === 'all'} onClick={() => setView('all')} label="Wspólna" />
-        {accounts?.map((a) => (
-          <ViewChip
-            key={a.id}
-            active={view === a.id}
-            onClick={() => setView(a.id)}
-            label={a.name}
-            color={a.color}
-          />
-        ))}
-        <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="ml-auto w-44">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="seg max-w-full overflow-x-auto">
+          <ViewChip active={view === 'all'} onClick={() => setView('all')} label="Wspólna" />
+          {accounts?.map((a) => (
+            <ViewChip
+              key={a.id}
+              active={view === a.id}
+              onClick={() => setView(a.id)}
+              label={a.name}
+              color={a.color}
+            />
+          ))}
+        </div>
+        <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="ml-auto w-44 bg-surface shadow-card">
           {(Object.keys(SALES_PERIOD_LABELS) as SalesPeriod[]).map((p) => (
             <option key={p} value={p}>
               {SALES_PERIOD_LABELS[p]}
@@ -411,11 +413,11 @@ function ViewChip({
     <button
       onClick={onClick}
       className={clsx(
-        'inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold transition',
-        active ? 'bg-ink-900 text-ink-50' : 'bg-surface text-ink-600 ring-1 ring-ink-200 hover:bg-ink-50',
+        'seg-item',
+        active && 'seg-item-active',
       )}
     >
-      {color && <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />}
+      {color && <span className="h-[7px] w-[7px] rounded-full" style={{ background: color }} />}
       {label}
     </button>
   )

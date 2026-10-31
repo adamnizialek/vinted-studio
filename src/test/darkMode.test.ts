@@ -13,7 +13,7 @@ describe('dark mode wiring', () => {
   })
 
   it('defines the light ramp on :root', () => {
-    expect(css).toMatch(/--ink-50:\s*246 247 249/)
+    expect(css).toMatch(/--ink-50:\s*241 241 243/)
     expect(css).toMatch(/--surface:\s*255 255 255/)
     expect(css).toContain('color-scheme: light')
   })
@@ -23,9 +23,9 @@ describe('dark mode wiring', () => {
     // The dark block flips backgrounds dark and text light, and opts native widgets in.
     const darkBlock = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'))
     expect(darkBlock).toContain('color-scheme: dark')
-    expect(darkBlock).toMatch(/--ink-50:\s*19 22 28/) // canvas goes dark
-    expect(darkBlock).toMatch(/--ink-900:\s*238 241 245/) // primary text goes light
-    expect(darkBlock).toMatch(/--surface:\s*30 35 44/) // elevated panel
-    expect(darkBlock).toMatch(/--checker:\s*38 43 53/) // transparency backdrop darkens
+    expect(darkBlock).toMatch(/--ink-50:\s*18 18 20/) // canvas goes dark
+    expect(darkBlock).toMatch(/--ink-900:\s*242 242 247/) // primary text goes light
+    expect(darkBlock).toMatch(/--surface:\s*30 30 33/) // elevated panel
+    expect(darkBlock).toMatch(/--checker:\s*44 44 48/) // transparency backdrop darkens
   })
 })

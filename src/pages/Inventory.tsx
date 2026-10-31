@@ -248,10 +248,10 @@ export function Inventory() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Szukaj po nazwie, marce, rozmiarze, tagach…"
-            className="pl-9"
+            className="bg-surface pl-9 shadow-card"
           />
         </div>
-        <Select value={status} onChange={(e) => setStatus(e.target.value as ProductStatus | 'all')} className="sm:w-44">
+        <Select value={status} onChange={(e) => setStatus(e.target.value as ProductStatus | 'all')} className="bg-surface shadow-card sm:w-44">
           <option value="all">Wszystkie aktywne</option>
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -260,7 +260,7 @@ export function Inventory() {
           ))}
         </Select>
         {accounts && accounts.length > 0 && (
-          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="sm:w-44">
+          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="bg-surface shadow-card sm:w-44">
             <option value="all">Wszystkie konta</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
@@ -283,7 +283,7 @@ export function Inventory() {
           }
         />
       ) : filtered.length === 0 ? (
-        <p className="rounded-2xl bg-surface px-4 py-10 text-center text-sm text-ink-400 ring-1 ring-ink-100">
+        <p className="card px-4 py-10 text-center text-sm text-ink-400">
           Brak produktów pasujących do filtrów.
         </p>
       ) : (

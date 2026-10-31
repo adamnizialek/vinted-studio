@@ -54,13 +54,13 @@ function cssColor(name: string, fallback: string): string {
 
 function readChartColors(): ChartColors {
   return {
-    grid: cssColor('--ink-100', '#eceef2'),
+    grid: cssColor('--ink-100', '#e8e8ec'),
     axis: cssColor('--ink-400', '#8290a5'),
     cursor: cssColor('--ink-100', '#f6f7f9'),
     tooltipBg: cssColor('--surface', '#ffffff'),
     tooltipBorder: cssColor('--ink-200', '#eceef2'),
     tooltipText: cssColor('--ink-900', '#1f242e'),
-    bar: '#0b9b82',
+    bar: '#2f8f7a',
   }
 }
 

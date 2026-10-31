@@ -98,9 +98,9 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold text-ink-900">Pulpit</h1>
-          <p className="text-sm text-ink-500">Przegląd magazynu i sprzedaży.</p>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[13px] font-medium text-ink-500">Przegląd magazynu i sprzedaży.</p>
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.025em] text-ink-900 sm:text-[34px]">Pulpit</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/magazyn" className="btn-primary">
@@ -154,7 +154,7 @@ export function Dashboard() {
               <Clock size={18} className="text-brand-500" />
               <h3 className="font-bold">Do wystawienia</h3>
             </div>
-            <p className="mt-2 text-3xl font-extrabold text-ink-900">{toList}</p>
+            <p className="mt-2 text-5xl font-semibold leading-none tracking-[-0.04em] text-ink-900">{toList}</p>
             <p className="text-sm text-ink-500">przedmiotów gotowych / szkiców</p>
             <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-xs text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">
               💡 Najwięcej kupujących jest wieczorem — wystawiaj między 18:00 a 22:00.

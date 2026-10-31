@@ -4,19 +4,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta inspirowana Vinted (teal) + neutralne tlo studia
+        // Stonowany teal (styl "Frosted") + neutralne, szare tlo studia
         brand: {
-          50: '#e8faf6',
-          100: '#c8f3e9',
-          200: '#92e7d3',
-          300: '#54d4ba',
-          400: '#23b89c',
-          500: '#0b9b82',
-          600: '#067d6a',
-          700: '#096457',
-          800: '#0b5046',
-          900: '#0c423b',
-          950: '#022621',
+          50: '#eef6f3',
+          100: '#e0efea',
+          200: '#c0dfd5',
+          300: '#90c6b6',
+          400: '#58a994',
+          500: '#2f8f7a',
+          600: '#277a68',
+          700: '#1f6b5a',
+          800: '#1b564a',
+          900: '#17463d',
+          950: '#0a2a24',
         },
         // Neutralna rampa "ink" jest sterowana zmiennymi CSS, by motyw mogl sie
         // odwracac w jednym bloku @media (prefers-color-scheme: dark) — patrz index.css.
@@ -39,11 +39,17 @@ export default {
         surface: 'rgb(var(--surface) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Figtree', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
+      },
+      borderRadius: {
+        // Karty i okna w stylu "Frosted" sa wyraznie zaokraglone (18px).
+        '2xl': '18px',
       },
       boxShadow: {
-        card: '0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08)',
-        pop: '0 12px 32px rgba(16,24,40,.16)',
+        card: '0 1px 2px rgba(0,0,0,.04)',
+        // Wybrany element kontrolki segmentowej / aktywna pozycja menu.
+        seg: '0 1px 3px rgba(0,0,0,.08)',
+        pop: '0 12px 32px rgba(0,0,0,.14)',
       },
     },
   },

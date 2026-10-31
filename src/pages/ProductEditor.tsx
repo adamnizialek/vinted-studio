@@ -180,7 +180,7 @@ function StandaloneEditor({ id }: { id: string | undefined }) {
         value={draft.name}
         onChange={(e) => update({ name: e.target.value })}
         placeholder="Nazwa produktu…"
-        className="w-full bg-transparent text-2xl font-extrabold text-ink-900 placeholder:text-ink-300 focus:outline-none"
+        className="w-full bg-transparent text-2xl font-semibold tracking-[-0.02em] text-ink-900 placeholder:text-ink-300 focus:outline-none"
       />
 
       {/* Taby */}
@@ -407,7 +407,7 @@ function DesignEditor({ designId }: { designId: string }) {
         value={draft?.name ?? ''}
         onChange={(e) => update({ name: e.target.value })}
         placeholder="Nazwa modelu…"
-        className="w-full bg-transparent text-2xl font-extrabold text-ink-900 placeholder:text-ink-300 focus:outline-none"
+        className="w-full bg-transparent text-2xl font-semibold tracking-[-0.02em] text-ink-900 placeholder:text-ink-300 focus:outline-none"
       />
       <p className="mt-1 text-xs text-ink-400">
         Nazwa, marka, kolor, materiał, zdjęcia, opisy i ogłoszenia są wspólne dla wszystkich
