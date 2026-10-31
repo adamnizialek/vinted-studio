@@ -20,7 +20,7 @@ const p = (over: Partial<Product> = {}): Product => ({
 })
 
 const ALL_STATUSES: ProductStatus[] = [
-  'draft', 'in_stock', 'listed', 'reserved', 'sold', 'archived',
+  'draft', 'incoming', 'in_stock', 'listed', 'reserved', 'sold', 'archived',
 ]
 
 describe('passesInventoryFilter — default "all" view hides sold', () => {
@@ -75,5 +75,16 @@ describe('passesInventoryFilter — model listed on two accounts', () => {
     expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a1' }, listings)).toBe(true)
     expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a2' }, listings)).toBe(true)
     expect(passesInventoryFilter(unit, { status: 'all', accountId: 'a3' }, listings)).toBe(false)
+  })
+})
+
+describe('passesInventoryFilter — older statuses fold into the remaining filters', () => {
+  it('a draft shows under "W magazynie", a reservation under "Wystawione"', () => {
+    expect(passesInventoryFilter(p({ status: 'draft' }), { status: 'in_stock', accountId: 'all' })).toBe(true)
+    expect(passesInventoryFilter(p({ status: 'reserved' }), { status: 'listed', accountId: 'all' })).toBe(true)
+  })
+  it('"Zamówione" shows only items on their way', () => {
+    expect(passesInventoryFilter(p({ status: 'incoming' }), { status: 'incoming', accountId: 'all' })).toBe(true)
+    expect(passesInventoryFilter(p({ status: 'in_stock' }), { status: 'incoming', accountId: 'all' })).toBe(false)
   })
 })

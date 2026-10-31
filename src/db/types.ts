@@ -7,7 +7,8 @@ export type ID = string
 
 /** Stan przedmiotu w obiegu sprzedazowym. */
 export type ProductStatus =
-  | 'draft' // szkic / w opracowaniu
+  | 'draft' // szkic / w opracowaniu (starszy — nowe przedmioty startują w magazynie)
+  | 'incoming' // zamówione, jeszcze nie dotarło do magazynu
   | 'in_stock' // w magazynie, gotowe
   | 'listed' // wystawione na Vinted
   | 'reserved' // zarezerwowane przez kupujacego

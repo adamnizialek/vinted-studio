@@ -154,7 +154,7 @@ export function Inventory() {
       condition: DEFAULT_CONDITION,
       currency: settings?.currency ?? 'PLN',
       quantity: 1,
-      status: 'draft',
+      status: 'in_stock',
       accountId: settings?.defaultAccountId,
       photoIds: [],
       generatedPhotoIds: [],

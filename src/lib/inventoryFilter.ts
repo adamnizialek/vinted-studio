@@ -18,6 +18,11 @@ export interface InventoryFilter {
  * Pure — no Dexie/React — so it can be unit-tested and reused for both standalone
  * cards and per-size members of a model.
  */
+/** Starsze statusy bez własnego filtra: szkic leży w magazynie, rezerwacja wisi na Vinted. */
+function filterStatus(s: ProductStatus): ProductStatus {
+  return s === 'draft' ? 'in_stock' : s === 'reserved' ? 'listed' : s
+}
+
 export function passesInventoryFilter(
   p: Product,
   f: InventoryFilter,
@@ -26,7 +31,7 @@ export function passesInventoryFilter(
 ): boolean {
   if (f.status === 'all') {
     if (p.status === 'sold') return false
-  } else if (p.status !== f.status) {
+  } else if (filterStatus(p.status) !== f.status) {
     return false
   }
   if (f.accountId !== 'all' && !isOnAccount(p, f.accountId, listings)) return false

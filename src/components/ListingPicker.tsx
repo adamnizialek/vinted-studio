@@ -97,7 +97,9 @@ export function ProductListingPicker({
       setSoldOpen(true)
       return
     }
-    if (status === 'in_stock') return void apply(close, UNLIST_PATCH)
+    // Zdjęcie z Vinted (do magazynu albo z powrotem „zamówione”) zdejmuje też konto.
+    if (status === 'in_stock' || status === 'incoming')
+      return void apply(close, { ...UNLIST_PATCH, status })
     void apply(close, statusChangePatch(product.status, status, Date.now()))
   }
 
@@ -169,7 +171,7 @@ export function ProductListingPicker({
                   <div className="my-1 border-t border-ink-100" />
                 </>
               )}
-              {(['in_stock', 'sold', 'reserved', 'draft', 'archived'] as const).map((s) => (
+              {(['incoming', 'in_stock', 'sold'] as const).map((s) => (
                 <OptionRow
                   key={s}
                   selected={s === product.status}

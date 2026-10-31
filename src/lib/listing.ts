@@ -152,7 +152,12 @@ function accountsOf(listings: DesignListing[]): ID[] {
 
 /** Statusy sztuki, które idą za ogłoszeniami modelu. Sprzedane, zarezerwowane i
  *  zarchiwizowane zostają, jak są — to decyzje o konkretnej sztuce. */
-const FOLLOWS_DESIGN_LISTINGS: ReadonlySet<Product['status']> = new Set(['draft', 'in_stock', 'listed'])
+const FOLLOWS_DESIGN_LISTINGS: ReadonlySet<Product['status']> = new Set([
+  'draft',
+  'incoming',
+  'in_stock',
+  'listed',
+])
 
 /** Najwcześniejsze ogłoszenie modelu; undefined gdy nigdzie nie jest wystawiony. */
 function firstListing(listings: DesignListing[] | undefined): DesignListing | undefined {

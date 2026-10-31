@@ -50,7 +50,7 @@ import {
   CURRENCY_OPTIONS,
   DEFAULT_CONDITION,
   SIZE_SUGGESTIONS,
-  STATUS_OPTIONS,
+  statusOptionsFor,
 } from '@/lib/constants'
 import { dateFromInput, dateInputValue, money, relative } from '@/lib/format'
 import {
@@ -387,7 +387,7 @@ function DesignEditor({ designId }: { designId: string }) {
               onChange={(e) => changeStatus(draft, e.target.value as ProductStatus, update)}
               className="w-40"
             >
-              {STATUS_OPTIONS.map((o) => (
+              {statusOptionsFor(draft.status).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>

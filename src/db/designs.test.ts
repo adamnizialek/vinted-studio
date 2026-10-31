@@ -218,13 +218,13 @@ describe('attachProductsToDesign', () => {
 })
 
 describe('addSizeToDesign', () => {
-  it('creates a draft product linked to the design with per-size seed', async () => {
+  it('creates an in-stock product linked to the design with per-size seed', async () => {
     await putEntity('designs', sampleDesign())
     await db.outbox.clear()
     const p = await addSizeToDesign('d1', { sizeLabel: 'L', listingPrice: 95 })
     const row = await db.products.get(p.id)
     expect(row?.designId).toBe('d1')
-    expect(row?.status).toBe('draft')
+    expect(row?.status).toBe('in_stock')
     expect(row?.sizeLabel).toBe('L')
     expect(row?.listingPrice).toBe(95)
     expect(row?.name).toBe('')

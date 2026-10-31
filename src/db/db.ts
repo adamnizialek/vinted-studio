@@ -1035,7 +1035,7 @@ export async function addSizeToDesign(
     condition: seed.condition ?? DEFAULT_CONDITION,
     currency: seed.currency ?? 'PLN',
     quantity: seed.quantity ?? 1,
-    status: 'draft',
+    status: 'in_stock',
     photoIds: [],
     generatedPhotoIds: [],
     descriptions: [],

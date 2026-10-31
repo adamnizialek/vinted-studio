@@ -15,6 +15,7 @@ export const DEFAULT_CONDITION: Condition = 'nowy_bez_metki'
 
 export const STATUS_LABELS: Record<ProductStatus, string> = {
   draft: 'Szkic',
+  incoming: 'Zamówione',
   in_stock: 'W magazynie',
   listed: 'Wystawione',
   reserved: 'Zarezerwowane',
@@ -22,13 +23,22 @@ export const STATUS_LABELS: Record<ProductStatus, string> = {
   archived: 'Archiwum',
 }
 
-export const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(
-  ([value, label]) => ({ value: value as ProductStatus, label }),
-)
+/** Statusy do wyboru. Szkic, rezerwacja i archiwum zostają tylko dla starszych danych. */
+export const PICKABLE_STATUSES: ProductStatus[] = ['incoming', 'in_stock', 'listed', 'sold']
+
+export const STATUS_OPTIONS = PICKABLE_STATUSES.map((value) => ({ value, label: STATUS_LABELS[value] }))
+
+/** Opcje wyboru statusu; starszy status przedmiotu zostaje na liście, żeby był widoczny. */
+export function statusOptionsFor(current: ProductStatus) {
+  return PICKABLE_STATUSES.includes(current)
+    ? STATUS_OPTIONS
+    : [...STATUS_OPTIONS, { value: current, label: STATUS_LABELS[current] }]
+}
 
 /** Kolory statusow (klasy Tailwind) dla znacznikow. */
 export const STATUS_TONE: Record<ProductStatus, string> = {
   draft: 'bg-ink-100 text-ink-700',
+  incoming: 'bg-violet-100 text-violet-700',
   in_stock: 'bg-blue-100 text-blue-700',
   listed: 'bg-brand-100 text-brand-700',
   reserved: 'bg-amber-100 text-amber-700',

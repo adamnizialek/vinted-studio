@@ -99,6 +99,7 @@ export function countsAsRevenue(status: Sale['status']): boolean {
 export function countsAsInventoryCost(status: ProductStatus): boolean {
   return (
     status === 'draft' ||
+    status === 'incoming' ||
     status === 'in_stock' ||
     status === 'listed' ||
     status === 'reserved'
