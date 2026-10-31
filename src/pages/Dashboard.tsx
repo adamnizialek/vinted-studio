@@ -1,17 +1,9 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import clsx from 'clsx'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { format, startOfMonth, subMonths } from 'date-fns'
 import { pl } from 'date-fns/locale'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { AlertTriangle, Camera, Clock, ExternalLink, Package, Percent, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
@@ -25,9 +17,13 @@ import {
   staleListings,
 } from '@/lib/listing'
 import { StatCard } from '@/components/ui'
-import { useChartColors } from '@/lib/hooks'
 
 const STALE_VISIBLE = 8
+
+/** Krótka kwota nad słupkiem wykresu: 7210 → „7,2k”, 50 → „50”. */
+function compactAmount(v: number): string {
+  return v >= 1000 ? `${(v / 1000).toFixed(1).replace('.', ',')}k` : String(Math.round(v))
+}
 
 export function Dashboard() {
   const settings = useSettings((s) => s.settings)
@@ -38,7 +34,6 @@ export function Dashboard() {
   const designs = useLiveQuery(() => db.designs.toArray(), [])
   const designsById = useMemo(() => new Map((designs ?? []).map((d) => [d.id, d])), [designs])
   const currency = settings?.currency ?? 'PLN'
-  const chartColors = useChartColors()
 
   const active = (products ?? []).filter((p) => countsAsInventoryCost(p.status))
   const inventoryValue = active.reduce((s, p) => s + (p.listingPrice ?? 0) * (p.quantity || 1), 0)
@@ -67,6 +62,7 @@ export function Dashboard() {
     }
     return buckets
   }, [sales])
+  const chartMax = Math.max(1, ...chart.map((b) => b.value))
 
   const perAccount = useMemo(() => {
     return (accounts ?? []).map((a) => {
@@ -123,27 +119,38 @@ export function Dashboard() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Wykres */}
         <div className="card p-5 lg:col-span-2">
-          <h3 className="mb-4 font-bold text-ink-900">Przychód — ostatnie 6 miesięcy</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} stroke={chartColors.axis} />
-                <YAxis tickLine={false} axisLine={false} fontSize={12} stroke={chartColors.axis} width={56} />
-                <Tooltip
-                  cursor={{ fill: chartColors.cursor }}
-                  formatter={(v: number) => [money(v, currency), 'Przychód']}
-                  contentStyle={{
-                    borderRadius: 12,
-                    border: `1px solid ${chartColors.tooltipBorder}`,
-                    background: chartColors.tooltipBg,
-                    color: chartColors.tooltipText,
-                    fontSize: 13,
-                  }}
-                />
-                <Bar dataKey="value" fill={chartColors.bar} radius={[6, 6, 0, 0]} maxBarSize={48} />
-              </BarChart>
-            </ResponsiveContainer>
+          <h3 className="mb-5 font-semibold text-ink-900">
+            Przychód <span className="font-medium text-ink-500">· ostatnie 6 miesięcy</span>
+          </h3>
+          {/* Słupki bez osi: kwota nad każdym miesiącem, bieżący miesiąc wyróżniony. */}
+          <div className="flex h-52 items-end gap-2.5 sm:gap-[18px]">
+            {chart.map((b, i) => {
+              const current = i === chart.length - 1
+              return (
+                <div
+                  key={b.key}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2"
+                  title={`${b.label}: ${money(b.value, currency)}`}
+                >
+                  <span
+                    className={clsx(
+                      'text-[11.5px] font-medium tabular-nums',
+                      current ? 'text-brand-500' : 'text-ink-400',
+                    )}
+                  >
+                    {compactAmount(b.value)}
+                  </span>
+                  <div
+                    className={clsx(
+                      'w-full rounded-lg',
+                      current ? 'bg-brand-500' : 'bg-brand-100 dark:bg-brand-900/70',
+                    )}
+                    style={{ height: `${Math.max(1, (b.value / chartMax) * 88)}%` }}
+                  />
+                  <span className="text-xs text-ink-500">{b.label}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
 
