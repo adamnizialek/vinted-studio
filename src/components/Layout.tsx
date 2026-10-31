@@ -120,19 +120,16 @@ export function Layout() {
     <div className="min-h-full lg:flex">
       {/* Sidebar (desktop) */}
       <aside className="glass sticky top-3 m-3 hidden h-[calc(100vh-24px)] w-[236px] shrink-0 flex-col self-start rounded-[28px] px-3 py-5 lg:flex">
-        <div className="flex items-center justify-between pr-1">
-          <Brand />
-          <SyncDot />
-        </div>
+        <Brand />
         <div className="mt-6 flex-1">
           <NavItems />
         </div>
+        <SyncDot className="ml-2" />
       </aside>
 
       {/* Mobile header */}
       <header className="glass sticky top-0 z-40 flex items-center px-2 pb-1.5 pt-[calc(env(safe-area-inset-top)+0.375rem)] [box-shadow:inset_0_-1px_0_var(--glass-stroke)] lg:hidden">
         <Brand />
-        <SyncDot className="ml-auto mr-2" />
       </header>
 
       {/* Mobile „Więcej” sheet — nad paskiem kart */}
@@ -141,6 +138,7 @@ export function Layout() {
           <div className="absolute inset-0 bg-black/20" onClick={() => setMoreOpen(false)} />
           <div className="glass-thick absolute inset-x-3 mx-auto max-w-[26rem] bottom-[calc(max(0.75rem,calc(env(safe-area-inset-bottom)-0.25rem))+4.5rem)] flex flex-col gap-3 rounded-[28px] p-3">
             <NavItems items={MORE} />
+            <SyncDot className="ml-2" />
           </div>
         </div>
       )}
