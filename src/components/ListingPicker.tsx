@@ -4,7 +4,13 @@ import clsx from 'clsx'
 import type { Account, Design, Product, ProductStatus } from '@/db/types'
 import { STATUS_LABELS, STATUS_TONE } from '@/lib/constants'
 import { dateFromInput, dateInputValue, pluralPl } from '@/lib/format'
-import { daysBetween, earliestListing, effectiveListings } from '@/lib/listing'
+import {
+  daysBetween,
+  earliestListing,
+  effectiveListings,
+  listingsForSize,
+  sizeKey,
+} from '@/lib/listing'
 import {
   applyStatusChange,
   listProductOn,
@@ -192,35 +198,41 @@ export function ProductListingPicker({
 }
 
 /**
- * Model: na których kontach wisi jego ogłoszenie. Jedno ogłoszenie na konto, niezależnie
- * od liczby sztuk; sztuki idą za modelem (patrz setDesignListings). Sprzedaż konkretnej
- * sztuki oznacza się w modelu, przy rozmiarze.
+ * Model albo jeden jego rozmiar (`size`): na których kontach wisi ogłoszenie. Jedno
+ * ogłoszenie na rozmiar i konto, niezależnie od liczby sztuk; sztuki idą za nim (patrz
+ * setDesignListings). Bez `size` (karta w Magazynie) zaznaczenie dotyczy wszystkich
+ * rozmiarów naraz. Sprzedaż konkretnej sztuki oznacza się w modelu, przy rozmiarze.
  */
 export function DesignListingPicker({
   design,
   members,
   accounts,
+  size,
   className,
 }: {
   design: Design
   members: Product[]
   accounts: Account[]
+  /** Rozmiar (sizeKey) wybrany w edytorze modelu; brak = cały model. */
+  size?: string
   className?: string
 }) {
   const [day, setDay] = useState<string | null>(null)
   // Starszy model (bez pola) — ogłoszenia odczytane z jego wystawionych sztuk.
-  const listings = effectiveListings(design.listings, members)
+  const all = effectiveListings(design.listings, members)
+  const listings = size == null ? all : listingsForSize(all, size)
+  const shown = size == null ? members : members.filter((m) => sizeKey(m) === size)
   const live = accounts.filter((a) => listings.some((l) => l.accountId === a.id))
   const since = earliestListing(listings)
   const days = since == null ? null : Math.max(0, daysBetween(since, Date.now()))
-  const unsold = members.filter((m) => m.status !== 'sold' && m.status !== 'archived').length
+  const unsold = shown.filter((m) => m.status !== 'sold' && m.status !== 'archived').length
 
   // Wyprzedany model nie ma czego wystawiać — chip znika (linia rozmiarów to pokazuje).
   if (accounts.length === 0 || (unsold === 0 && listings.length === 0)) return null
 
   const toggle = async (accountId: string) => {
     try {
-      await toggleDesignListing(design.id, accountId, sinceFrom(day))
+      await toggleDesignListing(design.id, accountId, sinceFrom(day), size)
     } catch {
       toast.error('Nie udało się zapisać.')
     }
@@ -228,7 +240,7 @@ export function DesignListingPicker({
 
   return (
     <ResponsivePicker
-      title="Gdzie jest wystawiony model?"
+      title={size == null ? 'Gdzie jest wystawiony model?' : `Gdzie jest wystawiony rozmiar ${size}?`}
       trigger={({ ref, toggle: open, aria }) => (
         <button
           ref={ref}
@@ -272,33 +284,35 @@ export function DesignListingPicker({
       {() => (
         <>
           <p className="px-2.5 pb-1 pt-0.5 text-xs text-ink-500">
-            Zaznacz konta, na których wisi ogłoszenie tego modelu ({unsold}{' '}
-            {pluralPl(unsold, 'sztuka', 'sztuki', 'sztuk')} w sprzedaży).
+            Zaznacz konta, na których wisi ogłoszenie{' '}
+            {size == null ? 'tego modelu, wszystkie rozmiary naraz' : `rozmiaru ${size || '(bez rozmiaru)'}`}{' '}
+            ({unsold} {pluralPl(unsold, 'sztuka', 'sztuki', 'sztuk')} w sprzedaży).
           </p>
           <SinceField day={day} setDay={setDay} />
           <div role="menu" aria-label="Konta z ogłoszeniem">
             {accounts.map((a) => {
-              const listing = listings.find((l) => l.accountId === a.id)
+              const listedSince = earliestListing(listings.filter((l) => l.accountId === a.id))
+              const on = listedSince != null
               return (
                 <OptionRow
                   key={a.id}
                   role="menuitemcheckbox"
-                  selected={!!listing}
+                  selected={on}
                   onClick={() => void toggle(a.id)}
                 >
                   <span
                     className={clsx(
                       'grid h-5 w-5 shrink-0 place-items-center rounded-md ring-1',
-                      listing ? 'bg-brand-500 text-white ring-brand-500' : 'ring-ink-300',
+                      on ? 'bg-brand-500 text-white ring-brand-500' : 'ring-ink-300',
                     )}
                   >
-                    {listing && <Check size={13} />}
+                    {on && <Check size={13} />}
                   </span>
                   <AccountDot account={a} />
                   <span className="truncate">{a.name}</span>
-                  {listing && (
+                  {on && (
                     <span className="ml-auto shrink-0 text-xs text-ink-400">
-                      od {new Date(listing.since).toLocaleDateString('pl-PL')}
+                      od {new Date(listedSince!).toLocaleDateString('pl-PL')}
                     </span>
                   )}
                 </OptionRow>

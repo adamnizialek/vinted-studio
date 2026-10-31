@@ -250,7 +250,7 @@ describe('listings when grouping and attaching', () => {
     await putEntity('products', listed('x1', 'acc1', 100))
     await putEntity('products', listed('x2', 'acc1', 50))
     const d = await groupProducts(['x1', 'x2'], 'x1')
-    expect(d.listings).toEqual([{ accountId: 'acc1', since: 50 }])
+    expect(d.listings).toEqual([{ accountId: 'acc1', since: 50, size: '' }])
     expect(await db.products.get('x1')).toMatchObject({ status: 'listed', accountId: 'acc1', listedAt: 50 })
   })
 
@@ -262,7 +262,7 @@ describe('listings when grouping and attaching', () => {
     })
     await putEntity('products', listed('x1', 'acc2', 70))
     const d = await attachProductsToDesign('d1', ['x1'])
-    expect(d.listings).toEqual([{ accountId: 'acc2', since: 70 }])
+    expect(d.listings).toEqual([{ accountId: 'acc2', since: 70, size: '' }])
     expect(await db.products.get('x1')).toMatchObject({ status: 'listed', accountId: 'acc2', listedAt: 70 })
     expect(await db.products.get('m1')).toMatchObject({ status: 'listed', accountId: 'acc2', listedAt: 70 })
   })

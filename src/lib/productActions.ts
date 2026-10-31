@@ -1,6 +1,6 @@
 import { db, deleteEntity, patchEntity } from '@/db/db'
 import type { DesignListing, ID, Product, ProductStatus, SaleStatus } from '@/db/types'
-import { listingsFromProducts, memberListingPatch, toggleListing } from './listing'
+import { listingsFromProducts, memberListingPatch, sizeKey, toggleListing } from './listing'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -89,7 +89,7 @@ export async function unlistProduct(id: ID): Promise<void> {
  */
 export async function setDesignListings(
   designId: ID,
-  next: DesignListing[] | ((current: DesignListing[]) => DesignListing[]),
+  next: DesignListing[] | ((current: DesignListing[], members: Product[]) => DesignListing[]),
 ): Promise<void> {
   await db.transaction('rw', db.designs, db.products, db.outbox, async () => {
     const design = await db.designs.get(designId)
@@ -98,7 +98,9 @@ export async function setDesignListings(
     // Bieżący stan czytamy w transakcji (nie z propsów) — dwa szybkie stuknięcia nie gubią
     // się nawzajem. Starszy model bez pola: ogłoszenia odczytane ze sztuk.
     const listings =
-      typeof next === 'function' ? next(design.listings ?? listingsFromProducts(members)) : next
+      typeof next === 'function'
+        ? next(design.listings ?? listingsFromProducts(members), members)
+        : next
     await patchEntity('designs', designId, { listings })
     for (const m of members) {
       const patch = memberListingPatch(m, listings)
@@ -107,9 +109,19 @@ export async function setDesignListings(
   })
 }
 
-/** Włącza/zdejmuje ogłoszenie modelu na koncie (patrz setDesignListings). */
-export async function toggleDesignListing(designId: ID, accountId: ID, since: number): Promise<void> {
-  await setDesignListings(designId, (cur) => toggleListing(cur, accountId, since))
+/**
+ * Włącza/zdejmuje ogłoszenie na koncie: jednego rozmiaru (`size`) albo, bez niego, całego
+ * modelu (patrz setDesignListings).
+ */
+export async function toggleDesignListing(
+  designId: ID,
+  accountId: ID,
+  since: number,
+  size?: string,
+): Promise<void> {
+  await setDesignListings(designId, (cur, members) =>
+    toggleListing(cur, accountId, since, size, members.map(sizeKey)),
+  )
 }
 
 /** Assign or clear (undefined) the account of a product. */

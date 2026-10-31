@@ -17,7 +17,13 @@ import {
   DEFAULT_TEXT_MODEL,
 } from '@/lib/constants'
 import { uid } from '@/lib/id'
-import { listingsFromProducts, memberListingPatch, mergeListings } from '@/lib/listing'
+import {
+  listingsForSize,
+  listingsFromProducts,
+  memberListingPatch,
+  mergeListings,
+  sizeKey,
+} from '@/lib/listing'
 import { type SyncTable } from '@/sync/core'
 import {
   saleImportKey,
@@ -808,8 +814,9 @@ export async function groupProducts(
         descriptions: [],
         updatedAt: now,
       }
-      // Sztuka idzie za ogłoszeniami modelu; model bez ogłoszeń nie zdejmuje jej z Vinted.
-      if (design.listings?.length) Object.assign(next, memberListingPatch(next, design.listings))
+      // Sztuka idzie za ogłoszeniami swojego rozmiaru; rozmiar bez ogłoszeń nie zdejmuje jej z Vinted.
+      if (listingsForSize(design.listings, sizeKey(next)).length)
+        Object.assign(next, memberListingPatch(next, design.listings))
       await db.products.put(next)
       await db.outbox.put({ table: 'products', id: p.id, deleted: 0, updatedAt: now })
     }
@@ -879,6 +886,7 @@ export async function attachProductsToDesign(
     // Dotychczasowe sztuki idą za ogłoszeniami (np. gdy dołączony przedmiot wniósł konto).
     if (listings.length) {
       for (const m of members) {
+        if (!listingsForSize(listings, sizeKey(m)).length) continue
         const patch = memberListingPatch(m, listings)
         if (!patch) continue
         await db.products.put({ ...m, ...patch, updatedAt: now })
@@ -912,8 +920,9 @@ export async function attachProductsToDesign(
         descriptions: [],
         updatedAt: now,
       }
-      // Sztuka idzie za ogłoszeniami modelu; model bez ogłoszeń nie zdejmuje jej z Vinted.
-      if (listings.length) Object.assign(next, memberListingPatch(next, listings))
+      // Sztuka idzie za ogłoszeniami swojego rozmiaru; rozmiar bez ogłoszeń nie zdejmuje jej z Vinted.
+      if (listingsForSize(listings, sizeKey(next)).length)
+        Object.assign(next, memberListingPatch(next, listings))
       await db.products.put(next)
       await db.outbox.put({ table: 'products', id: p.id, deleted: 0, updatedAt: now })
     }
@@ -1040,7 +1049,7 @@ export async function addSizeToDesign(
     createdAt: now,
     updatedAt: now,
   }
-  // Nowy rozmiar wystawionego modelu jest od razu w jego ogłoszeniu.
+  // Nowa sztuka wystawionego rozmiaru (albo modelu) jest od razu w jego ogłoszeniu.
   const design = await db.designs.get(designId)
   Object.assign(product, memberListingPatch(product, design?.listings))
   return putEntity('products', product)

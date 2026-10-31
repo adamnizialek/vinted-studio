@@ -276,11 +276,20 @@ describe('listing fixes from review', () => {
     await putEntity('products', { ...sampleProduct('u2'), designId: 'd1', accountId: undefined })
     await toggleDesignListing('d1', 'a2', 900)
     expect((await db.designs.get('d1'))?.listings).toEqual([
-      { accountId: 'a1', since: 100 },
+      { accountId: 'a1', since: 100, size: '' },
       { accountId: 'a2', since: 900 },
     ])
     for (const id of ['u1', 'u2'])
       expect(await db.products.get(id)).toMatchObject({ status: 'listed', listedAt: 100, accountId: undefined })
+  })
+
+  it('toggling one size moves only the units of that size', async () => {
+    await putEntity('designs', { ...design, listings: [] })
+    await putEntity('products', { ...sampleProduct('u37'), designId: 'd1', sizeLabel: '37', accountId: undefined })
+    await putEntity('products', { ...sampleProduct('u38'), designId: 'd1', sizeLabel: '38', accountId: undefined })
+    await toggleDesignListing('d1', 'a1', 500, '37')
+    expect(await db.products.get('u37')).toMatchObject({ status: 'listed', accountId: 'a1', listedAt: 500 })
+    expect((await db.products.get('u38'))?.status).not.toBe('listed')
   })
 
   it('two quick toggles both land (state read inside the transaction)', async () => {

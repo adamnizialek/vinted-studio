@@ -53,7 +53,7 @@ import {
   STATUS_OPTIONS,
 } from '@/lib/constants'
 import { money, relative } from '@/lib/format'
-import { coverImageIdOf, listingHref } from '@/lib/listing'
+import { coverImageIdOf, listingHref, sizeKey } from '@/lib/listing'
 import { requiresSaleModal, statusChangePatch } from '@/lib/productActions'
 import { suggestPrice } from '@/lib/pricing'
 import {
@@ -351,7 +351,15 @@ function DesignEditor({ designId }: { designId: string }) {
           <ArrowLeft size={15} /> Magazyn
         </button>
         <div className="flex flex-wrap items-center gap-2">
-          <DesignListingPicker design={design} members={members ?? []} accounts={accounts ?? []} />
+          {/* Na Vinted każdy rozmiar to osobne ogłoszenie — chip dotyczy wybranego rozmiaru. */}
+          {draft && (
+            <DesignListingPicker
+              design={design}
+              members={members ?? []}
+              accounts={accounts ?? []}
+              size={sizeKey(draft)}
+            />
+          )}
           {draft && (
             <Select
               value={draft.status}
@@ -410,8 +418,8 @@ function DesignEditor({ designId }: { designId: string }) {
         className="w-full bg-transparent text-2xl font-semibold tracking-[-0.02em] text-ink-900 placeholder:text-ink-300 focus:outline-none"
       />
       <p className="mt-1 text-xs text-ink-400">
-        Nazwa, marka, kolor, materiał, zdjęcia, opisy i ogłoszenia są wspólne dla wszystkich
-        rozmiarów. Rozmiar, cena i sprzedaż ustawiasz osobno dla każdego rozmiaru.
+        Nazwa, marka, kolor, materiał, zdjęcia i opisy są wspólne dla wszystkich rozmiarów.
+        Rozmiar, cena, wystawienie i sprzedaż ustawiasz osobno dla każdego rozmiaru.
       </p>
 
       {/* Taby */}

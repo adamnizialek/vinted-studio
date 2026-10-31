@@ -284,13 +284,24 @@ describe('listings read from units (older models, grouping)', () => {
       base({ id: '5', status: 'in_stock', accountId: 'main', listedAt: 10 }), // nie wystawiony
     ]
     expect(listingsFromProducts(units)).toEqual([
-      { accountId: 'main', since: 100 },
-      { accountId: 'zoosia', since: 200 },
+      { accountId: 'main', since: 100, size: '' },
+      { accountId: 'zoosia', since: 200, size: '' },
+    ])
+  })
+  it('keeps one listing per size: each size is its own Vinted ad', () => {
+    const units = [
+      base({ id: '1', status: 'listed', accountId: 'main', listedAt: 300, sizeLabel: '37' }),
+      base({ id: '2', status: 'listed', accountId: 'main', listedAt: 100, sizeLabel: ' 38 ' }),
+      base({ id: '3', status: 'listed', accountId: 'main', listedAt: 200, sizeLabel: '37' }),
+    ]
+    expect(listingsFromProducts(units)).toEqual([
+      { accountId: 'main', since: 200, size: '37' },
+      { accountId: 'main', since: 100, size: '38' },
     ])
   })
   it('effectiveListings prefers the stored field, even when empty', () => {
     const units = [base({ status: 'listed', accountId: 'main', listedAt: 100 })]
-    expect(effectiveListings(undefined, units)).toEqual([{ accountId: 'main', since: 100 }])
+    expect(effectiveListings(undefined, units)).toEqual([{ accountId: 'main', since: 100, size: '' }])
     expect(effectiveListings([], units)).toEqual([])
   })
   it('mergeListings keeps the earlier date per account', () => {
@@ -300,6 +311,45 @@ describe('listings read from units (older models, grouping)', () => {
         [{ accountId: 'a', since: 3 }, { accountId: 'b', since: 9 }],
       ),
     ).toEqual([{ accountId: 'a', since: 3 }, { accountId: 'b', since: 9 }])
+  })
+})
+
+describe('listings per size', () => {
+  const S = (accountId: string, since: number, size?: string) =>
+    size == null ? { accountId, since } : { accountId, since, size }
+
+  it('toggling one size lists only that size', () => {
+    const listings = toggleListing(undefined, 'main', 5, '37', ['36', '37', '38'])
+    expect(listings).toEqual([S('main', 5, '37')])
+    const in37 = base({ sizeLabel: '37' })
+    const in38 = base({ sizeLabel: '38' })
+    expect(memberListingPatch(in37, listings)).toMatchObject({ status: 'listed', accountId: 'main' })
+    expect(memberListingPatch(in38, listings)).toBe(null)
+    expect(isOnAccount({ ...in37, status: 'listed', accountId: undefined }, 'main', listings)).toBe(true)
+    expect(isOnAccount({ ...in38, status: 'listed', accountId: undefined }, 'main', listings)).toBe(false)
+  })
+
+  it('unticking one size of a model-wide listing keeps the other sizes listed', () => {
+    const next = toggleListing([S('main', 5)], 'main', 99, '37', ['36', '37', '37', '38'])
+    expect(next).toEqual([S('main', 5, '36'), S('main', 5, '38')])
+    expect(memberListingPatch(base({ status: 'listed', sizeLabel: '37' }), next)).toEqual({
+      status: 'in_stock', accountId: undefined,
+    })
+    expect(memberListingPatch(base({ status: 'listed', sizeLabel: '36', listedAt: 5, accountId: 'main' }), next)).toBe(null)
+  })
+
+  it('the model-wide toggle adds or removes the account for every size', () => {
+    const perSize = [S('main', 5, '37'), S('zoosia', 7, '38')]
+    expect(toggleListing(perSize, 'main', 9)).toEqual([S('zoosia', 7, '38')])
+    expect(toggleListing(perSize, 'other', 9)).toEqual([...perSize, S('other', 9)])
+  })
+
+  it('sale suggestions and dates come from the unit size only', () => {
+    const listings = [S('main', 100, '37'), S('zoosia', 300, '38')]
+    expect(suggestedSaleAccount(base({ sizeLabel: '38' }), listings)).toBe('zoosia')
+    expect(soldPatch(base({ sizeLabel: '38' }), 1000, undefined, listings)).toEqual({
+      status: 'sold', soldAt: 1000, listedAt: 300,
+    })
   })
 })
 
@@ -321,7 +371,7 @@ describe('approximate (backfilled) dates stay approximate', () => {
   it('listingsFromProducts and memberListingPatch carry the flag', () => {
     const units = [base({ status: 'listed', accountId: 'main', listedAt: 100, listedAtApprox: true })]
     const listings = listingsFromProducts(units)
-    expect(listings).toEqual([{ accountId: 'main', since: 100, approx: true }])
+    expect(listings).toEqual([{ accountId: 'main', since: 100, approx: true, size: '' }])
     const withB = [...listings, { accountId: 'zoosia', since: 900 }]
     expect(memberListingPatch(units[0], withB)).toEqual({
       status: 'listed', listedAt: 100, listedAtApprox: true, accountId: undefined,
