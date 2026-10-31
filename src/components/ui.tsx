@@ -203,12 +203,15 @@ export function StatCard({
   sub,
   tone = 'default',
   icon,
+  children,
 }: {
   label: string
   value: ReactNode
   sub?: ReactNode
   tone?: 'default' | 'good' | 'warn' | 'brand' | 'bad'
   icon?: ReactNode
+  /** Dodatkowa treść pod wartością (np. paski postępu). */
+  children?: ReactNode
 }) {
   const toneCls = {
     default: 'text-ink-900',
@@ -225,6 +228,7 @@ export function StatCard({
       </div>
       <p className={clsx('text-2xl font-semibold tracking-[-0.025em] tabular-nums sm:text-[28px]', toneCls)}>{value}</p>
       {sub && <p className="text-[12.5px] text-ink-500">{sub}</p>}
+      {children}
     </div>
   )
 }

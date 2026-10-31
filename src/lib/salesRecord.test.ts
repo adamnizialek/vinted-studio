@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Sale } from '@/db/types'
-import { dailySalesRecord, inRange, periodRange } from './salesRecord'
+import { dailySalesRecord, inRange, periodRange, quarterLimit, quarterRevenueByAccount } from './salesRecord'
 
 /** Lokalne południe danego dnia — spójnie z dateFromInput w aplikacji. */
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).getTime()
@@ -97,5 +97,27 @@ describe('periodRange', () => {
     const r = periodRange('lastMonth', now)
     expect(inRange(new Date(2025, 11, 31, 23, 59).getTime(), r)).toBe(true)
     expect(inRange(new Date(2026, 0, 1).getTime(), r)).toBe(false)
+  })
+})
+
+describe('quarter limit', () => {
+  it('is 225% of the minimum wage', () => {
+    expect(quarterLimit(at(2026, 10, 31))).toBe(10813.5)
+    expect(quarterLimit(at(2027, 2, 1))).toBe(10813.5)
+  })
+
+  it('sums this quarter per account, skipping returns and unassigned sales', () => {
+    const res = quarterRevenueByAccount(
+      [
+        sale({ accountId: 'a', salePrice: 100, soldAt: at(2026, 10, 2) }),
+        sale({ accountId: 'a', salePrice: 50, quantity: 2, shippingCharged: 10, soldAt: at(2026, 11, 5) }),
+        sale({ accountId: 'a', salePrice: 999, soldAt: at(2026, 9, 30) }),
+        sale({ accountId: 'a', salePrice: 999, status: 'returned', soldAt: at(2026, 10, 3) }),
+        sale({ accountId: 'b', salePrice: 70, soldAt: at(2026, 10, 3) }),
+        sale({ salePrice: 999, soldAt: at(2026, 10, 3) }),
+      ],
+      at(2026, 11, 10),
+    )
+    expect(Object.fromEntries(res)).toEqual({ a: 210, b: 70 })
   })
 })

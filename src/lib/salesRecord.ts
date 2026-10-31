@@ -91,3 +91,27 @@ export function periodRange(period: SalesPeriod, now: number): { from?: number; 
 export function inRange(ts: number, range: { from?: number; to?: number }): boolean {
   return (range.from == null || ts >= range.from) && (range.to == null || ts < range.to)
 }
+
+/**
+ * Kwartalny limit przychodu działalności nierejestrowanej: 225% minimalnego wynagrodzenia
+ * (od 2026 r. limit liczony kwartalnie). Nieznany rok → ostatnia znana kwota.
+ */
+const MIN_WAGE_BY_YEAR: Record<number, number> = { 2026: 4806 }
+
+export function quarterLimit(now: number): number {
+  const year = new Date(now).getFullYear()
+  const known = Object.keys(MIN_WAGE_BY_YEAR).map(Number).sort((a, b) => a - b)
+  const y = known.filter((k) => k <= year).pop() ?? known[0]
+  return round2(MIN_WAGE_BY_YEAR[y] * 2.25)
+}
+
+/** Przychód bieżącego kwartału na konto (anulowane i zwroty się nie liczą). */
+export function quarterRevenueByAccount(sales: Sale[], now: number): Map<string, number> {
+  const range = periodRange('quarter', now)
+  const out = new Map<string, number>()
+  for (const s of sales) {
+    if (!s.accountId || !countsAsRevenue(s.status) || !inRange(s.soldAt, range)) continue
+    out.set(s.accountId, (out.get(s.accountId) ?? 0) + profitOf(s).revenue)
+  }
+  return out
+}
