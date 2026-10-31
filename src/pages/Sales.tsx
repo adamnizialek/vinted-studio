@@ -86,9 +86,10 @@ export function Sales() {
     [filtered, filteredExpenses, filteredProducts],
   )
   const top = useMemo(() => topProducts(filtered), [filtered])
-  // Limit działalności nierejestrowanej jest kwartalny i na osobę (konto) — niezależny od filtra okresu.
+  // Limit działalności nierejestrowanej jest kwartalny i na osobę (konto) — niezależny od filtra okresu;
+  // pokazujemy go tylko w widoku pojedynczego konta.
   const quarterRev = useMemo(() => quarterRevenueByAccount(sales ?? [], Date.now()), [sales])
-  const limitAccounts = (accounts ?? []).filter((a) => view === 'all' || a.id === view)
+  const viewAccount = accounts?.find((a) => a.id === view)
   const accName = (id?: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
   const currency = settings?.currency ?? 'PLN'
 
@@ -254,10 +255,10 @@ export function Sales() {
       {/* Statystyki */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Przychód" value={money(stats.revenue, currency)} tone="brand">
-          {limitAccounts.length > 0 && (
-            <QuarterLimitBars
-              accounts={limitAccounts}
-              revenue={quarterRev}
+          {viewAccount && (
+            <QuarterLimitBar
+              account={viewAccount}
+              revenue={quarterRev.get(viewAccount.id) ?? 0}
               limit={quarterLimit(Date.now())}
               currency={currency}
             />
@@ -449,51 +450,41 @@ function CollapseHeader({
   )
 }
 
-/** Ranking modeli: łączny zysk, sprzedane sztuki i rozmiary, które schodzą. */
-/** Ile przychodu w tym kwartale zostało każdemu kontu do limitu działalności nierejestrowanej. */
-function QuarterLimitBars({
-  accounts,
+/** Ile przychodu w tym kwartale zostało kontu do limitu działalności nierejestrowanej. */
+function QuarterLimitBar({
+  account,
   revenue,
   limit,
   currency,
 }: {
-  accounts: { id: string; name: string; color: string }[]
-  revenue: Map<string, number>
+  account: { name: string; color: string }
+  revenue: number
   limit: number
   currency: string
 }) {
+  const left = Math.max(0, limit - revenue)
+  const pct = Math.min(100, (revenue / limit) * 100)
   return (
-    <div className="mt-1.5 space-y-2 border-t border-ink-100 pt-2.5" title={`Limit kwartalny: ${money(limit, currency)}`}>
-      <p className="text-[11.5px] font-medium text-ink-500">Do limitu (kwartał)</p>
-      {accounts.map((a) => {
-        const rev = revenue.get(a.id) ?? 0
-        const left = Math.max(0, limit - rev)
-        const pct = Math.min(100, (rev / limit) * 100)
-        return (
-          <div key={a.id}>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[12px]">
-              <span className="min-w-0 break-words text-ink-700">{a.name}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-ink-900">
-                {left > 0 ? money(left, currency) : 'osiągnięty'}
-              </span>
-            </div>
-            <div
-              className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-100"
-              role="progressbar"
-              aria-label={`${a.name}: ${Math.round(pct)}% limitu`}
-              aria-valuenow={Math.round(pct)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: a.color }} />
-            </div>
-          </div>
-        )
-      })}
+    <div className="mt-1" title={`Limit kwartalny: ${money(limit, currency)}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[12px] text-ink-500">
+        <span>Do limitu</span>
+        <span className="font-semibold tabular-nums text-ink-900">{left > 0 ? money(left, currency) : 'osiągnięty'}</span>
+      </div>
+      <div
+        className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-100"
+        role="progressbar"
+        aria-label={`${account.name}: ${Math.round(pct)}% kwartalnego limitu`}
+        aria-valuenow={Math.round(pct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: account.color }} />
+      </div>
     </div>
   )
 }
 
+/** Ranking modeli: łączny zysk, sprzedane sztuki i rozmiary, które schodzą. */
 function TopProducts({
   items,
   total,
