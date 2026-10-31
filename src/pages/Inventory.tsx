@@ -17,7 +17,7 @@ import { Thumb } from '@/components/ImageView'
 import { ImportStockModal } from '@/components/ImportStockModal'
 import { ImportStockScreenshotModal } from '@/components/ImportStockScreenshotModal'
 import { ResponsivePicker, OptionRow } from '@/components/Popover'
-import { AccountDot, DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
+import { AccountDot, ProductListingPicker } from '@/components/ListingPicker'
 
 export function Inventory() {
   const nav = useNavigate()
@@ -510,16 +510,6 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
             {/* Cały model (nie tylko przefiltrowane sztuki): ile zostało i ile sprzedano. */}
             {sizeStockSummary(allMembers)}
           </p>
-          {!selecting && (
-            <div className="mt-2">
-              <DesignListingPicker
-                design={design}
-                members={allMembers}
-                accounts={accounts}
-                className="pointer-events-auto"
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>

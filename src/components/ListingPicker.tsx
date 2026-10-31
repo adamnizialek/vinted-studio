@@ -198,10 +198,9 @@ export function ProductListingPicker({
 }
 
 /**
- * Model albo jedna jego sztuka (`unit`): na których kontach wisi ogłoszenie. Na Vinted
- * każda sztuka to osobne ogłoszenie, więc w edytorze modelu zaznaczenie dotyczy tylko
- * wybranej sztuki. Bez `unit` (karta w Magazynie) dotyczy wszystkich sztuk naraz; sztuki
- * idą za ogłoszeniami (patrz setDesignListings).
+ * Sztuka modelu (`unit`): na których kontach wisi jej ogłoszenie. Na Vinted każda sztuka
+ * to osobne ogłoszenie, więc zaznaczenie w edytorze modelu dotyczy tylko wybranej sztuki
+ * (patrz setDesignListings).
  */
 export function DesignListingPicker({
   design,
@@ -213,26 +212,25 @@ export function DesignListingPicker({
   design: Design
   members: Product[]
   accounts: Account[]
-  /** Sztuka wybrana w edytorze modelu; brak = cały model. */
-  unit?: Product
+  /** Sztuka wybrana w edytorze modelu. */
+  unit: Product
   className?: string
 }) {
   const [day, setDay] = useState<string | null>(null)
   // Starszy model (bez pola) — ogłoszenia odczytane z jego wystawionych sztuk.
   const all = effectiveListings(design.listings, members)
-  const listings = unit == null ? all : listingsFor(all, unit)
-  const shown = unit == null ? members : [unit]
+  const listings = listingsFor(all, unit)
   const live = accounts.filter((a) => listings.some((l) => l.accountId === a.id))
   const since = earliestListing(listings)
   const days = since == null ? null : Math.max(0, daysBetween(since, Date.now()))
-  const unsold = shown.filter((m) => m.status !== 'sold' && m.status !== 'archived').length
+  const unsold = unit.status !== 'sold' && unit.status !== 'archived'
 
-  // Wyprzedany model nie ma czego wystawiać — chip znika (linia rozmiarów to pokazuje).
-  if (accounts.length === 0 || (unsold === 0 && listings.length === 0)) return null
+  // Sprzedana sztuka nie ma czego wystawiać — chip znika.
+  if (accounts.length === 0 || (!unsold && listings.length === 0)) return null
 
   const toggle = async (accountId: string) => {
     try {
-      await toggleDesignListing(design.id, accountId, sinceFrom(day), unit?.id)
+      await toggleDesignListing(design.id, accountId, sinceFrom(day), unit.id)
     } catch {
       toast.error('Nie udało się zapisać.')
     }
@@ -240,7 +238,7 @@ export function DesignListingPicker({
 
   return (
     <ResponsivePicker
-      title={unit == null ? 'Gdzie jest wystawiony model?' : 'Gdzie jest wystawiona ta sztuka?'}
+      title="Gdzie jest wystawiona ta sztuka?"
       trigger={({ ref, toggle: open, aria }) => (
         <button
           ref={ref}
@@ -266,7 +264,6 @@ export function DesignListingPicker({
               {live.map((a) => (
                 <AccountDot key={a.id} account={a} />
               ))}
-              {/* Karta jest wąska: przy kilku kontach wystarczą kropki, nazwy są w arkuszu. */}
               <span className="truncate">
                 {live.length === 1 ? `${live[0].name} · ` : ''}
                 {days} {pluralPl(days ?? 0, 'dzień', 'dni', 'dni')}
@@ -284,17 +281,8 @@ export function DesignListingPicker({
       {() => (
         <>
           <p className="px-2.5 pb-1 pt-0.5 text-xs text-ink-500">
-            {unit == null ? (
-              <>
-                Zaznacz konta, na których wiszą ogłoszenia tego modelu — wszystkie sztuki naraz
-                ({unsold} {pluralPl(unsold, 'sztuka', 'sztuki', 'sztuk')} w sprzedaży).
-              </>
-            ) : (
-              <>
-                Zaznacz konta, na których wystawiona jest ta sztuka
-                {sizeKey(unit) ? ` (rozmiar ${sizeKey(unit)})` : ''}. Pozostałe sztuki zostają bez zmian.
-              </>
-            )}
+            Zaznacz konta, na których wystawiona jest ta sztuka
+            {sizeKey(unit) ? ` (rozmiar ${sizeKey(unit)})` : ''}. Pozostałe sztuki zostają bez zmian.
           </p>
           <SinceField day={day} setDay={setDay} />
           <div role="menu" aria-label="Konta z ogłoszeniem">
