@@ -34,12 +34,22 @@ const TABS = [
 ]
 const MORE = NAV.filter((n) => !TABS.some((t) => t.to === n.to))
 
+// Znak „V-wzrost”: litera V jako ptaszek „sprzedane” i linia wzrostu. Grubsza kreska niz w ikonie PWA,
+// bo przy 28px cienka ginie.
+function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 1024 1024" className={className} aria-hidden="true">
+      <rect width="1024" height="1024" rx="230" fill="#0f7c78" />
+      <path d="M 290 440 L 450 680" fill="none" stroke="#b8f0e0" strokeWidth="140" strokeLinecap="round" />
+      <path d="M 450 680 L 740 300" fill="none" stroke="#fff" strokeWidth="140" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2.5 px-2 py-1">
-      <div className="grid h-7 w-7 place-items-center rounded-lg bg-brand-500 text-white">
-        <Shirt size={15} />
-      </div>
+      <LogoMark className="h-7 w-7" />
       <p className="text-sm font-semibold leading-tight text-ink-900">Vinted Studio</p>
     </Link>
   )
