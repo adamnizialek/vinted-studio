@@ -46,18 +46,25 @@ export function visibleSizes(members: Product[]): Product[] {
 /**
  * Krótki stan modelu na karcie: ile sztuk każdego rozmiaru jest jeszcze w sprzedaży
  * i ile sprzedano, np. „M 5 · S 4 · sprzedane 5”. Zarchiwizowane pomijamy.
+ * Zamówione (jeszcze nie w magazynie) liczymy osobno, za rozmiarami w magazynie,
+ * z `incoming` — karta rysuje je przygaszone.
  */
-export function sizeStockSummary(members: Product[]): string {
+export function sizeStockParts(members: Product[]): { label: string; incoming: boolean }[] {
   const left = new Map<string, number>()
+  const ordered = new Map<string, number>()
   let sold = 0
   for (const m of members) {
     if (m.status === 'sold') sold++
     else if (m.status !== 'archived') {
       const size = m.sizeLabel?.trim() || '?'
-      left.set(size, (left.get(size) ?? 0) + 1)
+      const into = m.status === 'incoming' ? ordered : left
+      into.set(size, (into.get(size) ?? 0) + 1)
     }
   }
-  const parts = [...left].map(([size, n]) => `${size} ${n}`)
-  if (sold) parts.push(`sprzedane ${sold}`)
-  return parts.join(' · ')
+  const parts = [
+    ...[...left].map(([size, n]) => ({ label: `${size} ${n}`, incoming: false })),
+    ...[...ordered].map(([size, n]) => ({ label: `${size} ${n}`, incoming: true })),
+  ]
+  if (sold) parts.push({ label: `sprzedane ${sold}`, incoming: false })
+  return parts
 }

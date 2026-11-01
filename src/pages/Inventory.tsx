@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
+import clsx from 'clsx'
 import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
 import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
 import type { Account, Design, Product, ProductStatus } from '@/db/types'
@@ -9,7 +10,7 @@ import { useSettings } from '@/state/settings'
 import { DEFAULT_CONDITION, STATUS_OPTIONS } from '@/lib/constants'
 import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { coverImageIdOf, effectiveListings, listedAccountIds } from '@/lib/listing'
-import { sizeStockSummary } from '@/lib/designs'
+import { sizeStockParts } from '@/lib/designs'
 import { money } from '@/lib/format'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
 import { toast } from '@/state/toast'
@@ -316,7 +317,12 @@ export function Inventory() {
                     )}
                     <div className="pointer-events-none relative z-10">
                       <div className="relative aspect-square w-full bg-ink-100">
-                        <Thumb imageId={cover} className="h-full w-full object-cover" alt={p.name} />
+                        {/* Zamówione — jeszcze nie w magazynie: zdjęcie i opis przygaszone. */}
+                        <Thumb
+                          imageId={cover}
+                          className={clsx('h-full w-full object-cover', p.status === 'incoming' && 'opacity-50')}
+                          alt={p.name}
+                        />
                         <ProductListingPicker
                           product={p}
                           accounts={accounts ?? []}
@@ -328,7 +334,7 @@ export function Inventory() {
                           </span>
                         )}
                       </div>
-                      <div className="p-3">
+                      <div className={clsx('p-3', p.status === 'incoming' && 'opacity-50')}>
                         <p className="truncate font-semibold text-ink-900">{p.name || 'Bez nazwy'}</p>
                         <div className="mt-0.5 flex items-center justify-between">
                           <p className="truncate text-xs text-ink-400">
@@ -460,6 +466,8 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
   const listings = effectiveListings(design.listings, allMembers)
   const listedIds = new Set(allMembers.flatMap((m) => listedAccountIds(m, listings)))
   const listedOn = accounts.filter((a) => listedIds.has(a.id))
+  // Cały model jeszcze w drodze — przygaszony jak pojedyncza zamówiona sztuka.
+  const allIncoming = allMembers.length > 0 && allMembers.every((m) => m.status === 'incoming')
   return (
     <div className="card group relative overflow-hidden transition hover:shadow-pop">
       <button
@@ -480,7 +488,11 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
       )}
       <div className="pointer-events-none relative z-10">
         <div className="relative aspect-square w-full bg-ink-100">
-          <Thumb imageId={cover} className="h-full w-full object-cover" alt={design.name} />
+          <Thumb
+            imageId={cover}
+            className={clsx('h-full w-full object-cover', allIncoming && 'opacity-50')}
+            alt={design.name}
+          />
           {listedOn.length > 0 && (
             <div
               className="absolute left-2 top-2 flex max-w-[calc(100%-4rem)] flex-wrap gap-1"
@@ -501,14 +513,21 @@ function DesignCard({ design, members, allMembers, cover, onOpen, selecting, sel
           )}
         </div>
         <div className="p-3">
-          <p className="truncate font-semibold text-ink-900">{design.name || 'Bez nazwy'}</p>
-          <div className="mt-0.5 flex items-center justify-between">
-            <p className="truncate text-xs text-ink-400">{design.brand}</p>
-            <p className="shrink-0 text-sm font-bold text-brand-600">{priceText}</p>
+          <div className={clsx(allIncoming && 'opacity-50')}>
+            <p className="truncate font-semibold text-ink-900">{design.name || 'Bez nazwy'}</p>
+            <div className="mt-0.5 flex items-center justify-between">
+              <p className="truncate text-xs text-ink-400">{design.brand}</p>
+              <p className="shrink-0 text-sm font-bold text-brand-600">{priceText}</p>
+            </div>
           </div>
           <p className="mt-2 truncate text-xs text-ink-400">
             {/* Cały model (nie tylko przefiltrowane sztuki): ile zostało i ile sprzedano. */}
-            {sizeStockSummary(allMembers)}
+            {sizeStockParts(allMembers).map((part, i) => (
+              <Fragment key={i}>
+                {i > 0 && ' · '}
+                <span className={part.incoming ? 'opacity-50' : undefined}>{part.label}</span>
+              </Fragment>
+            ))}
           </p>
         </div>
       </div>
