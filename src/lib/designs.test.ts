@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveProduct, SHARED_FIELDS, sizeStockSummary, visibleSizes } from './designs'
+import { resolveProduct, SHARED_FIELDS, sizeStockParts, visibleSizes } from './designs'
 import type { Design, Product } from '@/db/types'
 
 const design = (over: Partial<Design> = {}): Design => ({
@@ -120,7 +120,7 @@ describe('visibleSizes', () => {
   })
 })
 
-describe('sizeStockSummary', () => {
+describe('sizeStockParts', () => {
   it('counts unsold units per size and sold units in total, skipping archived', () => {
     const ms = [
       product({ id: '1', sizeLabel: 'M' }),
@@ -131,9 +131,24 @@ describe('sizeStockSummary', () => {
       product({ id: '6', sizeLabel: 'L', status: 'archived' }),
       product({ id: '7' }),
     ]
-    expect(sizeStockSummary(ms)).toBe('M 2 · S 1 · ? 1 · sprzedane 2')
+    expect(sizeStockParts(ms).map((p) => p.label).join(' · ')).toBe('M 2 · S 1 · ? 1 · sprzedane 2')
   })
   it('is empty for no members', () => {
-    expect(sizeStockSummary([])).toBe('')
+    expect(sizeStockParts([])).toEqual([])
+  })
+  it('counts ordered units apart, after the sizes in stock', () => {
+    const ms = [
+      product({ id: '1', sizeLabel: '43', status: 'incoming' }),
+      product({ id: '2', sizeLabel: '42' }),
+      product({ id: '3', sizeLabel: '43', status: 'incoming' }),
+      product({ id: '4', sizeLabel: '43', status: 'listed' }),
+      product({ id: '5', sizeLabel: '42', status: 'sold' }),
+    ]
+    expect(sizeStockParts(ms)).toEqual([
+      { label: '42 1', incoming: false },
+      { label: '43 1', incoming: false },
+      { label: '43 2', incoming: true },
+      { label: 'sprzedane 1', incoming: false },
+    ])
   })
 })

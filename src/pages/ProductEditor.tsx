@@ -413,14 +413,23 @@ function DesignEditor({ designId }: { designId: string }) {
         {shownSizes.map((m) => {
           const active = m.id === activeId
           const on = (accounts ?? []).filter((a) => listedIds(m).includes(a.id))
+          // Zamówione — jeszcze nie dotarły do magazynu: przygaszone.
+          const incoming = m.status === 'incoming'
           return (
             <button
               key={m.id}
               onClick={() => setActiveId(m.id)}
-              title={on.length ? `Wystawiony na: ${on.map((a) => a.name).join(', ')}` : undefined}
+              title={
+                on.length
+                  ? `Wystawiony na: ${on.map((a) => a.name).join(', ')}`
+                  : incoming
+                    ? 'Zamówione — jeszcze nie w magazynie'
+                    : undefined
+              }
               style={on.length ? sizeTabStyle(on.map((a) => a.color), active) : undefined}
               className={clsx(
                 'rounded-full px-3 py-1.5 text-sm font-medium transition',
+                incoming && (active ? 'opacity-70' : 'opacity-40'),
                 on.length
                   ? active
                     ? 'text-white shadow-sm'
