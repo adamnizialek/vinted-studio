@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { HashRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { Toasts } from '@/components/Toasts'
+import { UpdateBanner } from '@/components/UpdateBanner'
 import { useSettings } from '@/state/settings'
 import { Dashboard } from '@/pages/Dashboard'
 import { Inventory } from '@/pages/Inventory'
@@ -36,6 +37,7 @@ export default function App() {
         </Route>
       </Routes>
       <Toasts />
+      <UpdateBanner />
     </HashRouter>
   )
 }
