@@ -10,6 +10,7 @@ import {
   Users,
   Wallet,
   AlertTriangle,
+  ClipboardList,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSettings } from '@/state/settings'
@@ -18,6 +19,7 @@ import { SyncDot, useSyncTriggers } from '@/components/SyncStatus'
 const NAV = [
   { to: '/', label: 'Pulpit', icon: LayoutDashboard, end: true },
   { to: '/magazyn', label: 'Magazyn', icon: Package },
+  { to: '/wystaw', label: 'Do wystawienia', icon: ClipboardList },
   { to: '/studio', label: 'Studio zdjęć', icon: Camera },
   { to: '/modelki', label: 'Modelki AI', icon: Shirt },
   { to: '/sprzedaz', label: 'Sprzedaż', icon: Wallet },

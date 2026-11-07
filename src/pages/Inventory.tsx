@@ -1,8 +1,8 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
-import { Camera, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
+import { Camera, ClipboardList, FileSpreadsheet, Package, Plus, Search, Upload } from 'lucide-react'
 import { db, putEntity, groupProducts, attachProductsToDesign } from '@/db/db'
 import type { Account, Design, Product, ProductStatus } from '@/db/types'
 import { uid } from '@/lib/id'
@@ -196,6 +196,11 @@ export function Inventory() {
               </>
             ) : (
               <Button variant="ghost" onClick={() => setSelecting(true)}>Połącz</Button>
+            )}
+            {!selecting && (
+              <Link to="/wystaw" className="btn-ghost" title="Do wystawienia">
+                <ClipboardList size={16} /> <span className="btn-label">Do wystawienia</span>
+              </Link>
             )}
             <ResponsivePicker
               title="Importuj stan"

@@ -6,6 +6,7 @@ import { UpdateBanner } from '@/components/UpdateBanner'
 import { useSettings } from '@/state/settings'
 import { Dashboard } from '@/pages/Dashboard'
 import { Inventory } from '@/pages/Inventory'
+import { Drafts } from '@/pages/Drafts'
 import { ProductEditor } from '@/pages/ProductEditor'
 import { PhotoStudio } from '@/pages/PhotoStudio'
 import { Models } from '@/pages/Models'
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="magazyn" element={<Inventory />} />
           <Route path="magazyn/:id" element={<ProductEditor />} />
           <Route path="magazyn/model/:designId" element={<ProductEditor />} />
+          <Route path="wystaw" element={<Drafts />} />
           <Route path="studio" element={<PhotoStudio />} />
           <Route path="studio/:productId" element={<PhotoStudio />} />
           <Route path="modelki" element={<Models />} />
