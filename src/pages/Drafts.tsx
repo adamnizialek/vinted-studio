@@ -30,7 +30,7 @@ import { getImageBlob } from '@/lib/images'
 import { copyText, shareOrDownload } from '@/lib/share'
 import { pluralPl } from '@/lib/format'
 import { listProductOn, setDesignListings } from '@/lib/productActions'
-import { listingsFor, toggleListing } from '@/lib/listing'
+import { coverImageIdOf, listingsFor, toggleListing } from '@/lib/listing'
 import {
   AI_PHOTOS_REMINDER,
   DRAFT_CONDITION_LABEL,
@@ -82,6 +82,8 @@ interface RunState {
   done: number
   total: number
   controller: AbortController
+  /** Przedmiot, który właśnie się generuje — tylko jego pola są zablokowane. */
+  key?: string
 }
 
 export function Drafts() {
@@ -119,6 +121,7 @@ export function Drafts() {
       for (const item of items) {
         if (controller.signal.aborted) break
         const name = item.product.name.slice(0, 40)
+        setRun((r) => r && { ...r, key: item.key })
         try {
           await prepareDraft(item, {
             settings,
@@ -215,6 +218,7 @@ export function Drafts() {
               accounts={accounts}
               model={model}
               busy={!!run}
+              generating={run?.key === item.key}
               onPrepare={(mode) => void runItems([item], mode)}
             />
           ))}
@@ -264,12 +268,16 @@ function DraftCard({
   accounts,
   model,
   busy,
+  generating,
   onPrepare,
 }: {
   item: DraftQueueItem
   accounts: Account[]
   model?: AiModel
+  /** Trwa jakieś generowanie (nowe można zlecić dopiero po nim). */
   busy: boolean
+  /** Generuje się właśnie ten przedmiot — jego pola czekają. */
+  generating: boolean
   onPrepare: (mode: { text?: boolean; photos?: 'missing' | 'always' }) => void
 }) {
   const { draft, product } = item
@@ -277,7 +285,7 @@ function DraftCard({
   const [size, setSize] = useState(sizes[0]?.[0] ?? '')
   const current = sizes.some(([s]) => s === size) ? size : (sizes[0]?.[0] ?? '')
   const editorHref = item.kind === 'design' ? `/magazyn/model/${item.key}` : `/magazyn/${item.key}`
-  const cover = product.photoIds[0] ?? draft?.photoIds[0] ?? product.generatedPhotoIds[0]
+  const cover = coverImageIdOf(product)
 
   return (
     <div className="card flex flex-col gap-3 p-4">
@@ -332,6 +340,7 @@ function DraftCard({
           accounts={accounts}
           model={model}
           busy={busy}
+          generating={generating}
           onPrepare={onPrepare}
         />
       )}
@@ -346,6 +355,7 @@ function DraftBody({
   accounts,
   model,
   busy,
+  generating,
   onPrepare,
 }: {
   item: DraftQueueItem
@@ -354,6 +364,7 @@ function DraftBody({
   accounts: Account[]
   model?: AiModel
   busy: boolean
+  generating: boolean
   onPrepare: (mode: { text?: boolean; photos?: 'missing' | 'always' }) => void
 }) {
   const { ids: photoIds, hasAi } = useDraftPhotos(draft.photoIds)
@@ -410,7 +421,7 @@ function DraftBody({
                 <button
                   type="button"
                   aria-label="Usuń ze szkicu"
-                  disabled={busy}
+                  disabled={generating}
                   onClick={() => void patchDraft(item, { photoIds: photoIds.filter((x) => x !== id) })}
                   className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white"
                 >
@@ -453,7 +464,7 @@ function DraftBody({
         <label className="text-xs text-ink-500">
           Cena (zł)
           <NumberInput
-            disabled={busy}
+            disabled={generating}
             value={draft.price}
             onValueChange={(v) => void patchDraft(item, { price: v, priceBasis: 'manual' })}
           />
@@ -461,7 +472,7 @@ function DraftBody({
         <label className="text-xs text-ink-500">
           Najniższa oferta (zł)
           <NumberInput
-            disabled={busy}
+            disabled={generating}
             value={draft.minPrice}
             onValueChange={(v) => void patchDraft(item, { minPrice: v, priceBasis: 'manual' })}
           />

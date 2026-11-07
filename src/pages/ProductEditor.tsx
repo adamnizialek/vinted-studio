@@ -77,8 +77,6 @@ import { copyText, shareOrDownload } from '@/lib/share'
 import { FileDrop } from '@/components/FileDrop'
 import { SoldModal } from '@/components/SoldModal'
 
-const copy = (text: string) => copyText(text)
-
 type UpdateFn = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => void
 
 /** Zmiana statusu, która przy wejściu w 'listed' stempluje listedAt (cykl życia oferty). */
@@ -740,7 +738,7 @@ function DetailsTab({
         <div className="card space-y-2 p-5">
           <p className="label">Tytuł ogłoszenia (SEO)</p>
           <p className="rounded-xl bg-ink-50 px-3 py-2 text-sm text-ink-800">{seoTitle || '—'}</p>
-          <Button variant="ghost" className="btn-sm w-full" onClick={() => copy(seoTitle)} disabled={!seoTitle}>
+          <Button variant="ghost" className="btn-sm w-full" onClick={() => copyText(seoTitle)} disabled={!seoTitle}>
             <Copy size={14} /> Kopiuj tytuł
           </Button>
         </div>
@@ -1176,7 +1174,7 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
                     )}
                     Ponów
                   </button>
-                  <button className="btn-ghost btn-sm" onClick={() => copy(c.text)}>
+                  <button className="btn-ghost btn-sm" onClick={() => copyText(c.text)}>
                     <Copy size={14} /> Kopiuj
                   </button>
                   <button className="btn-primary btn-sm" onClick={() => saveCandidate(c)}>
@@ -1221,7 +1219,7 @@ function DescriptionsTab({ draft, update }: { draft: Product; update: UpdateFn }
                       <Star size={14} /> Ustaw aktywny
                     </button>
                   )}
-                  <button className="btn-ghost btn-sm" onClick={() => copy(d.text)}>
+                  <button className="btn-ghost btn-sm" onClick={() => copyText(d.text)}>
                     <Copy size={14} />
                   </button>
                   <button className="btn-ghost btn-sm text-red-500" onClick={() => removeDesc(d.id)}>

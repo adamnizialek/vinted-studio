@@ -58,12 +58,13 @@ function chromeTokenCandidates(): string[] {
       if (!/\.(ldb|log)$/.test(f)) continue
       const path = join(dir, f)
       let buf: Buffer
+      let mtime: number
       try {
         buf = readFileSync(path)
+        mtime = statSync(path).mtimeMs
       } catch {
-        continue // plik zablokowany przez działającego Chrome
+        continue // plik zablokowany albo właśnie skompaktowany przez działającego Chrome
       }
-      const mtime = statSync(path).mtimeMs
       for (let i = buf.indexOf(key); i >= 0; i = buf.indexOf(key, i + 1)) {
         const m = /[A-Za-z0-9_-]{64}/.exec(buf.subarray(i + key.length, i + key.length + 120).toString('latin1'))
         const origin = buf.subarray(Math.max(0, i - 80), i).toString('latin1').includes(host)
@@ -81,8 +82,10 @@ async function accepted(t: string): Promise<boolean> {
     method: 'POST',
     headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' },
     body: JSON.stringify({ cursor: Number.MAX_SAFE_INTEGER }),
-  })
-  return res.ok
+  }).catch(() => fail(`brak połączenia z ${BASE}`))
+  if (res.status === 401) return false
+  if (!res.ok) fail(`serwer odpowiedział HTTP ${res.status} przy sprawdzaniu tokenu, spróbuj za chwilę`)
+  return true
 }
 
 let cachedToken: string | undefined
@@ -114,7 +117,7 @@ interface Row<T> {
   updatedAt: number
   data: T
 }
-type Pull = Partial<Record<'products' | 'designs' | 'sales' | 'images', Row<unknown>[]>>
+type Pull = Partial<Record<'products' | 'designs' | 'sales', Row<unknown>[]>>
 
 async function sync(body: unknown): Promise<{ cursor: number; pull: Pull }> {
   const res = await fetch(`${BASE}/api/sync`, {
@@ -138,7 +141,6 @@ async function load() {
     products: live<Product>(pull.products),
     designs: live<Design>(pull.designs),
     sales: live<Sale>(pull.sales),
-    imageIds: new Set(live<{ id: string }>(pull.images).map((i) => i.id)),
   }
 }
 
@@ -242,8 +244,9 @@ async function main() {
       color: input.color ?? prev?.color,
       material: input.material ?? prev?.material,
       ...price,
-      // Zdjęcia zostają z aplikacji (bez usuniętych): szkic Listera ich nie zmienia.
-      photoIds: (prev?.photoIds ?? item.product.generatedPhotoIds).filter((id) => state.imageIds.has(id)),
+      // Zdjęcia zostają z aplikacji: szkic Listera ich nie zmienia (usunięte odfiltrowuje aplikacja;
+      // tu nie, bo świeże zdjęcia mogą jeszcze czekać w kolejce sync telefonu).
+      photoIds: prev?.photoIds ?? item.product.generatedPhotoIds,
       warnings: input.warnings?.length ? input.warnings : undefined,
       source: 'lister',
       createdAt: prev?.createdAt ?? now,

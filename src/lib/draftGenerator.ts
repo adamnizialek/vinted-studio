@@ -174,6 +174,10 @@ const NO_PHOTO_WARNING =
   'Brak zdjęcia przedmiotu: dodaj zdjęcie w magazynie, żeby wygenerować zdjęcia do ogłoszenia.'
 const NO_PRICE_WARNING = 'Brak ceny: wpisz cenę.'
 
+/** Uwagi modelu do tekstu bez naszych własnych (te liczymy od nowa przy każdym zapisie). */
+const ownWarningsOut = (w: string[] | undefined) =>
+  (w ?? []).filter((x) => x !== NO_PHOTO_WARNING && x !== NO_PRICE_WARNING)
+
 /**
  * Przygotowuje (albo odświeża) szkic przedmiotu: zdjęcia, tekst, cena — i zapisuje go.
  * Rzuca GeminiError/Error; częściowy wynik (np. zapisane już zdjęcia) zostaje w modelu.
@@ -183,17 +187,19 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
   if (!settings.geminiApiKey) throw new Error('Dodaj klucz API Gemini w Ustawieniach.')
   const prev = await currentDraft(item)
   const now = Date.now()
-  const warnings: string[] = []
 
   // Zdjęcia: nowe na żądanie; inaczej te ze szkicu, a bez szkicu — istniejące zdjęcia AI modelu.
-  let photoIds = prev?.photoIds ?? item.product.generatedPhotoIds
+  // Id usuniętych zdjęć (Studio, edytor) odpadają tu, a nie dopiero przy wyświetlaniu.
+  const existing = async (ids: ID[]) =>
+    (await db.images.bulkGet(ids)).filter((r): r is NonNullable<typeof r> => !!r).map((r) => r.id)
+  let photoIds = await existing(prev?.photoIds ?? item.product.generatedPhotoIds)
+  let freshPhotos = false
   if (opts.photos) {
     const fresh = await generatePhotos(item, opts)
-    if (fresh.length) photoIds = fresh
-  }
-  if (!item.product.photoIds.length && !photoIds.length) {
-    photoIds = []
-    warnings.push(NO_PHOTO_WARNING)
+    if (fresh.length) {
+      photoIds = fresh
+      freshPhotos = true
+    }
   }
 
   // Bez nowego tekstu zostają też uwagi modelu do niego (nasze własne liczymy od nowa).
@@ -203,7 +209,7 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
     category: prev.category,
     color: prev.color,
     material: prev.material,
-    warnings: (prev.warnings ?? []).filter((w) => w !== NO_PHOTO_WARNING && w !== NO_PRICE_WARNING),
+    warnings: ownWarningsOut(prev.warnings),
   }
   if (opts.text || !text) {
     opts.onStep?.('tytuł i opis')
@@ -219,8 +225,6 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
     })
     text = parseDraftResponse(raw)
   }
-  warnings.push(...text.warnings)
-
   // Cena wpisana ręcznie zostaje; inaczej liczymy od nowa (sprzedaże mogły dojść).
   const price =
     prev?.priceBasis === 'manual'
@@ -229,8 +233,6 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
           const s = suggestDraftPrice(item.members, opts.sales)
           return s ? { price: s.price, minPrice: s.minPrice, priceBasis: s.basis } : {}
         })()
-  if (price.price == null) warnings.push(NO_PRICE_WARNING)
-
   const draft: ListingDraft = {
     title: text.title,
     description: text.description,
@@ -239,27 +241,50 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
     material: text.material,
     ...price,
     photoIds,
-    warnings: warnings.length ? warnings : undefined,
     source: opts.text || !prev ? 'gemini' : prev.source,
     edited: opts.text || !prev ? undefined : prev.edited,
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   }
-  // Generowanie trwa do minuty — to, co właściciel zmienił w tym czasie w karcie, wygrywa
-  // z migawką `prev` we wszystkim, czego ten przebieg nie generował od nowa.
-  let saved = draft
+  // Generowanie trwa do minuty. Co w tym czasie zmienił właściciel albo Lister (zapis przez
+  // sync), wygrywa z tym przebiegiem we wszystkim, czego ten przebieg nie wygenerował od nowa;
+  // tekst napisany przez kogoś innego wygrywa zawsze, a szkic usunięty w tym czasie zostaje usunięty.
+  let saved: ListingDraft | undefined
   await updateDraft(item, (latest) => {
-    if (latest && prev && latest.updatedAt !== prev.updatedAt) {
-      saved = {
+    if (prev && !latest) return null
+    let next = draft
+    let modelWarnings = text.warnings
+    if (latest && latest.updatedAt !== prev?.updatedAt) {
+      const keepText = !opts.text || latest.source !== 'gemini' || !!latest.edited
+      if (keepText) modelWarnings = ownWarningsOut(latest.warnings)
+      next = {
         ...draft,
-        ...(opts.text ? {} : { title: latest.title, description: latest.description, edited: latest.edited }),
-        ...(opts.photos ? {} : { photoIds: latest.photoIds }),
+        ...(keepText
+          ? {
+              title: latest.title,
+              description: latest.description,
+              category: latest.category,
+              color: latest.color,
+              material: latest.material,
+              source: latest.source,
+              edited: latest.edited,
+            }
+          : {}),
+        ...(freshPhotos ? {} : { photoIds: latest.photoIds }),
         ...(latest.priceBasis === 'manual'
           ? { price: latest.price, minPrice: latest.minPrice, priceBasis: latest.priceBasis }
           : {}),
       }
     }
+    // Uwagi liczone na końcu, ze stanu, który faktycznie się zapisze.
+    const warnings = [
+      ...(!item.product.photoIds.length && !next.photoIds.length ? [NO_PHOTO_WARNING] : []),
+      ...modelWarnings,
+      ...(next.price == null ? [NO_PRICE_WARNING] : []),
+    ]
+    saved = { ...next, warnings: warnings.length ? warnings : undefined }
     return saved
   })
+  if (!saved) throw new Error('Szkic został usunięty w trakcie generowania.')
   return saved
 }
