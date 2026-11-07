@@ -135,27 +135,39 @@ async function generatePhotos(item: DraftQueueItem, opts: DraftRunOptions): Prom
   return saved
 }
 
+type DraftTarget = Pick<DraftQueueItem, 'kind' | 'key'>
+
 /** Bieżący szkic z bazy (nie z propsów) — batch i karta mogły go właśnie zmienić. */
-async function currentDraft(item: DraftQueueItem): Promise<ListingDraft | undefined> {
+async function currentDraft(item: DraftTarget): Promise<ListingDraft | undefined> {
   return item.kind === 'design'
     ? (await db.designs.get(item.key))?.listingDraft
     : (await db.products.get(item.key))?.listingDraft
 }
 
 /** Zapisuje szkic (całość) na modelu albo produkcie. */
-export async function saveDraft(item: Pick<DraftQueueItem, 'kind' | 'key'>, draft: ListingDraft | undefined): Promise<void> {
+export async function saveDraft(item: DraftTarget, draft: ListingDraft | undefined): Promise<void> {
   if (item.kind === 'design') await patchEntity('designs', item.key, { listingDraft: draft })
   else await patchEntity('products', item.key, { listingDraft: draft })
 }
 
-/** Zmienia pola szkicu (edycja właściciela w karcie). */
-export async function patchDraft(
-  item: Pick<DraftQueueItem, 'kind' | 'key'>,
-  changes: Partial<ListingDraft>,
+/**
+ * Odczyt + zapis szkicu w JEDNEJ transakcji: `next` dostaje świeży szkic, więc dwie szybkie
+ * zmiany (blur tytułu i stuknięcie zdjęcia) albo edycja w trakcie generowania się nie gubią.
+ */
+async function updateDraft(
+  item: DraftTarget,
+  next: (cur: ListingDraft | undefined) => ListingDraft | undefined | null,
 ): Promise<void> {
-  const cur = await currentDraft(item as DraftQueueItem)
-  if (!cur) return
-  await saveDraft(item, { ...cur, ...changes, updatedAt: Date.now() })
+  const table = item.kind === 'design' ? db.designs : db.products
+  await db.transaction('rw', table, db.outbox, async () => {
+    const draft = next(await currentDraft(item))
+    if (draft !== null) await saveDraft(item, draft)
+  })
+}
+
+/** Zmienia pola szkicu (edycja właściciela w karcie). */
+export async function patchDraft(item: DraftTarget, changes: Partial<ListingDraft>): Promise<void> {
+  await updateDraft(item, (cur) => (cur ? { ...cur, ...changes, updatedAt: Date.now() } : null))
 }
 
 const NO_PHOTO_WARNING =
@@ -233,6 +245,21 @@ export async function prepareDraft(item: DraftQueueItem, opts: DraftRunOptions):
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   }
-  await saveDraft(item, draft)
-  return draft
+  // Generowanie trwa do minuty — to, co właściciel zmienił w tym czasie w karcie, wygrywa
+  // z migawką `prev` we wszystkim, czego ten przebieg nie generował od nowa.
+  let saved = draft
+  await updateDraft(item, (latest) => {
+    if (latest && prev && latest.updatedAt !== prev.updatedAt) {
+      saved = {
+        ...draft,
+        ...(opts.text ? {} : { title: latest.title, description: latest.description, edited: latest.edited }),
+        ...(opts.photos ? {} : { photoIds: latest.photoIds }),
+        ...(latest.priceBasis === 'manual'
+          ? { price: latest.price, minPrice: latest.minPrice, priceBasis: latest.priceBasis }
+          : {}),
+      }
+    }
+    return saved
+  })
+  return saved
 }

@@ -27,9 +27,10 @@ import { useLocalStorageState } from '@/lib/hooks'
 import { estimateImageCostUsd, DEFAULT_IMAGE_RESOLUTION, USD_PLN } from '@/lib/constants'
 import { GeminiError } from '@/lib/gemini'
 import { getImageBlob } from '@/lib/images'
-import { downloadBlob } from '@/lib/csv'
+import { copyText, shareOrDownload } from '@/lib/share'
 import { pluralPl } from '@/lib/format'
-import { listProductOn, toggleDesignListing } from '@/lib/productActions'
+import { listProductOn, setDesignListings } from '@/lib/productActions'
+import { listingsFor, toggleListing } from '@/lib/listing'
 import {
   AI_PHOTOS_REMINDER,
   DRAFT_CONDITION_LABEL,
@@ -46,40 +47,34 @@ import { Button, EmptyState, Modal, NumberInput, SectionTitle, Select, TextArea,
 import { Thumb } from '@/components/ImageView'
 import { AccountDot } from '@/components/ListingPicker'
 
-async function copy(text: string, what = 'Skopiowano') {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(`${what} ✓`)
-  } catch {
-    toast.error('Nie udało się skopiować.')
-  }
-}
+const copy = (text: string, what: string) => copyText(text, `${what} ✓`)
 
-/** Zapis pełnych zdjęć: na telefonie arkusz udostępniania (→ Zdjęcia), na komputerze pobranie. */
+/** Zapis pełnych zdjęć szkicu (telefon: arkusz udostępniania → Zdjęcia). */
 async function savePhotos(ids: string[], name: string) {
-  const files: File[] = []
-  for (const [i, id] of ids.entries()) {
-    const blob = await getImageBlob(id)
-    if (!blob) continue
-    const ext = blob.type === 'image/png' ? 'png' : 'jpg'
-    files.push(new File([blob], `${name.slice(0, 30) || 'zdjecie'}-${i + 1}.${ext}`, { type: blob.type || 'image/jpeg' }))
-  }
-  if (!files.length) return toast.error('Nie udało się pobrać zdjęć. Sprawdź połączenie.')
-  if (navigator.canShare?.({ files })) {
-    try {
-      await navigator.share({ files })
-      return
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return
+  try {
+    const files: File[] = []
+    for (const [i, id] of ids.entries()) {
+      const blob = await getImageBlob(id)
+      if (!blob) continue
+      const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+      files.push(new File([blob], `${name.slice(0, 30) || 'zdjecie'}-${i + 1}.${ext}`, { type: blob.type || 'image/jpeg' }))
     }
+    if (!files.length) return toast.error('Nie udało się pobrać zdjęć. Sprawdź połączenie.')
+    if (!(await shareOrDownload(files))) toast.info('Zdjęcia gotowe: stuknij „Zapisz zdjęcia” jeszcze raz.')
+  } catch {
+    toast.error('Nie udało się pobrać zdjęć. Sprawdź połączenie.')
   }
-  for (const f of files) downloadBlob(f.name, f)
 }
 
-/** Czy wśród zdjęć szkicu są wygenerowane przez AI (wtedy przypomnienie o polu na Vinted). */
-function useHasAiPhotos(ids: string[]): boolean {
-  const kinds = useLiveQuery(() => db.images.bulkGet(ids), [ids.join(',')])
-  return (kinds ?? []).some((r) => r?.kind === 'generated' || r?.kind === 'model')
+/**
+ * Zdjęcia szkicu, które nadal istnieją (zdjęcie usunięte w Studio/edytorze znika też
+ * ze szkicu), i czy są wśród nich wygenerowane przez AI (przypomnienie o polu na Vinted).
+ */
+function useDraftPhotos(ids: string[]): { ids: string[]; hasAi: boolean } {
+  const recs = useLiveQuery(() => db.images.bulkGet(ids), [ids.join(',')])
+  if (!recs) return { ids, hasAi: false }
+  const live = recs.filter((r): r is NonNullable<typeof r> => !!r)
+  return { ids: live.map((r) => r.id), hasAi: live.some((r) => r.kind === 'generated' || r.kind === 'model') }
 }
 
 interface RunState {
@@ -153,7 +148,8 @@ export function Drafts() {
     }
   }
 
-  if (!products || !designs || !accounts) return null
+  // Ceny liczą się z historii sprzedaży — bez niej batch zapisałby cenę z ceny zakupu.
+  if (!products || !designs || !accounts || !sales) return null
 
   return (
     <div>
@@ -281,7 +277,7 @@ function DraftCard({
   const [size, setSize] = useState(sizes[0]?.[0] ?? '')
   const current = sizes.some(([s]) => s === size) ? size : (sizes[0]?.[0] ?? '')
   const editorHref = item.kind === 'design' ? `/magazyn/model/${item.key}` : `/magazyn/${item.key}`
-  const cover = draft?.photoIds[0] ?? product.photoIds[0] ?? product.generatedPhotoIds[0]
+  const cover = product.photoIds[0] ?? draft?.photoIds[0] ?? product.generatedPhotoIds[0]
 
   return (
     <div className="card flex flex-col gap-3 p-4">
@@ -360,7 +356,7 @@ function DraftBody({
   busy: boolean
   onPrepare: (mode: { text?: boolean; photos?: 'missing' | 'always' }) => void
 }) {
-  const hasAi = useHasAiPhotos(draft.photoIds)
+  const { ids: photoIds, hasAi } = useDraftPhotos(draft.photoIds)
   const [title, setTitle] = useState(draft.title)
   const [description, setDescription] = useState(draft.description)
   // Szkic zmieniony z zewnątrz (nowy tekst z Gemini, Lister przez sync) — pokaż nowy.
@@ -381,7 +377,13 @@ function DraftBody({
 
   const markListed = async (account: Account) => {
     try {
-      if (item.kind === 'design') await toggleDesignListing(item.key, account.id, Date.now(), unit.id)
+      // Tylko włącza (nigdy nie zdejmuje): podwójne stuknięcie nie może cofnąć wystawienia.
+      if (item.kind === 'design')
+        await setDesignListings(item.key, (cur, members) =>
+          listingsFor(cur, unit).some((l) => l.accountId === account.id)
+            ? cur
+            : toggleListing(cur, account.id, Date.now(), unit, members),
+        )
       else await listProductOn(unit.id, account.id, Date.now())
       toast.success(`Wystawione na ${account.name}${size ? ` (rozm. ${size})` : ''} ✓`)
     } catch {
@@ -398,17 +400,18 @@ function DraftBody({
         </div>
       )}
 
-      {draft.photoIds.length > 0 && (
+      {photoIds.length > 0 && (
         <div>
           <div className="no-scrollbar flex gap-2 overflow-x-auto">
-            {draft.photoIds.map((id, i) => (
+            {photoIds.map((id, i) => (
               <div key={id} className="relative shrink-0">
                 <Thumb imageId={id} className="h-28 w-[84px] rounded-lg object-cover" />
                 <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white">{i + 1}</span>
                 <button
                   type="button"
                   aria-label="Usuń ze szkicu"
-                  onClick={() => void patchDraft(item, { photoIds: draft.photoIds.filter((x) => x !== id) })}
+                  disabled={busy}
+                  onClick={() => void patchDraft(item, { photoIds: photoIds.filter((x) => x !== id) })}
                   className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white"
                 >
                   <X size={12} />
@@ -416,8 +419,8 @@ function DraftBody({
               </div>
             ))}
           </div>
-          <Button variant="soft" className="btn-sm mt-2" onClick={() => void savePhotos(draft.photoIds, fullTitle)}>
-            <Download size={14} /> Zapisz zdjęcia ({draft.photoIds.length})
+          <Button variant="soft" className="btn-sm mt-2" onClick={() => void savePhotos(photoIds, fullTitle)}>
+            <Download size={14} /> Zapisz zdjęcia ({photoIds.length})
           </Button>
         </div>
       )}
@@ -450,6 +453,7 @@ function DraftBody({
         <label className="text-xs text-ink-500">
           Cena (zł)
           <NumberInput
+            disabled={busy}
             value={draft.price}
             onValueChange={(v) => void patchDraft(item, { price: v, priceBasis: 'manual' })}
           />
@@ -457,6 +461,7 @@ function DraftBody({
         <label className="text-xs text-ink-500">
           Najniższa oferta (zł)
           <NumberInput
+            disabled={busy}
             value={draft.minPrice}
             onValueChange={(v) => void patchDraft(item, { minPrice: v, priceBasis: 'manual' })}
           />
@@ -504,7 +509,7 @@ function DraftBody({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="soft" className="btn-sm" onClick={() => void copy(pasteBlock({ ...draft, title, description }, size, hasAi), 'Szkic skopiowany')}>
+        <Button variant="soft" className="btn-sm" onClick={() => void copy(pasteBlock({ ...draft, title, description, photoIds }, size, hasAi), 'Szkic skopiowany')}>
           <Copy size={14} /> Kopiuj wszystko
         </Button>
         <Button variant="ghost" className="btn-sm" disabled={busy} onClick={() => onPrepare({ text: true })}>

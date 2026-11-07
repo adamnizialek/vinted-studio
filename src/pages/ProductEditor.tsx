@@ -70,21 +70,14 @@ import {
 } from '@/lib/prompts'
 import { generateText } from '@/lib/gemini'
 import { addImageFromFile, getImageBlob } from '@/lib/images'
-import { downloadBlob } from '@/lib/csv'
 import { DesignListingPicker, ProductListingPicker } from '@/components/ListingPicker'
 import { Button, Field, MoreFields, NumberInput, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
+import { copyText, shareOrDownload } from '@/lib/share'
 import { FileDrop } from '@/components/FileDrop'
 import { SoldModal } from '@/components/SoldModal'
 
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success('Skopiowano do schowka.')
-  } catch {
-    toast.error('Nie udało się skopiować.')
-  }
-}
+const copy = (text: string) => copyText(text)
 
 type UpdateFn = (patch: Partial<Product> | ((prev: Product) => Partial<Product>)) => void
 
@@ -972,21 +965,8 @@ function PhotoCell({
       }
       const ext = blob.type === 'image/png' ? 'png' : 'jpg'
       const filename = `vinted-${name || 'zdjecie'}-${id.slice(0, 6)}.${ext}`
-      // Na telefonie natywny arkusz udostępniania („Zapisz w Zdjęciach/Plikach") jest
-      // pewniejszy niż <a download>, które iOS Safari często ignoruje (otwiera blob
-      // zamiast zapisać). Na desktopie canShare zwykle daje false → klasyczne pobranie.
       const file = new File([blob], filename, { type: blob.type || 'image/jpeg' })
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] })
-          return
-        } catch (e) {
-          // Anulowanie arkusza przez użytkownika to nie błąd — nie pobieraj awaryjnie.
-          if (e instanceof DOMException && e.name === 'AbortError') return
-          // Inny błąd udostępniania → spróbuj klasycznego pobrania poniżej.
-        }
-      }
-      downloadBlob(filename, blob)
+      if (!(await shareOrDownload([file]))) toast.info('Zdjęcie gotowe: stuknij jeszcze raz, żeby je zapisać.')
     } catch {
       toast.error('Nie udało się pobrać zdjęcia.')
     } finally {

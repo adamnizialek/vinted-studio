@@ -45,32 +45,65 @@ function chromeLocalStorageDirs(): string[] {
   return out
 }
 
-/** Token aplikacji z localStorage Chrome (klucz `vinted-studio-sync-token`, 64 znaki). Najnowszy plik wygrywa. */
-function tokenFromChrome(): string | undefined {
+/**
+ * Kandydaci na token z localStorage Chrome (klucz `vinted-studio-sync-token`, 64 znaki),
+ * od najnowszego pliku; wpisy z originem produkcji przed innymi (np. lokalnym dev serwerem).
+ */
+function chromeTokenCandidates(): string[] {
   const key = Buffer.from('vinted-studio-sync-token')
-  let best: { token: string; mtime: number } | undefined
+  const host = new URL(BASE).host
+  const found: { token: string; mtime: number; origin: boolean }[] = []
   for (const dir of chromeLocalStorageDirs()) {
     for (const f of readdirSync(dir)) {
       if (!/\.(ldb|log)$/.test(f)) continue
       const path = join(dir, f)
-      const buf = readFileSync(path)
+      let buf: Buffer
+      try {
+        buf = readFileSync(path)
+      } catch {
+        continue // plik zablokowany przez działającego Chrome
+      }
+      const mtime = statSync(path).mtimeMs
       for (let i = buf.indexOf(key); i >= 0; i = buf.indexOf(key, i + 1)) {
-        const m = /[A-Za-z0-9_-]{40,}/.exec(buf.subarray(i + key.length, i + key.length + 200).toString('latin1'))
-        const mtime = statSync(path).mtimeMs
-        if (m && (!best || mtime >= best.mtime)) best = { token: m[0].slice(-64), mtime }
+        const m = /[A-Za-z0-9_-]{64}/.exec(buf.subarray(i + key.length, i + key.length + 120).toString('latin1'))
+        const origin = buf.subarray(Math.max(0, i - 80), i).toString('latin1').includes(host)
+        if (m) found.push({ token: m[0], mtime, origin })
       }
     }
   }
-  return best?.token
+  found.sort((a, b) => Number(b.origin) - Number(a.origin) || b.mtime - a.mtime)
+  return [...new Set(found.map((c) => c.token))]
 }
 
-function token(): string {
+/** Czy serwer przyjmuje token (pusty sync z kursorem „na końcu” — prawie zerowa odpowiedź). */
+async function accepted(t: string): Promise<boolean> {
+  const res = await fetch(`${BASE}/api/sync`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ cursor: Number.MAX_SAFE_INTEGER }),
+  })
+  return res.ok
+}
+
+let cachedToken: string | undefined
+
+/** Token ustalany RAZ na uruchomienie (czytanie Chrome jest kosztowne). */
+async function token(): Promise<string> {
+  if (cachedToken) return cachedToken
   const fromEnv = process.env.VINTED_STUDIO_TOKEN?.trim()
-  if (fromEnv) return fromEnv
   const file = join(homedir(), '.vinted-studio', 'token')
-  if (existsSync(file)) return readFileSync(file, 'utf8').trim()
+  if (fromEnv) cachedToken = fromEnv
+  else if (existsSync(file)) cachedToken = readFileSync(file, 'utf8').trim()
+  else {
+    for (const t of chromeTokenCandidates()) {
+      if (await accepted(t)) {
+        cachedToken = t
+        break
+      }
+    }
+  }
   return (
-    tokenFromChrome() ??
+    cachedToken ??
     fail('brak tokenu: ustaw VINTED_STUDIO_TOKEN albo otwórz Vinted Studio w Chrome na tym komputerze')
   )
 }
@@ -81,12 +114,12 @@ interface Row<T> {
   updatedAt: number
   data: T
 }
-type Pull = Partial<Record<'products' | 'designs' | 'sales', Row<unknown>[]>>
+type Pull = Partial<Record<'products' | 'designs' | 'sales' | 'images', Row<unknown>[]>>
 
 async function sync(body: unknown): Promise<{ cursor: number; pull: Pull }> {
   const res = await fetch(`${BASE}/api/sync`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${await token()}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (res.status === 401) fail('token odrzucony (401)')
@@ -105,6 +138,7 @@ async function load() {
     products: live<Product>(pull.products),
     designs: live<Design>(pull.designs),
     sales: live<Sale>(pull.sales),
+    imageIds: new Set(live<{ id: string }>(pull.images).map((i) => i.id)),
   }
 }
 
@@ -164,7 +198,7 @@ async function main() {
     mkdirSync(out, { recursive: true })
     const ids = [...item.product.photoIds, ...(item.draft?.photoIds ?? item.product.generatedPhotoIds)]
     for (const [i, id] of [...new Set(ids)].entries()) {
-      const res = await fetch(`${BASE}/api/blob/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${token()}` } })
+      const res = await fetch(`${BASE}/api/blob/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${await token()}` } })
       if (!res.ok) {
         console.error(`pominięto ${id}: HTTP ${res.status}`)
         continue
@@ -208,14 +242,16 @@ async function main() {
       color: input.color ?? prev?.color,
       material: input.material ?? prev?.material,
       ...price,
-      // Zdjęcia zostają z aplikacji: szkic Listera ich nie zmienia.
-      photoIds: prev?.photoIds ?? item.product.generatedPhotoIds,
+      // Zdjęcia zostają z aplikacji (bez usuniętych): szkic Listera ich nie zmienia.
+      photoIds: (prev?.photoIds ?? item.product.generatedPhotoIds).filter((id) => state.imageIds.has(id)),
       warnings: input.warnings?.length ? input.warnings : undefined,
       source: 'lister',
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     }
-    // Świeży wiersz celu (cały, jak z pull) + szkic; LWW: nowszy updatedAt wygrywa na każdym urządzeniu.
+    // Świeży wiersz celu (cały, jak z pull) + szkic. Sync to last-write-wins na CAŁY wiersz (jak
+    // między urządzeniami): zmiana tego modelu zrobiona offline na telefonie i jeszcze nie
+    // wysłana przegra z tym zapisem. Dlatego `put` zaraz po `list`, nie na starych danych.
     const table = item.kind === 'design' ? 'designs' : 'products'
     const row = (table === 'designs' ? state.designs : state.products).find((r) => r.id === item.key)
     if (!row) fail(`brak wiersza ${table}/${item.key}`)

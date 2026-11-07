@@ -1,13 +1,15 @@
 // Szkice ogłoszeń „Do wystawienia”: który towar z magazynu czeka na ogłoszenie, prompt dla
 // Gemini (zdjęcie + fakty → tytuł i opis w JSON), sugestia ceny i tekst do wklejenia.
 //
-// Czyste funkcje BEZ importów runtime (tylko `import type`) — ten sam plik importuje
-// scripts/drafts.ts uruchamiany gołym Node (strip-types), którego używa Lister (Claude),
-// więc aplikacja i Lister liczą kolejkę i ceny identycznie.
+// Ten sam plik importuje scripts/drafts.ts uruchamiany gołym Node (strip-types), którego
+// używa Lister (Claude), więc aplikacja i Lister liczą kolejkę i ceny identycznie. Stąd
+// importy runtime tylko z czystych modułów i z rozszerzeniem `.ts` (Node go wymaga).
 //
 // Wystawia zawsze właściciel, ręcznie na Vinted: nic tutaj nie łączy się z Vinted.
 
 import type { Design, ListingDraft, Product, Sale } from '@/db/types'
+import { resolveProduct } from './designs.ts'
+import { median } from './listing.ts'
 
 /** Stan towaru w szkicu — cały towar jest nowy (patrz DEFAULT_CONDITION w constants.ts). */
 export const DRAFT_CONDITION_LABEL = 'Nowy bez metki'
@@ -38,22 +40,6 @@ export interface DraftQueueItem {
   /** Wszystkie sztuki modelu (ceny, ogłoszenia). Samodzielny: [product]. */
   members: Product[]
   draft?: ListingDraft
-}
-
-/** Nakłada pola wspólne modelu na sztukę (jak resolveProduct w designs.ts — kopia, bo tu bez importów runtime). */
-function overlay(p: Product, d: Design): Product {
-  return {
-    ...p,
-    name: d.name,
-    brand: d.brand,
-    color: d.color,
-    material: d.material,
-    category: d.category,
-    tags: d.tags,
-    photoIds: d.photoIds,
-    generatedPhotoIds: d.generatedPhotoIds,
-    descriptions: d.descriptions,
-  }
 }
 
 /**
@@ -90,7 +76,7 @@ export function draftQueue(
       key: designId,
       kind: 'design',
       design,
-      product: overlay(units[0], design),
+      product: resolveProduct(units[0], designsById),
       units,
       members: all,
       draft: design.listingDraft,
@@ -142,13 +128,6 @@ const PURCHASE_MIN_X = 2
 /** Zaokrąglenie „sklepowe”: od 100 zł do 5 zł, niżej do złotówki. */
 export function roundPrice(n: number): number {
   return n >= 100 ? Math.round(n / 5) * 5 : Math.max(1, Math.round(n))
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null
-  const s = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
 export interface PriceSuggestion {
