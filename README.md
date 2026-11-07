@@ -58,6 +58,26 @@ Otwórz zbudowaną aplikację w Chrome/Edge → ikona „Zainstaluj” w pasku a
 
 ---
 
+## 📝 Do wystawienia (szkice ogłoszeń)
+
+Ekran **Do wystawienia** bierze z magazynu każdy model/przedmiot ze sztukami bez ogłoszenia i przygotowuje
+szkic: zdjęcia AI (czyste zdjęcie produktu + opcjonalnie na modelce, wierne prawdziwemu przedmiotowi),
+tytuł i opis z Gemini (ze zdjęcia; opis zaczyna się od zachęty do proponowania ceny) oraz cenę
+(cena z magazynu → Twoje sprzedaże tego modelu + 12% → cena zakupu × 2,5). Wystawiasz sam na Vinted:
+zapisz zdjęcia, skopiuj tytuł/opis, **zaznacz na Vinted, że zdjęcia są wygenerowane przez AI**, dodaj,
+a potem stuknij konto w karcie — sztuka przechodzi na „Wystawione”. Aplikacja nigdy nie łączy się z Vinted.
+
+Szkic może też napisać Lister (Claude) z linii poleceń — czyta magazyn i zapisuje szkic przez `/api/sync`:
+
+```bash
+node scripts/drafts.ts list                      # co czeka na ogłoszenie (+ sugerowana cena)
+node scripts/drafts.ts photos <key>              # zdjęcia + facts.json do ~/Vinted/do-wystawienia/<key>
+node scripts/drafts.ts put <key> --json szkic.json   # {title, description, price?, minPrice?, category?, color?}
+node scripts/drafts.ts show <key>                # gotowy tekst do wklejenia
+```
+
+---
+
 ## 🔑 Klucz API Gemini
 
 1. Wejdź na **[Google AI Studio → API keys](https://aistudio.google.com/apikey)** i wygeneruj klucz (samo utworzenie klucza jest darmowe).

@@ -118,6 +118,39 @@ export interface SavedDescription {
   createdAt: number
 }
 
+/** Kto napisał tekst szkicu: Gemini w aplikacji, Lister (Claude, przez scripts/drafts.mjs) albo właściciel. */
+export type DraftSource = 'gemini' | 'lister' | 'manual'
+
+/**
+ * Gotowy szkic ogłoszenia dla przedmiotu z magazynu („Do wystawienia”): zdjęcia, tytuł,
+ * opis i cena. Wystawia właściciel ręcznie na Vinted — aplikacja nigdy się z Vinted nie łączy.
+ * Jeden szkic na model (Design) albo samodzielny produkt; rozmiar dochodzi per sztuka.
+ */
+export interface ListingDraft {
+  /** Tytuł BEZ rozmiaru — rozmiar doklejamy per sztuka (titleForSize). */
+  title: string
+  description: string
+  /** Cena wystawienia (zł). */
+  price?: number
+  /** Najniższa oferta do przyjęcia (zł). */
+  minPrice?: number
+  /** Skąd cena: własne sprzedaże tego modelu / cena wpisana w magazynie / cena zakupu × mnożnik / szkic. */
+  priceBasis?: 'sold' | 'listing' | 'purchase' | 'manual'
+  /** Podpowiedź pól formularza Vinted. */
+  category?: string
+  color?: string
+  material?: string
+  /** Zdjęcia do wgrania na Vinted, w kolejności (id z tabeli images). */
+  photoIds: ID[]
+  /** Uwagi do sprawdzenia przed wystawieniem (np. „brak zdjęcia”, „[sprawdź: …]”). */
+  warnings?: string[]
+  source: DraftSource
+  /** Właściciel zmienił tytuł/opis w aplikacji (miara Listera: ile wystawionych bez zmian). */
+  edited?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 /** Wymiary produktu (cm) — kupujacy na Vinted czesto o nie pytaja. */
 export interface Measurements {
   chest?: number // szerokosc w klatce / w pasie (plasko)
@@ -182,6 +215,8 @@ export interface Product {
   soldAt?: number
   /** Klucz treści wiersza ze źródłowego importu CSV — do idempotentnego ponownego importu. */
   importKey?: string
+  /** Szkic ogłoszenia samodzielnego produktu (produkt modelu czyta szkic z Design). */
+  listingDraft?: ListingDraft
 }
 
 /** Wspolny fason ("Model" w UI) — wspoldzielony przez warianty rozmiarowe.
@@ -203,6 +238,8 @@ export interface Design {
   /** Gdzie sztuki modelu są wystawione: ogłoszenie na koncie dla jednej sztuki
    *  (`productId`), rozmiaru albo całego modelu. Puste/brak = nigdzie. */
   listings?: DesignListing[]
+  /** Szkic ogłoszenia wspólny dla sztuk modelu (rozmiar dochodzi per sztuka). */
+  listingDraft?: ListingDraft
   createdAt: number
   updatedAt: number
 }

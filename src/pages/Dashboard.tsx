@@ -159,8 +159,8 @@ export function Dashboard() {
               <h3 className="font-bold">Do wystawienia</h3>
             </div>
             <p className="mt-2 text-5xl font-semibold leading-none tracking-[-0.04em] text-ink-900">{toList}</p>
-            <Link to="/magazyn" className="btn-ghost btn-sm mt-3 w-full">
-              Przejdź do magazynu
+            <Link to="/wystaw" className="btn-ghost btn-sm mt-3 w-full">
+              Szkice ogłoszeń
             </Link>
           </div>
 

@@ -459,6 +459,8 @@ export interface ExtractionOptions extends CallOptions {
   /** Schemat odpowiedzi (podzbior OpenAPI, typy WIELKIMI literami). Opcjonalny. */
   responseSchema?: unknown
   maxOutputTokens?: number
+  /** Domyślnie 0 (deterministyczny odczyt). Pisanie tekstu (szkice ogłoszeń) chce więcej swobody. */
+  temperature?: number
 }
 
 interface ExtractionRequestBody {
@@ -485,12 +487,12 @@ interface ExtractionRequestBody {
 export function buildExtractionRequestBody(
   prompt: string,
   images: InlineImage[],
-  opts: { model: string; responseSchema?: unknown; maxOutputTokens?: number },
+  opts: { model: string; responseSchema?: unknown; maxOutputTokens?: number; temperature?: number },
 ): ExtractionRequestBody {
   const parts = imageParts(prompt, images)
 
   const generationConfig: ExtractionRequestBody['generationConfig'] = {
-    temperature: 0,
+    temperature: opts.temperature ?? 0,
     maxOutputTokens: opts.maxOutputTokens ?? 8192,
     responseMimeType: 'application/json',
   }
@@ -515,6 +517,7 @@ export async function extractFromImages(
     model: opts.model,
     responseSchema: opts.responseSchema,
     maxOutputTokens: opts.maxOutputTokens,
+    temperature: opts.temperature,
   })
   const parts = await callGenerate(opts.model, opts.apiKey, body, {
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
