@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { Product } from '@/db/types'
+import type { Design, Product } from '@/db/types'
 import {
   DAY_MS,
   STALE_LISTING_DAYS,
@@ -21,6 +21,7 @@ import {
   mergeListings,
   isOnAccount,
   listedAccountIds,
+  banPlan,
 } from './listing'
 
 const base = (over: Partial<Product> = {}): Product => ({
@@ -410,5 +411,108 @@ describe('soldPatch on a model listed on two accounts', () => {
     expect(soldPatch(unit, 1000, 'main', listings)).toEqual({
       status: 'sold', soldAt: 1000, accountId: 'main',
     })
+  })
+})
+
+describe('banPlan', () => {
+  const design = (over: Partial<Design> = {}): Design => ({
+    id: 'd',
+    name: 'D',
+    tags: [],
+    photoIds: [],
+    generatedPhotoIds: [],
+    descriptions: [],
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  })
+
+  it('takes standalone items listed on the account back to stock, without the account', () => {
+    const listed = base({ id: 'l', status: 'listed', accountId: 'main', listedAt: 5 })
+    const other = base({ id: 'o', status: 'listed', accountId: 'mati', listedAt: 5 })
+    const plan = banPlan('main', [listed, other], [])
+    expect(plan.takenOff).toEqual(['l'])
+    expect(plan.products).toEqual([{ id: 'l', patch: { status: 'in_stock', accountId: undefined } }])
+  })
+
+  it('leaves sold, reserved and archived items on the account (sales history)', () => {
+    const items = (['sold', 'reserved', 'archived'] as const).map((status) =>
+      base({ id: status, status, accountId: 'main' }),
+    )
+    expect(banPlan('main', items, [])).toEqual({ designs: [], products: [], takenOff: [], toStock: [] })
+  })
+
+  it('clears the account from unlisted stock still assigned to it', () => {
+    const plan = banPlan('main', [base({ id: 's', status: 'in_stock', accountId: 'main' })], [])
+    expect(plan.takenOff).toEqual([])
+    expect(plan.products).toEqual([{ id: 's', patch: { accountId: undefined } }])
+  })
+
+  it('drops the model listings of the account; units listed only there return to stock', () => {
+    const u1 = base({ id: 'u1', designId: 'd', sizeLabel: 'S', status: 'listed', accountId: 'main', listedAt: 5 })
+    const u2 = base({ id: 'u2', designId: 'd', sizeLabel: 'M', status: 'listed', listedAt: 3 })
+    const u3 = base({ id: 'u3', designId: 'd', sizeLabel: 'L', status: 'listed', accountId: 'mati', listedAt: 7 })
+    const sold = base({ id: 'u4', designId: 'd', sizeLabel: 'S', status: 'sold', accountId: 'main' })
+    const d = design({
+      listings: [
+        { accountId: 'main', since: 5, productId: 'u1' },
+        { accountId: 'main', since: 3, productId: 'u2' },
+        { accountId: 'mati', since: 4, productId: 'u2' },
+        { accountId: 'mati', since: 7, productId: 'u3' },
+        { accountId: 'main', since: 1, productId: 'u4' },
+      ],
+    })
+    const plan = banPlan('main', [u1, u2, u3, sold], [d])
+    expect(plan.designs).toEqual([
+      {
+        id: 'd',
+        listings: [
+          { accountId: 'mati', since: 4, productId: 'u2' },
+          { accountId: 'mati', since: 7, productId: 'u3' },
+          // The sold unit keeps its listing on the banned account: sales history.
+          { accountId: 'main', since: 1, productId: 'u4' },
+        ],
+      },
+    ])
+    expect(plan.takenOff.sort()).toEqual(['u1', 'u2'])
+    expect(plan.toStock).toEqual(['u1'])
+    const patches = Object.fromEntries(plan.products.map((p) => [p.id, p.patch]))
+    expect(patches.u1).toEqual({ status: 'in_stock', accountId: undefined })
+    // Still listed on Mati: stays listed there, dated from that listing.
+    expect(patches.u2).toMatchObject({ status: 'listed', accountId: 'mati', listedAt: 4 })
+    expect(patches.u3).toBeUndefined()
+    expect(patches.u4).toBeUndefined()
+  })
+
+  it('takes units off a model-wide listing on the account', () => {
+    const u1 = base({ id: 'u1', designId: 'd', sizeLabel: 'S', status: 'listed', accountId: 'main', listedAt: 5 })
+    const u2 = base({ id: 'u2', designId: 'd', sizeLabel: 'M', status: 'in_stock' })
+    const plan = banPlan('main', [u1, u2], [design({ listings: [{ accountId: 'main', since: 5 }] })])
+    expect(plan.designs).toEqual([{ id: 'd', listings: [] }])
+    expect(plan.takenOff).toEqual(['u1'])
+    expect(plan.products).toEqual([{ id: 'u1', patch: { status: 'in_stock', accountId: undefined } }])
+  })
+
+  it("does not list an incoming or stocked unit through another account's wider listing", () => {
+    const listed = base({ id: 'u1', designId: 'd', status: 'listed', listedAt: 5 })
+    const incoming = base({ id: 'u2', designId: 'd', status: 'incoming' })
+    const stocked = base({ id: 'u3', designId: 'd', status: 'in_stock' })
+    const d = design({ listings: [{ accountId: 'main', since: 5 }, { accountId: 'mati', since: 6 }] })
+    const plan = banPlan('main', [listed, incoming, stocked], [d])
+    expect(plan.designs).toEqual([{ id: 'd', listings: [{ accountId: 'mati', since: 6 }] }])
+    expect(plan.products).toEqual([
+      { id: 'u1', patch: { status: 'listed', listedAt: 6, listedAtApprox: undefined, accountId: 'mati' } },
+    ])
+    expect(plan.takenOff).toEqual(['u1'])
+    expect(plan.toStock).toEqual([])
+  })
+
+  it('reads listings from the units of an older model without the field', () => {
+    const u1 = base({ id: 'u1', designId: 'd', status: 'listed', accountId: 'main', listedAt: 5 })
+    const u2 = base({ id: 'u2', designId: 'd', status: 'listed', accountId: 'mati', listedAt: 6 })
+    const plan = banPlan('main', [u1, u2], [design()])
+    expect(plan.designs).toEqual([{ id: 'd', listings: [{ accountId: 'mati', since: 6, productId: 'u2' }] }])
+    expect(plan.takenOff).toEqual(['u1'])
+    expect(plan.products).toEqual([{ id: 'u1', patch: { status: 'in_stock', accountId: undefined } }])
   })
 })

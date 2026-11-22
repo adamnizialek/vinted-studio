@@ -46,6 +46,7 @@ import { needsPhotos, patchDraft, photosPerItem, prepareDraft, saveDraft } from 
 import { Button, EmptyState, Modal, NumberInput, SectionTitle, Select, TextArea, TextInput } from '@/components/ui'
 import { Thumb } from '@/components/ImageView'
 import { AccountDot } from '@/components/ListingPicker'
+import { selectableAccounts } from '@/lib/accounts'
 
 const copy = (text: string, what: string) => copyText(text, `${what} ✓`)
 
@@ -367,6 +368,8 @@ function DraftBody({
   generating: boolean
   onPrepare: (mode: { text?: boolean; photos?: 'missing' | 'always' }) => void
 }) {
+  // Zbanowanych kont nie proponujemy do oznaczenia wystawienia.
+  const listable = selectableAccounts(accounts)
   const { ids: photoIds, hasAi } = useDraftPhotos(draft.photoIds)
   const [title, setTitle] = useState(draft.title)
   const [description, setDescription] = useState(draft.description)
@@ -547,13 +550,13 @@ function DraftBody({
         </Button>
       </div>
 
-      {accounts.length > 0 && (
+      {listable.length > 0 && (
         <div className="border-t border-ink-100 pt-3">
           <p className="mb-2 flex items-center gap-1.5 text-xs text-ink-500">
             <Megaphone size={13} /> Dodane na Vinted? Zaznacz konto{size ? ` (1 szt., rozm. ${size})` : ' (1 szt.)'}:
           </p>
           <div className="flex flex-wrap gap-2">
-            {accounts.map((a) => (
+            {listable.map((a) => (
               <button
                 key={a.id}
                 type="button"

@@ -1,6 +1,6 @@
 import { db, deleteEntity, patchEntity } from '@/db/db'
 import type { DesignListing, ID, Product, ProductStatus, SaleStatus } from '@/db/types'
-import { listingsFromProducts, memberListingPatch, toggleListing } from './listing'
+import { banPlan, listingsFromProducts, memberListingPatch, toggleListing } from './listing'
 
 /**
  * Statuses that carry a side-effect (recording a Sale) and therefore must NOT be
@@ -138,6 +138,33 @@ export async function toggleDesignListing(
     if (unitId && !unit) return cur
     return toggleListing(cur, accountId, since, unit, members)
   })
+}
+
+/**
+ * Oznacza konto jako zablokowane przez Vinted i zdejmuje z niego wszystko, co było na nim
+ * wystawione (patrz banPlan) — w jednej transakcji. Ogłoszeń na Vinted już nie ma, więc
+ * przedmioty wracają do magazynu i można je wystawić gdzie indziej. Zwraca, ile zdjęto
+ * z konta i ile z nich wróciło do magazynu.
+ */
+export async function banAccount(
+  accountId: ID,
+  now = Date.now(),
+): Promise<{ takenOff: number; toStock: number }> {
+  return db.transaction('rw', [db.accounts, db.designs, db.products, db.outbox], async () => {
+    const account = await db.accounts.get(accountId)
+    if (!account) return { takenOff: 0, toStock: 0 }
+    const [products, designs] = await Promise.all([db.products.toArray(), db.designs.toArray()])
+    const plan = banPlan(accountId, products, designs)
+    if (account.bannedAt == null) await patchEntity('accounts', accountId, { bannedAt: now })
+    for (const d of plan.designs) await patchEntity('designs', d.id, { listings: d.listings })
+    for (const p of plan.products) await patchEntity('products', p.id, p.patch)
+    return { takenOff: plan.takenOff.length, toStock: plan.toStock.length }
+  })
+}
+
+/** Cofa oznaczenie blokady (np. po udanym odwołaniu). Zdjętych przedmiotów nie wystawia z powrotem. */
+export async function unbanAccount(accountId: ID): Promise<void> {
+  await patchEntity('accounts', accountId, { bannedAt: undefined })
 }
 
 /** Assign or clear (undefined) the account of a product. */

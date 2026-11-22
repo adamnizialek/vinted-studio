@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { db, importStock } from '@/db/db'
+import { accountLabel, selectableAccounts } from '@/lib/accounts'
 import { extractFromImages, GeminiError, MAX_BASE64_CHARS, MAX_RAW_BYTES, type InlineImage } from '@/lib/gemini'
 import {
   parseExtractionResult,
@@ -282,9 +283,9 @@ export function ImportStockScreenshotModal({ open, onClose }: { open: boolean; o
               <Field label="Konto dla całego importu (opcjonalnie)">
                 <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="sm:w-64">
                   <option value="">— bez konta —</option>
-                  {accounts.map((a) => (
+                  {selectableAccounts(accounts, accountId).map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name}
+                      {accountLabel(a)}
                     </option>
                   ))}
                 </Select>

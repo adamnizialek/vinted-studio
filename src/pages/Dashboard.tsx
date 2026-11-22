@@ -7,6 +7,7 @@ import { pl } from 'date-fns/locale'
 import { AlertTriangle, Camera, Clock, ExternalLink, Package, Percent, Plus, Shirt, TrendingUp, Wallet } from 'lucide-react'
 import { db } from '@/db/db'
 import { useSettings } from '@/state/settings'
+import { isBanned } from '@/lib/accounts'
 import { aggregateProfit, countsAsInventoryCost, countsAsRevenue, dateShort, money, percent, pluralPl } from '@/lib/format'
 import { resolveProduct } from '@/lib/designs'
 import {
@@ -303,6 +304,11 @@ export function Dashboard() {
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: account.color }} />
                     <span className="truncate font-medium text-ink-800">{account.name}</span>
                     <span className="shrink-0 text-xs text-ink-400">({count})</span>
+                    {isBanned(account) && (
+                      <span className="shrink-0 text-xs font-medium text-red-600 dark:text-red-400">
+                        zbanowane
+                      </span>
+                    )}
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-sm font-bold text-ink-900">{money(agg.revenue, currency)}</p>

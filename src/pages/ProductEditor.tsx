@@ -53,6 +53,7 @@ import {
   statusOptionsFor,
 } from '@/lib/constants'
 import { dateFromInput, dateInputValue, money, relative } from '@/lib/format'
+import { accountLabel, selectableAccounts } from '@/lib/accounts'
 import {
   coverImageIdOf,
   effectiveListings,
@@ -525,7 +526,7 @@ function DetailsTab({
 }: {
   draft: Product
   update: UpdateFn
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; bannedAt?: number }[]
   /** Edytor modelu: część zwiniętych pól jest wspólna dla wszystkich rozmiarów. */
   inDesign?: boolean
 }) {
@@ -639,9 +640,9 @@ function DetailsTab({
           <Field label="Konto">
             <Select value={draft.accountId ?? ''} onChange={(e) => update({ accountId: e.target.value || undefined })}>
               <option value="">— brak —</option>
-              {accounts.map((a) => (
+              {selectableAccounts(accounts, draft.accountId).map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {accountLabel(a)}
                 </option>
               ))}
             </Select>

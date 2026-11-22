@@ -79,6 +79,9 @@ export interface Account {
   color: string
   /** Domyslna prowizja/oplata platnosci kupujacego — pomocniczo w kalkulacjach. */
   notes?: string
+  /** Kiedy Vinted zablokował konto (ms). Zostaje dla historii sprzedaży, ale nie jest
+   *  już proponowane do wystawiania (patrz lib/accounts). */
+  bannedAt?: number
   createdAt: number
   updatedAt: number
 }

@@ -7,6 +7,7 @@ import { uid } from '@/lib/id'
 import { toast } from '@/state/toast'
 import { Button, Field, Modal, NumberInput, Select, TextInput } from '@/components/ui'
 import { dateFromInput, dateInputValue } from '@/lib/format'
+import { accountLabel, selectableAccounts } from '@/lib/accounts'
 import { soldPatch, suggestedSaleAccount } from '@/lib/listing'
 
 /**
@@ -125,9 +126,9 @@ export function SoldModal({
             }}
           >
             <option value="">— brak —</option>
-            {accounts?.map((a) => (
+            {selectableAccounts(accounts ?? [], accountId).map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name}
+                {accountLabel(a)}
               </option>
             ))}
           </Select>
