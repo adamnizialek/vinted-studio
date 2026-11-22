@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { db, putEntity } from '@/db/db'
-import { requiresSaleModal, applyStatusChange, assignAccount, listProductOn, unlistProduct, setDesignListings, toggleDesignListing, shouldRestockOnSave, restockOnRefund, deleteSaleAndRestock, listedAtOnTransition, statusChangePatch } from './productActions'
+import { requiresSaleModal, applyStatusChange, assignAccount, listProductOn, unlistProduct, setDesignListings, toggleDesignListing, shouldRestockOnSave, restockOnRefund, deleteSaleAndRestock, listedAtOnTransition, statusChangePatch, banAccount, unbanAccount } from './productActions'
 import type { Design, Product, Sale } from '@/db/types'
 
 const sampleProduct = (id = 'p1'): Product => ({
@@ -20,7 +20,42 @@ const sampleProduct = (id = 'p1'): Product => ({
 })
 
 beforeEach(async () => {
-  await Promise.all([db.products.clear(), db.designs.clear(), db.outbox.clear()])
+  await Promise.all([db.products.clear(), db.designs.clear(), db.accounts.clear(), db.outbox.clear()])
+})
+
+describe('banAccount', () => {
+  const account = { id: 'main', name: 'main', color: '#000', createdAt: 1, updatedAt: 1 }
+
+  it('marks the account banned and takes its listings back to stock, queued for sync', async () => {
+    await putEntity('accounts', account)
+    await putEntity('products', { ...sampleProduct('l'), status: 'listed', accountId: 'main', listedAt: 5 })
+    await putEntity('products', { ...sampleProduct('s'), status: 'sold', accountId: 'main' })
+    await putEntity('products', { ...sampleProduct('u'), designId: 'd', status: 'listed', accountId: 'main', listedAt: 5 })
+    const design: Design = {
+      id: 'd', name: 'D', tags: [], photoIds: [], generatedPhotoIds: [], descriptions: [],
+      listings: [{ accountId: 'main', since: 5, productId: 'u' }], createdAt: 1, updatedAt: 1,
+    }
+    await putEntity('designs', design)
+    await db.outbox.clear()
+
+    expect(await banAccount('main', 1234)).toBe(2)
+
+    expect((await db.accounts.get('main'))?.bannedAt).toBe(1234)
+    expect(await db.products.get('l')).toMatchObject({ status: 'in_stock', accountId: undefined })
+    expect(await db.products.get('u')).toMatchObject({ status: 'in_stock', accountId: undefined })
+    expect(await db.products.get('s')).toMatchObject({ status: 'sold', accountId: 'main' })
+    expect((await db.designs.get('d'))?.listings).toEqual([])
+    const queued = (await db.outbox.toArray()).map((o) => `${o.table}:${o.id}`).sort()
+    expect(queued).toEqual(['accounts:main', 'designs:d', 'products:l', 'products:u'])
+  })
+
+  it('keeps the first ban date when run again, and unban clears it', async () => {
+    await putEntity('accounts', { ...account, bannedAt: 99 })
+    expect(await banAccount('main', 1234)).toBe(0)
+    expect((await db.accounts.get('main'))?.bannedAt).toBe(99)
+    await unbanAccount('main')
+    expect((await db.accounts.get('main'))?.bannedAt).toBeUndefined()
+  })
 })
 
 describe('requiresSaleModal', () => {

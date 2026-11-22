@@ -8,6 +8,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
+import { accountLabel, usableDefaultAccount } from '@/lib/accounts'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, pluralPl, profitOf } from '@/lib/format'
 import { deleteSaleAndRestock, restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
@@ -97,7 +98,7 @@ export function Sales() {
     setEditing({
       id: uid(),
       productName: '',
-      accountId: view !== 'all' ? view : settings?.defaultAccountId,
+      accountId: view !== 'all' ? view : usableDefaultAccount(accounts, settings?.defaultAccountId),
       salePrice: 0,
       currency,
       quantity: 1,
@@ -118,7 +119,7 @@ export function Sales() {
   const startNewExpense = () => {
     setEditingExp({
       id: uid(),
-      accountId: view !== 'all' ? view : settings?.defaultAccountId,
+      accountId: view !== 'all' ? view : usableDefaultAccount(accounts, settings?.defaultAccountId),
       kind: 'boost',
       description: 'Podbicie',
       amount: 0,
@@ -585,7 +586,7 @@ function SaleModal({
   open: boolean
   onClose: () => void
   sale: Sale | null
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; bannedAt?: number }[]
 }) {
   const [form, setForm] = useState<Sale | null>(sale)
   useEffect(() => setForm(sale), [sale])
@@ -628,7 +629,7 @@ function SaleModal({
           <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
             <option value="">— brak —</option>
             {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
+              <option key={a.id} value={a.id}>{accountLabel(a)}</option>
             ))}
           </Select>
         </Field>
@@ -714,7 +715,7 @@ function ExpenseModal({
   open: boolean
   onClose: () => void
   expense: Expense | null
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; bannedAt?: number }[]
   allowScreenshot: boolean
 }) {
   const [form, setForm] = useState<Expense | null>(expense)
@@ -899,7 +900,7 @@ function ExpenseModal({
           <Field label="Konto">
             <Select value={form.accountId ?? ''} onChange={(e) => set('accountId', e.target.value || undefined)}>
               <option value="">— brak —</option>
-              {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+              {accounts.map((a) => (<option key={a.id} value={a.id}>{accountLabel(a)}</option>))}
             </Select>
           </Field>
           <Field label="Data">

@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Ban, Pencil, Plus, RotateCcw, Trash2, Users } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Account } from '@/db/types'
 import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
-import { aggregateProfit, money } from '@/lib/format'
-import { isOnAccount } from '@/lib/listing'
+import { aggregateProfit, money, pluralPl } from '@/lib/format'
+import { banPlan, isOnAccount } from '@/lib/listing'
+import { isBanned } from '@/lib/accounts'
+import { banAccount, unbanAccount } from '@/lib/productActions'
 import { toast } from '@/state/toast'
 import { Button, EmptyState, Field, Modal, SectionTitle, TextArea, TextInput } from '@/components/ui'
 
@@ -41,6 +43,49 @@ export function Accounts() {
     toast.success('Zapisano konto.')
   }
 
+  // Vinted zablokował konto: zostaje dla historii sprzedaży, a to, co było na nim
+  // wystawione, wraca do magazynu (ogłoszeń na Vinted już nie ma).
+  const ban = async (a: Account) => {
+    const n = banPlan(a.id, products ?? [], designs ?? []).takenOff.length
+    const items = n
+      ? `${n} ${pluralPl(n, 'przedmiot wystawiony', 'przedmioty wystawione', 'przedmiotów wystawionych')} na tym koncie wróci do magazynu (bez konta), żeby można je było wystawić gdzie indziej.`
+      : 'Na tym koncie nic nie jest teraz wystawione.'
+    if (
+      !window.confirm(
+        `Oznaczyć konto „${a.name}” jako zbanowane na Vinted?
+
+${items}
+
+Sprzedaże i statystyki konta zostają. Konto nie będzie już proponowane przy wystawianiu.`,
+      )
+    )
+      return
+    try {
+      const taken = await banAccount(a.id)
+      toast.success(
+        taken
+          ? `Konto „${a.name}” zbanowane. ${taken} ${pluralPl(taken, 'przedmiot wrócił', 'przedmioty wróciły', 'przedmiotów wróciło')} do magazynu.`
+          : `Konto „${a.name}” oznaczone jako zbanowane.`,
+      )
+    } catch {
+      toast.error('Nie udało się zapisać.')
+    }
+  }
+
+  const unban = async (a: Account) => {
+    if (
+      !window.confirm(
+        `Przywrócić konto „${a.name}”? Będzie znów proponowane przy wystawianiu. Zdjęte przedmioty zostają w magazynie.`,
+      )
+    )
+      return
+    await unbanAccount(a.id)
+    toast.success(`Przywrócono konto „${a.name}”.`)
+  }
+
+  // Zbanowane na końcu — aktywne konta są tym, czym się pracuje.
+  const sorted = accounts && [...accounts].sort((x, y) => Number(isBanned(x)) - Number(isBanned(y)))
+
   const remove = async (id: string) => {
     if (!window.confirm('Usunąć to konto? Produkty i sprzedaże pozostaną, ale stracą przypisanie.'))
       return
@@ -73,7 +118,8 @@ export function Accounts() {
       )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {accounts?.map((a) => {
+        {sorted?.map((a) => {
+          const banned = isBanned(a)
           const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
           // Spójnie z Pulpitem i Ewidencją — jedna reguła przychodu (aggregateProfit).
           const revenue = aggregateProfit(accSales).revenue
@@ -85,16 +131,39 @@ export function Accounts() {
               isOnAccount(p, a.id, p.designId ? listingsByDesign.get(p.designId) : undefined),
           ).length
           return (
-            <div key={a.id} className="card p-4">
+            <div key={a.id} className={clsx('card p-4', banned && 'opacity-75')}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="h-9 w-9 rounded-xl" style={{ background: a.color }} />
+                  <span
+                    className={clsx('h-9 w-9 rounded-xl', banned && 'grayscale')}
+                    style={{ background: a.color }}
+                  />
                   <div>
-                    <p className="font-bold text-ink-900">{a.name}</p>
+                    <p className="flex items-center gap-2 font-bold text-ink-900">
+                      {a.name}
+                      {banned && (
+                        <span className="badge bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">
+                          <Ban size={11} /> Zbanowane
+                        </span>
+                      )}
+                    </p>
                     {a.vintedUsername && <p className="text-xs text-ink-400">@{a.vintedUsername}</p>}
+                    {banned && (
+                      <p className="text-xs text-ink-400">
+                        od {new Date(a.bannedAt!).toLocaleDateString('pl-PL')}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-1">
+                  <button
+                    onClick={() => void (banned ? unban(a) : ban(a))}
+                    title={banned ? 'Przywróć konto' : 'Oznacz jako zbanowane na Vinted'}
+                    aria-label={banned ? 'Przywróć konto' : 'Oznacz jako zbanowane na Vinted'}
+                    className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                  >
+                    {banned ? <RotateCcw size={15} /> : <Ban size={15} />}
+                  </button>
                   <button
                     onClick={() => {
                       setEditing(a)

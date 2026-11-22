@@ -15,6 +15,7 @@ import type { ColumnMap } from '@/lib/columnMap'
 import { ColumnMapper } from '@/components/ColumnMapper'
 import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import type { Account } from '@/db/types'
+import { selectableAccounts } from '@/lib/accounts'
 import { money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { FileDrop } from '@/components/FileDrop'
@@ -397,9 +398,10 @@ function ReviewStockLine({
   onToggle: (v: boolean) => void
 }) {
   // Kandydaci (konta, które sprzedały tę nazwę) na górze listy.
+  const choices = selectableAccounts(accounts, r.accountId)
   const ordered = [
-    ...accounts.filter((a) => r.candidates.includes(a.id)),
-    ...accounts.filter((a) => !r.candidates.includes(a.id)),
+    ...choices.filter((a) => r.candidates.includes(a.id)),
+    ...choices.filter((a) => !r.candidates.includes(a.id)),
   ]
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">

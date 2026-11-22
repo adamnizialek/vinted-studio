@@ -18,6 +18,7 @@ import {
   UNLIST_PATCH,
 } from '@/lib/productActions'
 import { patchEntity } from '@/db/db'
+import { selectableAccounts } from '@/lib/accounts'
 import { toast } from '@/state/toast'
 import { ResponsivePicker, OptionRow } from '@/components/Popover'
 import { SoldModal } from '@/components/SoldModal'
@@ -78,6 +79,8 @@ export function ProductListingPicker({
   const [day, setDay] = useState<string | null>(null)
   const listedOn =
     product.status === 'listed' ? accounts.find((a) => a.id === product.accountId) : undefined
+  // Zbanowanych kont nie proponujemy (chyba że przedmiot wciąż na nim wisi).
+  const choices = selectableAccounts(accounts, listedOn?.id)
 
   const apply = async (close: () => void, patch: Partial<Product> | null) => {
     close()
@@ -139,7 +142,7 @@ export function ProductListingPicker({
           <>
             {/* Sprzedany przedmiot nie wraca na Vinted stąd (sprzedaż zostałaby policzona
                 dwa razy); konto sprzedaży poprawia się w Sprzedaży. */}
-            {accounts.length > 0 && product.status !== 'sold' && (
+            {choices.length > 0 && product.status !== 'sold' && (
               <>
                 <p className="px-2.5 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wide text-ink-400">
                   Wystawione na
@@ -148,9 +151,9 @@ export function ProductListingPicker({
               </>
             )}
             <div role="menu" aria-label="Gdzie jest wystawione">
-              {accounts.length > 0 && product.status !== 'sold' && (
+              {choices.length > 0 && product.status !== 'sold' && (
                 <>
-                  {accounts.map((a) => {
+                  {choices.map((a) => {
                     const selected = listedOn?.id === a.id
                     return (
                       <OptionRow
@@ -230,12 +233,14 @@ export function DesignListingPicker({
   const all = effectiveListings(design.listings, members)
   const listings = listingsFor(all, unit)
   const live = accounts.filter((a) => listings.some((l) => l.accountId === a.id))
+  // Zbanowane konto zostaje w menu tylko, gdy sztuka wciąż na nim wisi (żeby dało się ją zdjąć).
+  const choices = selectableAccounts(accounts, live.map((a) => a.id))
   const since = earliestListing(listings)
   const days = since == null ? null : Math.max(0, daysBetween(since, Date.now()))
   const unsold = unit.status !== 'sold' && unit.status !== 'archived'
 
   // Sprzedana sztuka nie ma czego wystawiać — chip znika.
-  if (accounts.length === 0 || (!unsold && listings.length === 0)) return null
+  if (choices.length === 0 || (!unsold && listings.length === 0)) return null
 
   const toggle = async (accountId: string) => {
     try {
@@ -295,7 +300,7 @@ export function DesignListingPicker({
           </p>
           <SinceField day={day} setDay={setDay} />
           <div role="menu" aria-label="Konta z ogłoszeniem">
-            {accounts.map((a) => {
+            {choices.map((a) => {
               const listedSince = earliestListing(listings.filter((l) => l.accountId === a.id))
               const on = listedSince != null
               return (

@@ -12,6 +12,7 @@ import { passesInventoryFilter } from '@/lib/inventoryFilter'
 import { coverImageIdOf, effectiveListings, listedAccountIds } from '@/lib/listing'
 import { sizeStockParts } from '@/lib/designs'
 import { money } from '@/lib/format'
+import { accountLabel, usableDefaultAccount } from '@/lib/accounts'
 import { Button, EmptyState, Select, TextInput, SectionTitle, Modal } from '@/components/ui'
 import { toast } from '@/state/toast'
 import { Thumb } from '@/components/ImageView'
@@ -156,7 +157,7 @@ export function Inventory() {
       currency: settings?.currency ?? 'PLN',
       quantity: 1,
       status: 'in_stock',
-      accountId: settings?.defaultAccountId,
+      accountId: usableDefaultAccount(accounts, settings?.defaultAccountId),
       photoIds: [],
       generatedPhotoIds: [],
       descriptions: [],
@@ -270,7 +271,7 @@ export function Inventory() {
             <option value="all">Wszystkie konta</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name}
+                {accountLabel(a)}
               </option>
             ))}
           </Select>

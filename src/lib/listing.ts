@@ -1,6 +1,6 @@
 // Czyste funkcje cyklu życia oferty (wystawienie → sprzedaż). Bez Dexie/React,
 // w pełni testowalne. Czas wszędzie jako epoch-ms (spójnie z resztą bazy).
-import type { DesignListing, ID, Product } from '@/db/types'
+import type { Design, DesignListing, ID, Product } from '@/db/types'
 
 export const DAY_MS = 86_400_000
 
@@ -331,4 +331,68 @@ export function soldPatch(
     }
   }
   return patch
+}
+
+// ── Konto zablokowane przez Vinted ──────────────────────────────────────────
+
+export interface BanPlan {
+  /** Modele, z których znikają ogłoszenia zbanowanego konta (nowa lista ogłoszeń). */
+  designs: { id: ID; listings: DesignListing[] }[]
+  /** Zmiany przedmiotów: zdjęte z konta wracają do magazynu bez konta. */
+  products: { id: ID; patch: Partial<Product> }[]
+  /** Przedmioty, które były wystawione na tym koncie (do potwierdzenia i komunikatu). */
+  takenOff: ID[]
+}
+
+/**
+ * Co zmienia blokada konta: jego ogłoszenia znikają z modeli, sztuki idą za resztą swoich
+ * ogłoszeń (patrz memberListingPatch), a przedmioty wystawione tylko na nim wracają do
+ * magazynu. Niesprzedane przedmioty tracą też przypisanie do konta. Sprzedane,
+ * zarezerwowane i zarchiwizowane zostają, jak są — to historia konta.
+ */
+export function banPlan(accountId: ID, products: Product[], designs: Design[]): BanPlan {
+  const membersOf = new Map<ID, Product[]>()
+  for (const p of products) {
+    if (p.designId) membersOf.set(p.designId, [...(membersOf.get(p.designId) ?? []), p])
+  }
+  const before = new Map<ID, DesignListing[]>()
+  const after = new Map<ID, DesignListing[]>()
+  const designOut: BanPlan['designs'] = []
+  for (const d of designs) {
+    const members = membersOf.get(d.id) ?? []
+    const cur = effectiveListings(d.listings, members)
+    before.set(d.id, cur)
+    // Ogłoszenie sprzedanej (zarezerwowanej, zarchiwizowanej) sztuki zostaje — to jej historia.
+    const settled = new Set(
+      members.filter((m) => !FOLLOWS_DESIGN_LISTINGS.has(m.status)).map((m) => m.id),
+    )
+    const next = cur.filter(
+      (l) => l.accountId !== accountId || (l.productId != null && settled.has(l.productId)),
+    )
+    if (next.length === cur.length) continue
+    after.set(d.id, next)
+    designOut.push({ id: d.id, listings: next })
+  }
+
+  const productOut: BanPlan['products'] = []
+  const takenOff: ID[] = []
+  for (const p of products) {
+    if (!FOLLOWS_DESIGN_LISTINGS.has(p.status)) continue
+    const cur = p.designId ? before.get(p.designId) : undefined
+    if (p.status === 'listed' && listedAccountIds(p, cur).includes(accountId)) takenOff.push(p.id)
+    const next = p.designId ? after.get(p.designId) : undefined
+    let patch: Partial<Product> =
+      next && listingsFor(cur, p).some((l) => l.accountId === accountId)
+        ? (memberListingPatch(p, next) ?? {})
+        : {}
+    const merged = { ...p, ...patch }
+    if (merged.accountId === accountId) {
+      patch =
+        merged.status === 'listed'
+          ? { ...patch, status: 'in_stock', accountId: undefined }
+          : { ...patch, accountId: undefined }
+    }
+    if (Object.keys(patch).length > 0) productOut.push({ id: p.id, patch })
+  }
+  return { designs: designOut, products: productOut, takenOff }
 }
