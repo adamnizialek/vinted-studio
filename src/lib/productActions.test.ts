@@ -38,7 +38,7 @@ describe('banAccount', () => {
     await putEntity('designs', design)
     await db.outbox.clear()
 
-    expect(await banAccount('main', 1234)).toBe(2)
+    expect(await banAccount('main', 1234)).toEqual({ takenOff: 2, toStock: 2 })
 
     expect((await db.accounts.get('main'))?.bannedAt).toBe(1234)
     expect(await db.products.get('l')).toMatchObject({ status: 'in_stock', accountId: undefined })
@@ -51,7 +51,7 @@ describe('banAccount', () => {
 
   it('keeps the first ban date when run again, and unban clears it', async () => {
     await putEntity('accounts', { ...account, bannedAt: 99 })
-    expect(await banAccount('main', 1234)).toBe(0)
+    expect(await banAccount('main', 1234)).toEqual({ takenOff: 0, toStock: 0 })
     expect((await db.accounts.get('main'))?.bannedAt).toBe(99)
     await unbanAccount('main')
     expect((await db.accounts.get('main'))?.bannedAt).toBeUndefined()

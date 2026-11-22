@@ -439,7 +439,7 @@ describe('banPlan', () => {
     const items = (['sold', 'reserved', 'archived'] as const).map((status) =>
       base({ id: status, status, accountId: 'main' }),
     )
-    expect(banPlan('main', items, [])).toEqual({ designs: [], products: [], takenOff: [] })
+    expect(banPlan('main', items, [])).toEqual({ designs: [], products: [], takenOff: [], toStock: [] })
   })
 
   it('clears the account from unlisted stock still assigned to it', () => {
@@ -475,6 +475,7 @@ describe('banPlan', () => {
       },
     ])
     expect(plan.takenOff.sort()).toEqual(['u1', 'u2'])
+    expect(plan.toStock).toEqual(['u1'])
     const patches = Object.fromEntries(plan.products.map((p) => [p.id, p.patch]))
     expect(patches.u1).toEqual({ status: 'in_stock', accountId: undefined })
     // Still listed on Mati: stays listed there, dated from that listing.
@@ -490,6 +491,20 @@ describe('banPlan', () => {
     expect(plan.designs).toEqual([{ id: 'd', listings: [] }])
     expect(plan.takenOff).toEqual(['u1'])
     expect(plan.products).toEqual([{ id: 'u1', patch: { status: 'in_stock', accountId: undefined } }])
+  })
+
+  it("does not list an incoming or stocked unit through another account's wider listing", () => {
+    const listed = base({ id: 'u1', designId: 'd', status: 'listed', listedAt: 5 })
+    const incoming = base({ id: 'u2', designId: 'd', status: 'incoming' })
+    const stocked = base({ id: 'u3', designId: 'd', status: 'in_stock' })
+    const d = design({ listings: [{ accountId: 'main', since: 5 }, { accountId: 'mati', since: 6 }] })
+    const plan = banPlan('main', [listed, incoming, stocked], [d])
+    expect(plan.designs).toEqual([{ id: 'd', listings: [{ accountId: 'mati', since: 6 }] }])
+    expect(plan.products).toEqual([
+      { id: 'u1', patch: { status: 'listed', listedAt: 6, listedAtApprox: undefined, accountId: 'mati' } },
+    ])
+    expect(plan.takenOff).toEqual(['u1'])
+    expect(plan.toStock).toEqual([])
   })
 
   it('reads listings from the units of an older model without the field', () => {

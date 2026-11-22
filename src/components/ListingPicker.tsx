@@ -18,7 +18,7 @@ import {
   UNLIST_PATCH,
 } from '@/lib/productActions'
 import { patchEntity } from '@/db/db'
-import { selectableAccounts } from '@/lib/accounts'
+import { accountLabel, selectableAccounts } from '@/lib/accounts'
 import { toast } from '@/state/toast'
 import { ResponsivePicker, OptionRow } from '@/components/Popover'
 import { SoldModal } from '@/components/SoldModal'
@@ -166,7 +166,7 @@ export function ProductListingPicker({
                         }
                       >
                         <AccountDot account={a} />
-                        <span className="truncate">{a.name}</span>
+                        <span className="truncate">{accountLabel(a)}</span>
                         {selected && <Check size={15} className="ml-auto text-ink-500" />}
                       </OptionRow>
                     )
@@ -319,7 +319,7 @@ export function DesignListingPicker({
                     {on && <Check size={13} />}
                   </span>
                   <AccountDot account={a} />
-                  <span className="truncate">{a.name}</span>
+                  <span className="truncate">{accountLabel(a)}</span>
                   {on && (
                     <span className="ml-auto shrink-0 text-xs text-ink-400">
                       od {new Date(listedSince!).toLocaleDateString('pl-PL')}

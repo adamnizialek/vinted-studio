@@ -15,7 +15,7 @@ import type { ColumnMap } from '@/lib/columnMap'
 import { ColumnMapper } from '@/components/ColumnMapper'
 import { readWorkbook, isSpreadsheet, type Workbook } from '@/lib/spreadsheet'
 import type { Account } from '@/db/types'
-import { selectableAccounts } from '@/lib/accounts'
+import { accountLabel, selectableAccounts } from '@/lib/accounts'
 import { money } from '@/lib/format'
 import { toast } from '@/state/toast'
 import { FileDrop } from '@/components/FileDrop'
@@ -424,7 +424,7 @@ function ReviewStockLine({
         <option value="">— brak konta —</option>
         {ordered.map((a) => (
           <option key={a.id} value={a.id}>
-            {r.candidates.includes(a.id) ? `• ${a.name}` : a.name}
+            {r.candidates.includes(a.id) ? `• ${accountLabel(a)}` : accountLabel(a)}
           </option>
         ))}
       </Select>

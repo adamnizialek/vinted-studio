@@ -143,18 +143,22 @@ export async function toggleDesignListing(
 /**
  * Oznacza konto jako zablokowane przez Vinted i zdejmuje z niego wszystko, co było na nim
  * wystawione (patrz banPlan) — w jednej transakcji. Ogłoszeń na Vinted już nie ma, więc
- * przedmioty wracają do magazynu i można je wystawić gdzie indziej. Zwraca, ile zdjęto.
+ * przedmioty wracają do magazynu i można je wystawić gdzie indziej. Zwraca, ile zdjęto
+ * z konta i ile z nich wróciło do magazynu.
  */
-export async function banAccount(accountId: ID, now = Date.now()): Promise<number> {
+export async function banAccount(
+  accountId: ID,
+  now = Date.now(),
+): Promise<{ takenOff: number; toStock: number }> {
   return db.transaction('rw', [db.accounts, db.designs, db.products, db.outbox], async () => {
     const account = await db.accounts.get(accountId)
-    if (!account) return 0
+    if (!account) return { takenOff: 0, toStock: 0 }
     const [products, designs] = await Promise.all([db.products.toArray(), db.designs.toArray()])
     const plan = banPlan(accountId, products, designs)
     if (account.bannedAt == null) await patchEntity('accounts', accountId, { bannedAt: now })
     for (const d of plan.designs) await patchEntity('designs', d.id, { listings: d.listings })
     for (const p of plan.products) await patchEntity('products', p.id, p.patch)
-    return plan.takenOff.length
+    return { takenOff: plan.takenOff.length, toStock: plan.toStock.length }
   })
 }
 

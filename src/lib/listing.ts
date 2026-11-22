@@ -342,6 +342,8 @@ export interface BanPlan {
   products: { id: ID; patch: Partial<Product> }[]
   /** Przedmioty, które były wystawione na tym koncie (do potwierdzenia i komunikatu). */
   takenOff: ID[]
+  /** Te z nich, które wracają do magazynu (reszta zostaje wystawiona na innym koncie). */
+  toStock: ID[]
 }
 
 /**
@@ -353,7 +355,10 @@ export interface BanPlan {
 export function banPlan(accountId: ID, products: Product[], designs: Design[]): BanPlan {
   const membersOf = new Map<ID, Product[]>()
   for (const p of products) {
-    if (p.designId) membersOf.set(p.designId, [...(membersOf.get(p.designId) ?? []), p])
+    if (!p.designId) continue
+    const list = membersOf.get(p.designId)
+    if (list) list.push(p)
+    else membersOf.set(p.designId, [p])
   }
   const before = new Map<ID, DesignListing[]>()
   const after = new Map<ID, DesignListing[]>()
@@ -376,13 +381,16 @@ export function banPlan(accountId: ID, products: Product[], designs: Design[]): 
 
   const productOut: BanPlan['products'] = []
   const takenOff: ID[] = []
+  const toStock: ID[] = []
   for (const p of products) {
     if (!FOLLOWS_DESIGN_LISTINGS.has(p.status)) continue
     const cur = p.designId ? before.get(p.designId) : undefined
-    if (p.status === 'listed' && listedAccountIds(p, cur).includes(accountId)) takenOff.push(p.id)
+    const wasOn = p.status === 'listed' && listedAccountIds(p, cur).includes(accountId)
     const next = p.designId ? after.get(p.designId) : undefined
+    // Tylko wystawiona sztuka idzie za resztą ogłoszeń — zamówionej czy leżącej w magazynie
+    // blokada nie może „wystawić” przez szersze ogłoszenie innego konta.
     let patch: Partial<Product> =
-      next && listingsFor(cur, p).some((l) => l.accountId === accountId)
+      wasOn && next && listingsFor(cur, p).some((l) => l.accountId === accountId)
         ? (memberListingPatch(p, next) ?? {})
         : {}
     const merged = { ...p, ...patch }
@@ -393,6 +401,10 @@ export function banPlan(accountId: ID, products: Product[], designs: Design[]): 
           : { ...patch, accountId: undefined }
     }
     if (Object.keys(patch).length > 0) productOut.push({ id: p.id, patch })
+    if (wasOn) {
+      takenOff.push(p.id)
+      if (patch.status === 'in_stock') toStock.push(p.id)
+    }
   }
-  return { designs: designOut, products: productOut, takenOff }
+  return { designs: designOut, products: productOut, takenOff, toStock }
 }
