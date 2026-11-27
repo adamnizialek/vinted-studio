@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BookOpen, ChevronDown, Download, Loader2, Pencil, Plus, Trash2, TrendingUp, Upload, Wallet } from 'lucide-react'
+import { BookOpen, ChevronDown, Download, Loader2, Pencil, Plus, Trash2, TrendingUp, Upload, Users, Wallet } from 'lucide-react'
 import clsx from 'clsx'
 import { db, deleteEntity, putEntity } from '@/db/db'
 import type { Expense, Sale, SaleStatus } from '@/db/types'
@@ -8,7 +8,7 @@ import { uid } from '@/lib/id'
 import { useSettings } from '@/state/settings'
 import { toast } from '@/state/toast'
 import { EXPENSE_KIND_LABELS, SALE_STATUS_LABELS } from '@/lib/constants'
-import { accountLabel, usableDefaultAccount } from '@/lib/accounts'
+import { accountLabel, isBanned, people, personKey, usableDefaultAccount, type Person } from '@/lib/accounts'
 import { aggregateProfit, dateFromInput, dateInputValue, dateShort, money, percent, pluralPl, profitOf } from '@/lib/format'
 import { deleteSaleAndRestock, restockOnRefund, shouldRestockOnSave } from '@/lib/productActions'
 import { toCsv, downloadText } from '@/lib/csv'
@@ -38,10 +38,11 @@ export function Sales() {
   const settings = useSettings((s) => s.settings)
   const sales = useLiveQuery(() => db.sales.orderBy('soldAt').reverse().toArray(), [])
   const expenses = useLiveQuery(() => db.expenses.orderBy('incurredAt').reverse().toArray(), [])
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  // Kolejność jak na stronie Konta — ta sama osoba wychodzi pod tą samą nazwą.
+  const accounts = useLiveQuery(() => db.accounts.orderBy('createdAt').toArray(), [])
   const products = useLiveQuery(() => db.products.toArray(), [])
 
-  const [view, setView] = useState<string>('all') // 'all' = wspólna, lub accountId
+  const [chosenView, setView] = useState<string>('all') // 'all' = wspólna, accountId lub klucz osoby (Person.key)
   const [period, setPeriod] = useState<SalesPeriod>('all')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Sale | null>(null)
@@ -60,45 +61,63 @@ export function Sales() {
   const range = periodRange(period, Date.now())
   const { from: rangeFrom, to: rangeTo } = range
 
+  // Osoba z kilkoma kontami ma własny widok (suma jej kont); pozostałe konta jak dotąd.
+  const persons = useMemo(() => people(accounts ?? []), [accounts])
+  const viewPerson = persons.find((p) => p.key === chosenView && isShared(p))
+  const viewAccount = accounts?.find((a) => a.id === chosenView)
+  // Osoba rozdzielona albo konto usunięte (np. w innej karcie) → „Wspólna", nie pusty widok.
+  const view = viewPerson || viewAccount ? chosenView : 'all'
+  // Konta w widoku: jedno konto, wszystkie konta osoby albo (null) wszystko — „Wspólna".
+  const viewIds = useMemo(
+    () => (view === 'all' ? null : new Set(viewPerson ? viewPerson.accounts.map((a) => a.id) : [view])),
+    [view, viewPerson],
+  )
+
   const filtered = useMemo(() => {
-    let list = sales ?? []
-    if (view !== 'all') list = list.filter((s) => s.accountId === view)
+    const list = (sales ?? []).filter((s) => inView(viewIds, s.accountId))
     return list.filter((s) => inRange(s.soldAt, { from: rangeFrom, to: rangeTo }))
-  }, [sales, view, rangeFrom, rangeTo])
+  }, [sales, viewIds, rangeFrom, rangeTo])
 
   // Koszty promocji w tym samym widoku (konto + okres) — wg daty poniesienia.
   const filteredExpenses = useMemo(() => {
-    let list = expenses ?? []
-    if (view !== 'all') list = list.filter((e) => e.accountId === view)
+    const list = (expenses ?? []).filter((e) => inView(viewIds, e.accountId))
     return list.filter((e) => inRange(e.incurredAt, { from: rangeFrom, to: rangeTo }))
-  }, [expenses, view, rangeFrom, rangeTo])
+  }, [expenses, viewIds, rangeFrom, rangeTo])
 
   // Koszt magazynu liczymy NIEZALEŻNIE od okresu — to pieniądze zamrożone teraz,
   // nie przepływ z danego miesiąca. Filtrujemy tylko po koncie; stany bez konta
   // (z importu) liczą się wyłącznie w widoku „Wspólna".
-  const filteredProducts = useMemo(() => {
-    let list = products ?? []
-    if (view !== 'all') list = list.filter((p) => p.accountId === view)
-    return list
-  }, [products, view])
+  const filteredProducts = useMemo(
+    () => (products ?? []).filter((p) => inView(viewIds, p.accountId)),
+    [products, viewIds],
+  )
 
   const stats = useMemo(
     () => aggregateProfit(filtered, filteredExpenses, filteredProducts),
     [filtered, filteredExpenses, filteredProducts],
   )
   const top = useMemo(() => topProducts(filtered), [filtered])
-  // Limit działalności nierejestrowanej jest kwartalny i na osobę (konto) — niezależny od filtra okresu;
-  // pokazujemy go tylko w widoku pojedynczego konta.
+  // Limit działalności nierejestrowanej i ewidencja są na osobę: w widoku konta liczy się
+  // cała osoba, do której konto należy (wszystkie jej konta, także zbanowane). Limit jest
+  // kwartalny — niezależny od filtra okresu; w widoku „Wspólna" go nie ma.
   const quarterRev = useMemo(() => quarterRevenueByAccount(sales ?? [], Date.now()), [sales])
-  const viewAccount = accounts?.find((a) => a.id === view)
+  const limitPerson = viewPerson ?? (viewAccount && persons.find((p) => p.key === personKey(viewAccount)))
   const accName = (id?: string) => accounts?.find((a) => a.id === id)?.name ?? '—'
   const currency = settings?.currency ?? 'PLN'
+
+  // Konto nowego wpisu: konto z widoku; w widoku osoby jej domyślne albo pierwsze aktywne.
+  const newEntryAccount = () => {
+    if (viewAccount) return viewAccount.id
+    const def = usableDefaultAccount(accounts, settings?.defaultAccountId)
+    if (!viewPerson) return def
+    return def && viewIds?.has(def) ? def : viewPerson.accounts.find((a) => !isBanned(a))?.id
+  }
 
   const startNew = () => {
     setEditing({
       id: uid(),
       productName: '',
-      accountId: view !== 'all' ? view : usableDefaultAccount(accounts, settings?.defaultAccountId),
+      accountId: newEntryAccount(),
       salePrice: 0,
       currency,
       quantity: 1,
@@ -119,7 +138,7 @@ export function Sales() {
   const startNewExpense = () => {
     setEditingExp({
       id: uid(),
-      accountId: view !== 'all' ? view : usableDefaultAccount(accounts, settings?.defaultAccountId),
+      accountId: newEntryAccount(),
       kind: 'boost',
       description: 'Podbicie',
       amount: 0,
@@ -160,19 +179,20 @@ export function Sales() {
         Notatki: s.notes ?? '',
       }
     })
-    const label = view === 'all' ? 'wspolna' : accName(view)
+    const label = view === 'all' ? 'wspolna' : viewPerson ? viewPerson.name : accName(view)
     downloadText(`sprzedaz-${label}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows))
     toast.success('Wyeksportowano CSV.')
   }
 
   // Uproszczona ewidencja sprzedaży (art. 109 ust. 1 ustawy o VAT) — prowadzi ją OSOBA,
-  // więc tylko dla jednego konta. Sumy narastające liczone ze wszystkich sprzedaży konta,
-  // wiersze zawężone do wybranego okresu.
+  // więc ze wszystkich kont osoby z widoku (konto bez właściciela = osoba sama dla siebie).
+  // Sumy narastające liczone ze wszystkich jej sprzedaży, wiersze zawężone do okresu.
   const exportRecord = () => {
     // Na telefonie nie ma podpowiedzi po najechaniu — zamiast wyszarzać, mówimy co zrobić.
-    if (view === 'all') return toast.info('Ewidencję prowadzi każda osoba osobno — wybierz konto powyżej.')
-    const accountSales = (sales ?? []).filter((s) => s.accountId === view)
-    const rows = dailySalesRecord(accountSales, range)
+    if (!limitPerson) return toast.info('Ewidencję prowadzi każda osoba osobno — wybierz osobę lub konto powyżej.')
+    const ids = new Set(limitPerson.accounts.map((a) => a.id))
+    const personSales = (sales ?? []).filter((s) => inView(ids, s.accountId))
+    const rows = dailySalesRecord(personSales, range)
     if (rows.length === 0) return toast.error('Brak sprzedaży w tym okresie.')
     const zl = (n: number) => n.toFixed(2).replace('.', ',')
     const csv = toCsv(
@@ -184,7 +204,7 @@ export function Sales() {
       })),
     )
     downloadText(
-      `ewidencja-sprzedazy-${safeFileName(accName(view))}-${dateInputValue(Date.now())}.csv`,
+      `ewidencja-sprzedazy-${safeFileName(limitPerson.name)}-${dateInputValue(Date.now())}.csv`,
       csv,
     )
     // Sprzedaż bez konta nie trafia do niczyjej ewidencji — nie przemilczamy tego.
@@ -200,7 +220,12 @@ export function Sales() {
           'sprzedaży nie ma konta i nie trafiło',
         )} do ewidencji — przypisz konto.`,
       )
-    toast.success('Wyeksportowano ewidencję sprzedaży.')
+    const n = limitPerson.accounts.length
+    toast.success(
+      isShared(limitPerson)
+        ? `Wyeksportowano ewidencję: ${limitPerson.name} (${n} ${pluralPl(n, 'konto', 'konta', 'kont')}).`
+        : 'Wyeksportowano ewidencję sprzedaży.',
+    )
   }
 
   return (
@@ -235,15 +260,27 @@ export function Sales() {
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="seg no-scrollbar max-w-full overflow-x-auto max-sm:w-full max-sm:[&>*]:flex-1 max-sm:[&>*]:justify-center">
           <ViewChip active={view === 'all'} onClick={() => setView('all')} label="Wspólna" />
-          {accounts?.map((a) => (
-            <ViewChip
-              key={a.id}
-              active={view === a.id}
-              onClick={() => setView(a.id)}
-              label={a.name}
-              color={a.color}
-            />
-          ))}
+          {/* Osoba z kilkoma kontami: najpierw jej widok, zaraz za nim jej konta. */}
+          {persons.flatMap((p) => [
+            isShared(p) && (
+              <ViewChip
+                key={p.key}
+                active={view === p.key}
+                onClick={() => setView(p.key)}
+                label={p.name}
+                icon={<Users size={13} />}
+              />
+            ),
+            ...p.accounts.map((a) => (
+              <ViewChip
+                key={a.id}
+                active={view === a.id}
+                onClick={() => setView(a.id)}
+                label={a.name}
+                color={a.color}
+              />
+            )),
+          ])}
         </div>
         <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesPeriod)} className="bg-surface shadow-card sm:ml-auto sm:w-44">
           {(Object.keys(SALES_PERIOD_LABELS) as SalesPeriod[]).map((p) => (
@@ -257,10 +294,13 @@ export function Sales() {
       {/* Statystyki */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Przychód" value={money(stats.revenue, currency)} tone="brand">
-          {viewAccount && (
+          {limitPerson && (
             <QuarterLimitBar
-              account={viewAccount}
-              revenue={quarterRev.get(viewAccount.id) ?? 0}
+              person={limitPerson}
+              // W widoku konta, które należy do osoby, mówimy wprost, czyj to limit.
+              showName={!viewPerson && isShared(limitPerson)}
+              color={viewAccount?.color ?? limitPerson.accounts[0].color}
+              revenue={limitPerson.accounts.reduce((sum, a) => sum + (quarterRev.get(a.id) ?? 0), 0)}
               limit={quarterLimit(Date.now())}
               currency={currency}
             />
@@ -452,35 +492,52 @@ function CollapseHeader({
   )
 }
 
-/** Ile przychodu w tym kwartale zostało kontu do limitu działalności nierejestrowanej. */
+/** Konto w widoku? `null` = widok „Wspólna" (wszystko, także wpisy bez konta). */
+function inView(ids: Set<string> | null, accountId?: string): boolean {
+  return !ids || (accountId != null && ids.has(accountId))
+}
+
+/** Osoba wpisana przy kilku kontach — ma własny widok i wspólny limit. */
+function isShared(p: Person<unknown>): boolean {
+  return p.named && p.accounts.length > 1
+}
+
+/** Ile przychodu w tym kwartale zostało osobie do limitu działalności nierejestrowanej. */
 function QuarterLimitBar({
-  account,
+  person,
+  showName,
+  color,
   revenue,
   limit,
   currency,
 }: {
-  account: { name: string; color: string }
+  person: Person<{ name: string }>
+  showName: boolean
+  color: string
   revenue: number
   limit: number
   currency: string
 }) {
   const left = Math.max(0, limit - revenue)
   const pct = Math.min(100, (revenue / limit) * 100)
+  const title = isShared(person)
+    ? `Limit kwartalny osoby ${person.name} (${person.accounts.map((a) => a.name).join(', ')}): ${money(limit, currency)}`
+    : `Limit kwartalny: ${money(limit, currency)}`
   return (
-    <div className="mt-1" title={`Limit kwartalny: ${money(limit, currency)}`}>
+    <div className="mt-1" title={title}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[12px] text-ink-500">
-        <span>Do limitu</span>
+        <span>{showName ? `Do limitu (${person.name})` : 'Do limitu'}</span>
         <span className="font-semibold tabular-nums text-ink-900">{left > 0 ? money(left, currency) : 'osiągnięty'}</span>
       </div>
       <div
         className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-100"
         role="progressbar"
-        aria-label={`${account.name}: ${Math.round(pct)}% kwartalnego limitu`}
+        aria-label={`${person.name}: ${Math.round(pct)}% kwartalnego limitu`}
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: account.color }} />
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
       </div>
     </div>
   )
@@ -557,11 +614,13 @@ function ViewChip({
   onClick,
   label,
   color,
+  icon,
 }: {
   active: boolean
   onClick: () => void
   label: string
   color?: string
+  icon?: ReactNode
 }) {
   return (
     <button
@@ -572,6 +631,7 @@ function ViewChip({
       )}
     >
       {color && <span className="h-[7px] w-[7px] rounded-full" style={{ background: color }} />}
+      {icon}
       {label}
     </button>
   )

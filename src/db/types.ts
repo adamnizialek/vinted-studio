@@ -82,6 +82,10 @@ export interface Account {
   /** Kiedy Vinted zablokował konto (ms). Zostaje dla historii sprzedaży, ale nie jest
    *  już proponowane do wystawiania (patrz lib/accounts). */
   bannedAt?: number
+  /** Osoba, do której należy konto. Konta z tą samą osobą mają wspólny limit działalności
+   *  nierejestrowanej i jedną ewidencję sprzedaży (patrz lib/accounts). Puste = konto samo
+   *  dla siebie. */
+  owner?: string
   createdAt: number
   updatedAt: number
 }
