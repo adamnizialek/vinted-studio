@@ -16,7 +16,7 @@ Cztery filary z briefu + funkcje dołożone na podstawie researchu:
 | 📸 **Studio zdjęć AI** | Wirtualna przymierzalnia — ubiera produkt na **wcześniej stworzonej modelce AI** (Gemini „Nano Banana”). Tryb „na modelce” (try-on) oraz „czyść tło” (retusz zdjęcia produktu). Scenerie: studio / ulica / lustro / dom / detal. |
 | 🧍 **Modelki AI** | Twórz i zapisuj spójne modelki — z wgranych zdjęć **lub** wygenerowane z opisu. Wielokrotnego użytku przy każdym produkcie. |
 | 📦 **Magazyn (stan magazynowy)** | Pełna kartoteka produktów: marka, rozmiar, materiał, wymiary, ceny, ilości, statusy (szkic → w magazynie → wystawione → sprzedane), tagi, zdjęcia. |
-| 💸 **Ewidencja sprzedaży** | Osobno **dla każdego konta** oraz jeden widok **wspólny**. Przychód, koszty, zysk, marża, eksport CSV, ręczne wpisy i automatyczne „oznacz jako sprzedane”. |
+| 💸 **Ewidencja sprzedaży** | Osobno **dla każdego konta** oraz jeden widok **wspólny**. Konta jednej osoby (pole „Osoba” w Kontach) mają wspólny kwartalny limit działalności nierejestrowanej i jedną ewidencję (art. 109 VAT) — liczone ze wszystkich jej kont, także zbanowanych. Przychód, koszty, zysk, marża, eksport CSV, ręczne wpisy i automatyczne „oznacz jako sprzedane”. |
 | ✍️ **Generator opisów** | Kilka stylów (zwięzły, luźny z emoji, szczegółowy, sprzedażowy, minimalistyczny, z historią, z hashtagami) — **z zachowaniem amatorskiego tonu Vinted**. Każdy opis **zapisujesz przy produkcie**, jeden ustawiasz jako aktywny. |
 | 🏷️ **Kalkulator ceny** | Sugeruje przedział dla rzeczy nowej bez metki (% ceny detalicznej) + cenę „z miejscem na rabat” i próg minimalnej oferty (do negocjacji). |
 | 🔎 **Tytuł SEO** | Buduje uporządkowany tytuł (marka → nazwa → kolor → materiał → rozmiar) zwiększający wyszukiwalność. |

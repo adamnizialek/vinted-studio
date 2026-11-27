@@ -8,7 +8,7 @@ import { uid } from '@/lib/id'
 import { ACCOUNT_COLORS } from '@/lib/constants'
 import { aggregateProfit, money, pluralPl } from '@/lib/format'
 import { banPlan, isOnAccount } from '@/lib/listing'
-import { isBanned } from '@/lib/accounts'
+import { isBanned, ownerNames, ownerToSave, personOf } from '@/lib/accounts'
 import { banAccount, unbanAccount } from '@/lib/productActions'
 import { toast } from '@/state/toast'
 import { Button, EmptyState, Field, Modal, SectionTitle, TextArea, TextInput } from '@/components/ui'
@@ -38,7 +38,7 @@ export function Accounts() {
   const save = async () => {
     if (!editing) return
     if (!editing.name.trim()) return toast.error('Podaj nazwę konta.')
-    await putEntity('accounts', editing)
+    await putEntity('accounts', { ...editing, owner: ownerToSave(accounts ?? [], editing.id, editing.owner) })
     setOpen(false)
     toast.success('Zapisano konto.')
   }
@@ -94,7 +94,15 @@ export function Accounts() {
   const sorted = accounts && [...accounts].sort((x, y) => Number(isBanned(x)) - Number(isBanned(y)))
 
   const remove = async (id: string) => {
-    if (!window.confirm('Usunąć to konto? Produkty i sprzedaże pozostaną, ale stracą przypisanie.'))
+    // Sprzedaże usuniętego konta wypadłyby z limitu i ewidencji jego osoby — takie konto
+    // zostaje w bazie (zbanowane można oznaczyć, zamiast usuwać).
+    if (!sales) return
+    const sold = sales.filter((s) => s.accountId === id).length
+    if (sold > 0)
+      return toast.error(
+        `Konto ma ${sold} ${pluralPl(sold, 'sprzedaż', 'sprzedaże', 'sprzedaży')} — jego przychód liczy się do limitu i ewidencji, więc nie można go usunąć. Jeśli Vinted je zablokował, oznacz je jako zbanowane.`,
+      )
+    if (!window.confirm('Usunąć to konto? Produkty pozostaną, ale stracą przypisanie.'))
       return
     await deleteEntity('accounts', id)
     toast.success('Usunięto konto.')
@@ -115,7 +123,7 @@ export function Accounts() {
         <EmptyState
           icon={<Users size={40} />}
           title="Brak kont"
-          description="Dodaj konta (np. dla każdej osoby lub profilu Vinted), aby prowadzić osobne ewidencje sprzedaży."
+          description="Dodaj swoje konta Vinted. Konta tej samej osoby połącz polem „Osoba” — mają wspólny limit i jedną ewidencję sprzedaży."
           action={
             <Button onClick={startNew}>
               <Plus size={16} /> Dodaj pierwsze konto
@@ -127,6 +135,7 @@ export function Accounts() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sorted?.map((a) => {
           const banned = isBanned(a)
+          const person = personOf(accounts ?? [], a.id)
           const accSales = (sales ?? []).filter((s) => s.accountId === a.id)
           // Spójnie z Pulpitem i Ewidencją — jedna reguła przychodu (aggregateProfit).
           const revenue = aggregateProfit(accSales).revenue
@@ -155,6 +164,20 @@ export function Accounts() {
                       )}
                     </p>
                     {a.vintedUsername && <p className="text-xs text-ink-400">@{a.vintedUsername}</p>}
+                    {person?.named && (
+                      <p
+                        className="flex items-center gap-1 text-xs text-ink-500"
+                        title={
+                          person.accounts.length > 1
+                            ? `Wspólny limit i ewidencja: ${person.accounts.map((x) => x.name).join(', ')}`
+                            : undefined
+                        }
+                      >
+                        <Users size={11} /> {person.name}
+                        {person.accounts.length > 1 &&
+                          ` · ${person.accounts.length} ${pluralPl(person.accounts.length, 'konto', 'konta', 'kont')}`}
+                      </p>
+                    )}
                     {banned && (
                       <p className="text-xs text-ink-400">
                         od {new Date(a.bannedAt!).toLocaleDateString('pl-PL')}
@@ -233,6 +256,22 @@ export function Accounts() {
                 onChange={(e) => setEditing({ ...editing, vintedUsername: e.target.value })}
                 placeholder="np. ania_vinted"
               />
+            </Field>
+            <Field
+              label="Osoba (opcjonalnie)"
+              hint="Konta tej samej osoby mają wspólny limit działalności nierejestrowanej i jedną ewidencję sprzedaży."
+            >
+              <TextInput
+                list="owner-list"
+                value={editing.owner ?? ''}
+                onChange={(e) => setEditing({ ...editing, owner: e.target.value })}
+                placeholder="np. Adam"
+              />
+              <datalist id="owner-list">
+                {ownerNames(accounts ?? []).map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Kolor">
               <div className="flex flex-wrap gap-2">
